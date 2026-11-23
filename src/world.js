@@ -7,6 +7,7 @@ import { rand, rr, softDot } from './util.js';
 import { buildVillage } from './village.js';
 import { buildKitShow } from './kitshow.js';
 import { snowShader } from './ground.js';
+import { foliageTex, snowTex, paintUV } from './paint.js';
 import { fires, smoke } from './fx.js';
 export { groundH, softDot, WORLD };
 
@@ -64,7 +65,10 @@ export function buildWorld(scene, camera, { mode = 'village' } = {}) {
   }
   tg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   tg.computeVertexNormals();
-  const ground = new THREE.Mesh(tg, snowShader(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })));
+  // hand-painted snow: a seamless brush map (~18 m a tile) under the shader's soft mottling + glints
+  const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, map: snowTex(WORLD * 1.6 / 18) });
+  groundMat.color.setScalar(1.06);
+  const ground = new THREE.Mesh(tg, snowShader(groundMat));
   ground.receiveShadow = true;
   scene.add(ground);
 
@@ -83,10 +87,14 @@ export function buildWorld(scene, camera, { mode = 'village' } = {}) {
     wood: new THREE.MeshStandardMaterial({ color: '#6b4430', roughness: 0.9 }),
     brick: new THREE.MeshStandardMaterial({ color: '#8c4a3c', roughness: 0.9 }),
     window: new THREE.MeshStandardMaterial({ color: '#ffcf7a', emissive: '#ffb347', emissiveIntensity: 2.2 }),
-    pine: new THREE.MeshStandardMaterial({ color: '#2f5d4a', roughness: 0.9, flatShading: true }),
-    trunk: new THREE.MeshStandardMaterial({ color: '#5a3b2a', roughness: 1 }),
+    pine: new THREE.MeshStandardMaterial({ color: '#2f5d4a', roughness: 0.9, flatShading: true, map: foliageTex() }),
+    trunk: new THREE.MeshStandardMaterial({ color: '#5a3b2a', roughness: 1, map: foliageTex() }),
     rock: new THREE.MeshStandardMaterial({ color: '#6c7192', roughness: 1, flatShading: true }),
   };
+
+  // painted trees: the brush map averages ~0.89, so lift the colours back; tree snow gets its own painted copy
+  M.pine.color.multiplyScalar(1.12); M.trunk.color.multiplyScalar(1.12);
+  M.treeSnow = new THREE.MeshStandardMaterial({ color: new THREE.Color('#ffffff').multiplyScalar(1.1), roughness: 0.9, map: foliageTex() });
 
   if (mode === 'kit') buildKitShow(scene, world); else buildVillage(scene, world);
 
@@ -96,12 +104,12 @@ export function buildWorld(scene, camera, { mode = 'village' } = {}) {
     const tiers = 6;
     for (let i = 0; i < tiers; i++) {
       const r = 7 - i * 1.05, y = 2 + i * 3.1;
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, 5, 9), M.pine);
+      const cone = new THREE.Mesh(paintUV(new THREE.ConeGeometry(r, 5, 9), 2.6, r * 0.6), M.pine);
       cone.position.y = y + 2.5; cone.castShadow = true; g.add(cone);
-      const snowRim = new THREE.Mesh(new THREE.ConeGeometry(r * 0.55, 1.3, 9), M.snow);
+      const snowRim = new THREE.Mesh(paintUV(new THREE.ConeGeometry(r * 0.55, 1.3, 9), 2.6, r * 0.4), M.treeSnow);
       snowRim.position.y = y + 4.4; g.add(snowRim);
     }
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 3, 8), M.trunk); trunk.position.y = 1.5; g.add(trunk);
+    const trunk = new THREE.Mesh(paintUV(new THREE.CylinderGeometry(0.9, 1.1, 3, 8), 1.6, 1), M.trunk); trunk.position.y = 1.5; g.add(trunk);
     const star = new THREE.Mesh(new THREE.OctahedronGeometry(1.3), new THREE.MeshStandardMaterial({ color: '#fff3a0', emissive: '#ffd84a', emissiveIntensity: 3 }));
     star.position.y = 2 + tiers * 3.1 + 2.6; g.add(star);
     // light bulbs on a spiral
@@ -128,9 +136,9 @@ export function buildWorld(scene, camera, { mode = 'village' } = {}) {
     for (let i = 0; i < 3; i++) {
       const g = new THREE.ConeGeometry(2.4 - i * 0.6, 3.2, 7); g.translate(0, 2 + i * 1.9, 0); geos.push(g);
     }
-    const coneMesh = new THREE.InstancedMesh(mergeGeos(geos), M.pine, N);
-    const capMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(0.8, 1.1, 7).translate(0, 7.05, 0), M.snow, N);
-    const trunkMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.3, 0.4, 1.4, 6).translate(0, 0.7, 0), M.trunk, N);
+    const coneMesh = new THREE.InstancedMesh(paintUV(mergeGeos(geos), 2.2, 1.6), M.pine, N);
+    const capMesh = new THREE.InstancedMesh(paintUV(new THREE.ConeGeometry(0.8, 1.1, 7).translate(0, 7.05, 0), 2.2, 0.8), M.treeSnow, N);
+    const trunkMesh = new THREE.InstancedMesh(paintUV(new THREE.CylinderGeometry(0.3, 0.4, 1.4, 6).translate(0, 0.7, 0), 1.2, 0.5), M.trunk, N);
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), e = new THREE.Euler();
     let n = 0;
     for (let tries = 0; n < N && tries < N * 6; tries++) {

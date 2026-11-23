@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { groundH } from './terrain.js';
 import { rand, rr, T, Batch, BLOB, CYL } from './util.js';
+import { foliageTex, paintUV } from './paint.js';
 
 /** turn a MeshStandardMaterial into painterly snow: soft world-space colour mottling + tiny glints */
 export function snowShader(mat, { glint = 1 } = {}) {
@@ -74,11 +75,13 @@ export function makeFlora(scene) {
   const bush = new Batch();
   bush.add(BLOB, '#8396bd', T(0, 0.45, 0, 0.9, 0.7, 0.9)); bush.add(BLOB, '#f3f5ff', T(0, 0.85, 0, 0.8, 0.4, 0.8), 0.03);
 
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 });
+  // hand-painted: one shared neutral brush map multiplies the vertex colours (needles, caps, bark, frosted crowns)
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, map: foliageTex() });
+  mat.color.setScalar(1.12);   // the map averages ~0.89: keep the colours where they were
   const snowMat = snowShader(new THREE.MeshStandardMaterial({ color: '#f3f5ff', roughness: 0.95 }), { glint: 0.6 });
   const inst = (geo, m, n, shadow = true) => { const im = new THREE.InstancedMesh(geo, m, n); im.castShadow = shadow; im.receiveShadow = true; im.count = 0; scene.add(im); return im; };
   const I = {
-    frost: inst(frost.geometry(), mat, 260), pine: inst(pine.geometry(), mat, 260), bush: inst(bush.geometry(), mat, 400),
+    frost: inst(paintUV(frost.geometry(), 2.0, 1.2), mat, 260), pine: inst(paintUV(pine.geometry(), 2.2, 1.5), mat, 260), bush: inst(paintUV(bush.geometry(), 1.4, 0.8), mat, 400),
     mound: inst(BLOB, snowMat, 1400, false),
     patch: inst(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: blobTexture(), transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 }), 500, false),
     tuft: inst(crossQuads(), new THREE.MeshStandardMaterial({ map: bladeTexture(), alphaTest: 0.4, side: THREE.DoubleSide, roughness: 1 }), 3000, false),
