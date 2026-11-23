@@ -13,7 +13,7 @@ export const CREW = {
   floorY: 1.05,                       // he stands on a crate of presents (sleigh local)
   santaZ: -0.35,                      // where he stands
   gunScale: 1.3,
-  aimYaw: 0.9, aimUp: 0.35, aimDown: 0.7,   // aim limits (rad) relative to the sleigh
+  aimYaw: 1.5, aimUp: 0.6, aimDown: 1.1,   // aim limits (rad) relative to the sleigh
   recoil: 0.11,                       // metres of kick per shot
   // secondary motion on the elves' jiggle bones (models/elf_girl_jiggle.glb, see tools/blender/)
   jiggle: { k: 150, damp: 7, inertia: 0.35, max: 0.03, bounce: 0.035 },

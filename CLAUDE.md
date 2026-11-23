@@ -46,6 +46,11 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   hearts; `trigger()` -> freeze, stare, "!", blush, flee). **`CONTENT.level` gates every naughty gag**: off | cheeky (default) | censored | spicy (OPTIONS > NAUGHTY, `?naughty=`;
   `window.SANTA_PLATFORM = 'ios'` or `?tame=1` forces off). Gingerfolk have an `upper` hip hinge for bending.
   Implied only -- never shown; anything sexual involves clearly-adult characters (cookies are fine).
+- **TWIN STICKS** (b15, his): `src/input.js` -- LEFT pad flies (steer/climb), RIGHT pad aims + fires (push past `STICKS.fireAt` = shooting);
+  both float (pad appears under the thumb, rests faint in its corner). BOOST = a button. The right stick moves a RETICLE round a rest
+  point ahead of the sleigh (`AIM` in main.js, `reach` = fraction of the short screen side); the camera ray under it marches to the
+  terrain and tracers fly straight at that point (Santa's gun swings after it). Mouse = reticle + left button; gamepad: L fly, R aim/fire,
+  RT/A boost, RB fire.
 - **Home-screen icon** (b11): `icons/*-vN.png` + root `apple-touch-icon.png`, `manifest.webmanifest`. Version in the FILENAME, never `?v=`
   (iOS keeps an icon per URL forever). Source art `images/reference/icon_source.png`; white corners flood-filled with the frame gold.
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by

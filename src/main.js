@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { buildWorld, groundH, softDot } from './world.js';
 import { MENU_SPOT } from './terrain.js';
 import { buildRig, FLY } from './sleigh.js';
-import { input, pollInput } from './input.js';
+import { input, pollInput, showReticle } from './input.js';
 import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
 import { applyLook, addInk, LOOK, initialLook } from './look.js';
@@ -15,7 +15,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 14;
+export const BUILD = 15;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -162,13 +162,41 @@ function updateCasings(dt) {
   casG.attributes.position.needsUpdate = true;
 }
 
+// ---- AIM: the right stick moves a reticle round a rest point ahead of the sleigh; the gun shoots at what's under it --------
+const AIM = { rest: new THREE.Vector3(), reach: 0.42, sx: 0, sy: 0, target: new THREE.Vector3(), ray: new THREE.Raycaster() };
+const _ndc = new THREE.Vector2();
+function updateAim(dt) {
+  // rest: where the gun points with the stick centred -- ahead of the team, a little down
+  AIM.rest.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.rest.y -= 8;
+  const rp = AIM.rest.clone().project(camera);
+  let px, py;
+  const W = innerWidth, H = innerHeight, reach = AIM.reach * Math.min(W, H);
+  if (input.mouse) { px = input.mouse.x; py = input.mouse.y; }
+  else {
+    // ease the reticle toward rest + stick (a little lag so it feels weighty, not twitchy)
+    const wx = input.aimX * reach, wy = -input.aimY * reach, k = 1 - Math.exp(-14 * dt);
+    AIM.sx += (wx - AIM.sx) * k; AIM.sy += (wy - AIM.sy) * k;
+    px = (rp.x * 0.5 + 0.5) * W + AIM.sx; py = (-rp.y * 0.5 + 0.5) * H + AIM.sy;
+  }
+  px = THREE.MathUtils.clamp(px, 20, W - 20); py = THREE.MathUtils.clamp(py, 20, H - 20);
+  // what's under the reticle: march the camera ray down to the terrain, else a point far along it
+  _ndc.set(px / W * 2 - 1, -(py / H) * 2 + 1); AIM.ray.setFromCamera(_ndc, camera);
+  const o = AIM.ray.ray.origin, d = AIM.ray.ray.direction; let hit = false;
+  for (let s = 2; s < 400; s *= 1.08) { const x = o.x + d.x * s, y = o.y + d.y * s, z = o.z + d.z * s; if (y < groundH(x, z)) { AIM.target.set(x, y, z); hit = true; break; } }
+  if (!hit) AIM.target.copy(o).addScaledVector(d, 250);
+  return { px, py };
+}
+
 let wasFiring = false;
 function updateGun(dt, t) {
-  const firing = STATE === 'play' && (input.fire || input.fireKey);
+  const firing = STATE === 'play' && input.fire;
+  const scr = STATE === 'play' ? updateAim(dt) : null;
+  if (scr) showReticle(scr.px, scr.py, firing);
+  else { AIM.target.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.target.y -= 8; }
   if (firing !== wasFiring) { sfx(firing ? 'gun_spinup' : 'gun_spindown', { vol: 0.5 }); wasFiring = firing; }
   const crew = rig.crew;
   // aim ahead of the team, a little down toward the ground
-  _p.copy(rig.lead).addScaledVector(rig.fwd, 30); _p.y -= 8;
+  _p.copy(AIM.target);
   let muzzle, ready = true;
   if (crew) { crew.setFiring(firing); crew.aim(_p); crew.update(dt, t); muzzle = crew.muzzle; }
   else {   // stand-in rail minigun until his models load
@@ -185,8 +213,7 @@ function updateGun(dt, t) {
     sfx('gun_shot', { vol: 0.7 }); if (Math.random() < 0.3) sfx('casing', { vol: 0.25 });
     const tr = tracers[trI++ % TR];
     muzzle.getWorldPosition(tr.p);
-    muzzle.getWorldQuaternion(_q);
-    _d.copy(Z).applyQuaternion(_q);
+    _d.subVectors(AIM.target, tr.p).normalize();   // straight at the reticle's point (the gun swings after it)
     _d.x += (Math.random() - 0.5) * 0.03; _d.y += (Math.random() - 0.5) * 0.03; _d.normalize();
     tr.v.copy(_d).multiplyScalar(140).add(rig.SV); tr.life = 1.2;
     flash.position.copy(tr.p); flash.intensity = 25;
@@ -298,7 +325,7 @@ function frame(now) {
   const dt = STATE === 'pause' ? 0 : real * slow; t += dt;
   pollInput();
   if (STATE === 'play') {
-    input.boost = (document.getElementById('boost').classList.contains('on') || input.boostKey) && milk > 0;
+    input.boost = input.boost && milk > 0;
     if (input.boost && !wasBoost) sfx('milk_gulp'); wasBoost = input.boost;
     milk = Math.max(0, Math.min(100, milk + (input.boost ? -14 : 3) * dt));
     turnCd -= dt; if (Math.abs(input.steer) > 0.75 && turnCd <= 0) { sfx('whoosh', { vol: 0.5 }); turnCd = 1.4; }
