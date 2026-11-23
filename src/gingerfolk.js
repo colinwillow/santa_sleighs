@@ -33,19 +33,21 @@ export function makeGingerPerson({ scale = 1, tint = 0, buttons = FOLK.buttons }
   const cookie = mats.cookie.clone(); cookie.color.set(FOLK.cookie[tint % FOLK.cookie.length]);
   const m = (gg, mt, x = 0, y = 0, z = 0, s = 1, parent = body) => { const o = new THREE.Mesh(gg, mt); o.position.set(x, y, z); o.scale.setScalar(s); o.castShadow = true; parent.add(o); return o; };
   body.position.y = 0.74;
-  m(geo.torso, cookie);
-  const head = new THREE.Group(); head.position.y = 0.33; body.add(head);
+  // UPPER hinges at the hips (bend over / lean back); the legs stay on BODY
+  const upper = new THREE.Group(); upper.position.y = -0.3; body.add(upper);
+  m(geo.torso, cookie, 0, 0.3, 0, 1, upper);
+  const head = new THREE.Group(); head.position.y = 0.63; upper.add(head);
   m(geo.head, cookie, 0, 0, 0, 1, head);
   // limbs on pivots (shoulders / hips)
-  const limb = (gg, x, y, rz) => { const p = new THREE.Group(); p.position.set(x, y, 0); p.rotation.z = rz; body.add(p); m(gg, cookie, 0, 0, 0, 1, p); return p; };
-  const armL = limb(geo.arm, 0.17, 0.06, 0.9), armR = limb(geo.arm, -0.17, 0.06, -0.9);
+  const limb = (gg, x, y, rz, parent = body) => { const p = new THREE.Group(); p.position.set(x, y, 0); p.rotation.z = rz; parent.add(p); m(gg, cookie, 0, 0, 0, 1, p); return p; };
+  const armL = limb(geo.arm, 0.17, 0.36, 0.9, upper), armR = limb(geo.arm, -0.17, 0.36, -0.9, upper);
   const legL = limb(geo.leg, 0.09, -0.3, 0.12), legR = limb(geo.leg, -0.09, -0.3, -0.12);
   // icing: squiggle cuffs, neck line, buttons
   const fz = T / 2 + 0.012;
   for (const [p, y] of [[armL, -0.27], [armR, -0.27], [legL, -0.29], [legR, -0.29]]) for (const s of [-1, 1]) {
     const c = m(geo.pipe, mats.icing, 0, y + s * 0.025, fz, 0.06, p); c.rotation.z = s > 0 ? 0 : Math.PI; c.scale.set(0.065, 0.03, 0.03);
   }
-  for (let k = 0; k < 3; k++) m(geo.dot, new THREE.MeshStandardMaterial({ color: buttons[(k + tint) % buttons.length], roughness: 0.35 }), 0, 0.05 - k * 0.12, fz + 0.01, 0.035);
+  for (let k = 0; k < 3; k++) m(geo.dot, new THREE.MeshStandardMaterial({ color: buttons[(k + tint) % buttons.length], roughness: 0.35 }), 0, 0.35 - k * 0.12, fz + 0.01, 0.035, upper);
   // face: eyes (icing whites + dark pupils), mouth (piped arc), blush (hidden until embarrassed)
   const face = new THREE.Group(); face.position.z = fz; head.add(face);
   const eyes = [-0.07, 0.07].map(x => { const e = new THREE.Group(); e.position.set(x, 0.04, 0); face.add(e); m(geo.dot, mats.icing, 0, 0, 0, 0.04, e).scale.z = 0.016; const p = m(geo.dot, mats.dark, 0, 0, 0.012, 0.022, e); p.scale.z = 0.009; return { e, p }; });
@@ -56,7 +58,7 @@ export function makeGingerPerson({ scale = 1, tint = 0, buttons = FOLK.buttons }
 
   let mode = 'idle', t0 = Math.random() * 10;
   const self = {
-    group: g, body, head, armL, armR, legL, legR,
+    group: g, body, upper, head, armL, armR, legL, legR,
     /** 'happy' | 'shock' | 'embarrassed' */
     face(expr) {
       smile.visible = expr === 'happy'; oh.visible = expr !== 'happy';

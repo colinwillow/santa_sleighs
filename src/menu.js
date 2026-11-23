@@ -80,6 +80,7 @@ export function makeMenus(G) {
     toggle('BLOOM', G.bloom, G.setBloom, ['ON', 'OFF']),
     toggle('SOUND', G.volume, G.setVolume, ['100%', '60%', '30%', 'OFF']),
     toggle('MUSIC', G.music, G.setMusic, ['ON', 'OFF']),
+    ...(G.naughty() === 'OFF' && window.SANTA_PLATFORM === 'ios' ? [] : [toggle('NAUGHTY', G.naughty, G.setNaughty, ['CHEEKY', 'CENSORED', 'SPICY', 'OFF'])]),
     button('◀ BACK', 'dim', back),
   ]);
   const debug = (col, back) => {

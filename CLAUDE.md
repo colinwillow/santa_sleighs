@@ -41,7 +41,8 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   Test page `?scene=destruct` (`src/destructshow.js`). Tuning in `GB`.
 - **Gingerfolk + gags**: `src/gingerfolk.js` = the civilians (cookie-cutter gingerbread people, pivot limbs, expressions happy /
   shock / embarrassed, poses idle / run / flail / cover). `src/gag.js` = hidden moments; `caughtInTheAct(scene, at)` (bed, quilt rhythm,
-  hearts; `trigger()` -> freeze, stare, "!", blush, flee). **`CONTENT.naughty` gates every naughty gag** (iOS build: false; `?tame=1`).
+  hearts; `trigger()` -> freeze, stare, "!", blush, flee). **`CONTENT.level` gates every naughty gag**: off | cheeky (default) | censored | spicy (OPTIONS > NAUGHTY, `?naughty=`;
+  `window.SANTA_PLATFORM = 'ios'` or `?tame=1` forces off). Gingerfolk have an `upper` hip hinge for bending.
   Implied only -- never shown; anything sexual involves clearly-adult characters (cookies are fine).
 - **Home-screen icon** (b11): `icons/*-vN.png` + root `apple-touch-icon.png`, `manifest.webmanifest`. Version in the FILENAME, never `?v=`
   (iOS keeps an icon per URL forever). Source art `images/reference/icon_source.png`; white corners flood-filled with the frame gold.

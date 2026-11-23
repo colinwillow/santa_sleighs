@@ -9,12 +9,13 @@ import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
 import { applyLook, addInk, LOOK, initialLook } from './look.js';
 import { makeMenus } from './menu.js';
+import { CONTENT } from './gag.js';
 import { loadModels, makeSanta, makeElf } from './characters.js';
 // sound is optional: if src/audio.js is missing or fails, the game stays silent instead of blank
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 11;
+export const BUILD = 12;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -83,6 +84,7 @@ const menus = makeMenus({
   setVolume: v => { const m = window.sfx; if (!m) return; if (v === 'OFF') m.mute(true); else { m.mute(false); m.setMaster(parseInt(v) / 100); } },
   music: () => (localStorage.getItem('music') ?? '1') === '1' ? 'ON' : 'OFF',
   setMusic: v => { try { localStorage.setItem('music', v === 'ON' ? '1' : '0'); } catch (e) {} window.sfx?.setMusic(v === 'ON' ? 0.8 : 0); },
+  naughty: () => CONTENT.level.toUpperCase(), setNaughty: v => CONTENT.set(v.toLowerCase()),
   dbgHud: () => dbgHud ? 'ON' : 'OFF', setDbgHud: v => { dbgHud = v === 'ON'; if (!dbgHud) menus.hud(null); },
   cam: () => (camOverride || camMode || 'chase').toUpperCase(), setCam: v => { camOverride = v === 'CHASE' ? null : v.toLowerCase(); },
   slow: () => slow + 'x', setSlow: v => { slow = parseFloat(v); },

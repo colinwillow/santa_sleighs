@@ -52,3 +52,12 @@ GTA-style implied humour, never explicit, all behind `CONTENT.naughty` (iOS ship
 house open: two gingerfolk under a rocking quilt freeze, stare, blush, grab a pillow and run) -- built, waiting for the new house;
 SANTA'S NAUGHTY STOP (sleigh parks behind a chimney / dumpster and rocks, bells jingle faster, heart puffs, Santa pops up, fixes his hat,
 relights the cigar, drinks milk) -- idea. Steam: tick sexual content in the content survey (mature notice, stays visible); keep elves clearly adult.
+
+## SLAY (his, Nov 23)
+"Slay" has every meaning at once: he's out there CRUSHING IT -- crushing milk, crushing cookies, crushing ladies, crushing gingerbread
+houses and monsters. That swagger is the game's attitude.
+
+## Naughty levels (built)
+OFF (iOS locked) / CHEEKY (quilt; default, streamer-safe) / CENSORED (the act behind a flickering pixel mosaic + a bouncing CENSORED
+sticker that falls off when they're caught) / SPICY (the act, clothed cookies, cartoonish, nothing anatomical -- later a free Steam add-on).
+Line we hold: comedic and implied/clothed, never graphic or anatomical; every sexual character clearly adult.
