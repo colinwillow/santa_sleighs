@@ -66,6 +66,12 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   failed Unity build never blocks the web deploy). Read build logs with the GitHub MCP actions tools. Pages source = GitHub Actions
   (no more branch deploy; `_config.yml` no longer matters). Shaders the code needs come from Resources materials made by
   `Assets/Editor/BuildScript.cs`. Plan: Netcode for GameObjects / Steam relay for the Steam build, Unity Relay for phone tests.
+  MODELS (u3): his GLBs -> FBX (`tools/blender/to_fbx.py`), Mixamo clips (retarget-anims GLB) -> armature FBX
+  (`tools/blender/clip_to_fbx.py`); all under `Assets/Resources/{Characters,Anims,Weapons}`. `Editor/ImportRules.cs` imports
+  characters + clips as HUMANOID (Unity retargets by body part, so his Auto-Rig Pro Unity skeleton works directly, no Mixamo
+  step). BuildScript makes the AnimatorControllers (SantaCtrl: tipsy <-> fire on bool "firing"; ElfCtrl: sit), IK pass on.
+  `Crew.cs`: Santa on a crate, elves seated, the Gatling on a belly pivot aimed at the reticle, BOTH HANDS ON ITS GRIPS via
+  Humanoid IK (`SantaIK.OnAnimatorIK`) -- the clipping fix. His call (Nov 23): GAME FIRST, multiplayer later (keep it net-ready).
 - **GODOT SPIKE** (his call, Nov 23: multiplayer Steam game -> test Godot): `godot/` (Godot 4.4.1; README there). Sleigh flight
   port, GRID gingerbread houses (brick ids, MultiMesh, server-authoritative hits broadcast as id lists), his Santa + Gatling,
   ENet host (drives) / join (shoots) -- verified headless: both peers agreed bricks_gone. Godot can't import Draco: keep non-Draco

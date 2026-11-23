@@ -6,6 +6,8 @@ using System.IO;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
+using UnityEditor.Animations;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -25,11 +27,40 @@ namespace SantaBuild
             MakeMat("Assets/Resources/Bricks.mat", "Santa/InstancedLit", true);
             MakeMat("Assets/Resources/Unlit.mat", "Unlit/Color", true);
             MakeMat("Assets/Resources/Glow.mat", "Unlit/Color", false);
+            // animator controllers (code-first): Santa = tipsy idle <-> firing (bool "firing"), elves = sitting; IK pass on
+            Controller("Assets/Resources/SantaCtrl.controller", new[] { ("tipsy", "Drunk_Idle"), ("fire", "Firing_Rifle_2"), ("rifle", "Rifle_Idle_2") }, "firing");
+            Controller("Assets/Resources/ElfCtrl.controller", new[] { ("sit", "Sitting_Idle_3"), ("happy", "Happy_Idle") }, null);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
+        }
+
+        static AnimationClip Clip(string name) =>
+            AssetDatabase.LoadAllAssetsAtPath("Assets/Resources/Anims/" + name + ".fbx").OfType<AnimationClip>().FirstOrDefault(c => !c.name.StartsWith("__preview"));
+
+        static void Controller(string path, (string state, string clip)[] states, string firingBool)
+        {
+            AssetDatabase.DeleteAsset(path);
+            var ac = AnimatorController.CreateAnimatorControllerAtPath(path);
+            if (firingBool != null) ac.AddParameter(firingBool, AnimatorControllerParameterType.Bool);
+            var layers = ac.layers; layers[0].iKPass = true; ac.layers = layers;
+            var sm = ac.layers[0].stateMachine;
+            AnimatorState first = null;
+            foreach (var (state, clip) in states)
+            {
+                var c = Clip(clip); if (c == null) { Console.WriteLine("[SANTA] missing clip " + clip); continue; }
+                var st = sm.AddState(state); st.motion = c; st.iKOnFeet = false;
+                if (first == null) { first = st; sm.defaultState = st; }
+            }
+            if (firingBool != null)
+            {
+                var idle = sm.states.First(x => x.state.name == "tipsy").state; var fire = sm.states.First(x => x.state.name == "fire").state;
+                var t1 = idle.AddTransition(fire); t1.AddCondition(AnimatorConditionMode.If, 0, firingBool); t1.duration = 0.12f; t1.hasExitTime = false;
+                var t2 = fire.AddTransition(idle); t2.AddCondition(AnimatorConditionMode.IfNot, 0, firingBool); t2.duration = 0.25f; t2.hasExitTime = false;
+            }
+            Console.WriteLine("[SANTA] controller " + path + " states " + sm.states.Length);
         }
 
         static void MakeMat(string path, string shader, bool instancing)

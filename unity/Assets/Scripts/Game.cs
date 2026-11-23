@@ -6,12 +6,12 @@ using UnityEngine;
 
 public class Game : MonoBehaviour
 {
-    public const int Build = 2;
+    public const int Build = 3;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot() { new GameObject("Game").AddComponent<Game>(); }
 
-    Sleigh sleigh; Camera cam; readonly List<GingerHouse> houses = new List<GingerHouse>();
+    Sleigh sleigh; Crew crew; Camera cam; readonly List<GingerHouse> houses = new List<GingerHouse>();
     Vector3 aimPoint, camPos; float fireCd; int bricksGone, shots;
     readonly List<(Rigidbody rb, float life)> debris = new List<(Rigidbody, float)>();
     readonly List<(LineRenderer lr, float life)> tracers = new List<(LineRenderer, float)>();
@@ -47,6 +47,7 @@ public class Game : MonoBehaviour
                 h.Build(); houses.Add(h); idx++;
             }
         sleigh = new GameObject("Sleigh").AddComponent<Sleigh>(); sleigh.Build();
+        crew = new GameObject("Crew").AddComponent<Crew>(); crew.sleighBody = sleigh.body; crew.Build();
         debrisMat = new Material(Resources.Load<Material>("Lit")) { color = new Color(0.71f, 0.41f, 0.18f) };
         tracerMat = new Material(Resources.Load<Material>("Glow")) { color = new Color(1f, 0.9f, 0.5f) };
         camPos = sleigh.S - Vector3.forward * 14f + Vector3.up * 7.5f;
@@ -83,7 +84,7 @@ public class Game : MonoBehaviour
 
         // chase camera
         Vector3 yf = new Vector3(Mathf.Sin(sleigh.yaw), 0, Mathf.Cos(sleigh.yaw));
-        Vector3 want = sleigh.S - yf * 14f + Vector3.up * (7.5f - sleigh.pitch * 6f);
+        Vector3 want = sleigh.S - yf * 10.5f + Vector3.up * (5.2f - sleigh.pitch * 5f);
         camPos = Vector3.Lerp(camPos, want, 1 - Mathf.Exp(-4f * dt));
         cam.transform.position = camPos;
         cam.transform.LookAt(Vector3.Lerp(sleigh.S, sleigh.lead, 0.4f) + Vector3.up);
@@ -95,12 +96,14 @@ public class Game : MonoBehaviour
         var ray = cam.ScreenPointToRay(sp);
         aimPoint = ray.direction.y < -0.02f ? ray.origin + ray.direction * (ray.origin.y / -ray.direction.y) : ray.origin + ray.direction * 200f;
         reticle = sp;
+        crew.aimPoint = aimPoint; crew.firing = fire;
 
         fireCd -= dt;
         if (fire && fireCd <= 0)
         {
             fireCd = 0.07f; shots++;
-            Vector3 from = sleigh.body.TransformPoint(new Vector3(-0.4f, 2.4f, 1.8f));
+            Vector3 from = crew.muzzle ? crew.muzzle.position : sleigh.body.TransformPoint(new Vector3(-0.4f, 2.4f, 1.8f));
+            crew.Kick();
             Vector3 dir = (aimPoint - from).normalized + Random.insideUnitSphere * 0.02f;
             Fire(from, dir.normalized);
         }
