@@ -32,7 +32,10 @@ let modelsP = null;
 // which Santa: TOUGH (his Nov 23 model: goggles, milk-bottle belt; rigged here with hand mounts + a hat chain) or CLASSIC
 export const SANTAS = { tough: './models/santa_tough_rig.glb', classic: './models/santa.glb' };
 export function santaChoice() { try { const v = localStorage.getItem('santa'); if (SANTAS[v]) return v; } catch (e) {} return 'tough'; }
-export const loadModels = () => modelsP || (modelsP = Promise.all([load(SANTAS[santaChoice()]), load('./models/elf_girl_jiggle.glb')]).then(([santa, elf]) => ({ santa, elf })));
+// which elf: RED (his Nov 23 model, closer to the tough Santa's style; no jiggle bones yet) or CLASSIC (the first elf + jiggle rig)
+export const ELVES = { red: './models/elf_girl_red.glb', classic: './models/elf_girl_jiggle.glb' };
+export function elfChoice() { try { const v = localStorage.getItem('elf'); if (ELVES[v]) return v; } catch (e) {} return 'red'; }
+export const loadModels = () => modelsP || (modelsP = Promise.all([load(SANTAS[santaChoice()]), load(ELVES[elfChoice()]).catch(() => load(ELVES.classic))]).then(([santa, elf]) => ({ santa, elf })));
 
 // ---- bone helpers --------------------------------------------------------------------------------
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();

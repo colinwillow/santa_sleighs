@@ -19,7 +19,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 34;
+export const BUILD = 35;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -107,6 +107,8 @@ const menus = makeMenus({
   setMusic: v => { try { localStorage.setItem('music', v === 'ON' ? '1' : '0'); } catch (e) {} window.sfx?.setMusic(v === 'ON' ? 0.8 : 0); },
   santa: () => (localStorage.getItem('santa') || 'tough').toUpperCase(),
   setSanta: v => { try { localStorage.setItem('santa', v.toLowerCase()); } catch (e) {} location.reload(); },
+  elf: () => { try { return (localStorage.getItem('elf') || 'red').toUpperCase(); } catch (e) { return 'RED'; } },
+  setElf: v => { try { localStorage.setItem('elf', v.toLowerCase()); } catch (e) {} location.reload(); },
   naughty: () => CONTENT.level.toUpperCase(), setNaughty: v => CONTENT.set(v.toLowerCase()),
   dbgHud: () => dbgHud ? 'ON' : 'OFF', setDbgHud: v => { dbgHud = v === 'ON'; if (!dbgHud) menus.hud(null); },
   cam: () => (camOverride || camMode || 'chase').toUpperCase(), setCam: v => { camOverride = v === 'CHASE' ? null : v.toLowerCase(); },
