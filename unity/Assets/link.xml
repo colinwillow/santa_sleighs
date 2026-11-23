@@ -1,0 +1,5 @@
+<!-- Keep engine classes the code only creates at runtime (CreatePrimitive adds these colliders; WebGL code stripping removes
+     anything no scene references, which logged "class 'MeshCollider' doesn't exist"). -->
+<linker>
+  <assembly fullname="UnityEngine.PhysicsModule" preserve="all"/>
+</linker>

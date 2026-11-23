@@ -6,7 +6,7 @@ using UnityEngine;
 
 public class Game : MonoBehaviour
 {
-    public const int Build = 1;
+    public const int Build = 2;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot() { new GameObject("Game").AddComponent<Game>(); }
