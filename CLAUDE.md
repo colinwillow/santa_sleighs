@@ -27,6 +27,13 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   them; `crew.js` places them in the sleigh; `sandbox.js` (`?scene=sandbox`) shows them on white with clip buttons.
 - **Look** (b7): `src/look.js` -- FLAT = every lit material swapped for a self-lit copy + ink outlines (inverted hulls, skinning-aware);
   LIT = original. A taste switch: the LOOK chip (remembered), `?look=flat|lit`. Sandbox defaults FLAT, the game LIT.
+- **Menus** (b8): `src/menu.js` = DOM overlays; main.js owns STATE ('menu' | 'play' | 'pause') and hands in handlers. START SCREEN = the
+  live world: the crew (separate Santa + 2 elves, idle clips, Santa fires bursts at the sky) on a cleared stage at `MENU_SPOT`
+  (terrain.js; village.js keeps it clear + dresses it), the sleigh auto-circles behind. PAUSE: options, DEBUG (fps/tris/draws, camera,
+  slow-mo, look, bloom, HUD stats, reset), sandboxes. `?play=1` skips the menu; test pages get a `◀ MENU` chip. Elves are 1.8 m (Santa 2.0).
+- **Sound**: `src/audio.js` (`window.sfx`: play / loop handles / master / music bus), files + CREDITS in `audio/`. Game code calls
+  `window.sfx?.…` so a missing module never blanks the page. Check modules with `node --input-type=module --check < file`
+  (plain `node --check` missed a stray paren once).
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by
   `tools/blender/` (this Blender can't read Draco: undraco -> rig -> pack). The game springs them in `makeJiggle` (`CREW.jiggle`);
   input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.

@@ -9,7 +9,7 @@ import { Batch, T, BOX, CYL, BALL, bevBox } from './util.js';
 import { animator } from './anim.js';
 
 export const CREW = {
-  santaH: 2.0, elfH: 1.4,           // metres, standing
+  santaH: 2.0, elfH: 1.8,           // elves: just a little shorter than him (his, Nov 23)           // metres, standing
   floorY: 1.05,                       // he stands on a crate of presents (sleigh local)
   santaZ: -0.35,                      // where he stands
   gunScale: 1.3,
@@ -23,7 +23,8 @@ export const CREW = {
 const loader = new GLTFLoader();
 const draco = new DRACOLoader(); draco.setDecoderPath('./vendor/draco/'); loader.setDRACOLoader(draco);
 const load = url => new Promise((res, rej) => loader.load(url, res, undefined, rej));
-export const loadModels = () => Promise.all([load('./models/santa.glb'), load('./models/elf_girl_jiggle.glb')]).then(([santa, elf]) => ({ santa, elf }));
+let modelsP = null;
+export const loadModels = () => modelsP || (modelsP = Promise.all([load('./models/santa.glb'), load('./models/elf_girl_jiggle.glb')]).then(([santa, elf]) => ({ santa, elf })));
 
 // ---- bone helpers --------------------------------------------------------------------------------
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();

@@ -9,7 +9,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 export const POST = { bloom: 0.9, radius: 0.5, threshold: 1.05 };
 
 export function makePost(renderer, scene, camera) {
-  if (new URLSearchParams(location.search).get('bloom') === '0') return { render: () => renderer.render(scene, camera), resize() {} };
+  let on = new URLSearchParams(location.search).get('bloom') !== '0';
+  try { if (localStorage.getItem('bloom') === '0') on = false; } catch (e) {}
   const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
   composer.addPass(new RenderPass(scene, camera));
   const size = new THREE.Vector2(innerWidth / 2, innerHeight / 2);
@@ -18,5 +19,9 @@ export function makePost(renderer, scene, camera) {
   composer.addPass(new OutputPass());
   const resize = () => { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); bloom.resolution.set(innerWidth / 2, innerHeight / 2); };
   resize();
-  return { render: () => composer.render(), resize, bloom };
+  return {
+    render: () => on ? composer.render() : renderer.render(scene, camera), resize, bloom,
+    get enabled() { return on; },
+    set enabled(v) { on = !!v; try { localStorage.setItem('bloom', on ? '1' : '0'); } catch (e) {} },
+  };
 }

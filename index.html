@@ -56,9 +56,18 @@
   <div id="hint">left thumb: steer &amp; climb · WASD / arrows · shift boost · space fire</div>
 </div>
 <script type="module">
-  // ?scene=sandbox -> the white character sandbox; anything else -> the game
+  // ?scene=sandbox -> the white character sandbox; ?scene=destruct -> the destructible gingerbread test; anything else -> the game
   const sc = new URLSearchParams(location.search).get('scene');
-  if (sc === 'sandbox') { document.body.classList.add('sandbox'); import('./src/sandbox.js'); } else import('./src/main.js');
+  if (sc === 'sandbox') { document.body.classList.add('sandbox'); import('./src/sandbox.js'); }
+  else if (sc === 'destruct') { document.body.classList.add('sandbox'); import('./src/destructshow.js'); }
+  else import('./src/main.js');
+  // every test page gets a way home
+  const q = new URLSearchParams(location.search);
+  if (sc || q.has('cam')) {
+    const b = document.createElement('a'); b.href = './'; b.textContent = '◀ MENU';
+    b.style.cssText = 'position:fixed;z-index:9;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 8px);font:800 13px ui-rounded,system-ui,sans-serif;color:#fff;background:#c42a2aee;border:2px solid #fff8;border-radius:14px;padding:9px 12px;text-decoration:none';
+    document.body.appendChild(b);
+  }
 </script>
 </body>
 </html>

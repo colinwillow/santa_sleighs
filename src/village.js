@@ -3,7 +3,7 @@
 // a plaza round the big tree, a dirt road out to the farms, yard dressing, cars. Pieces come from kit.js;
 // this file only decides where they go.
 import * as THREE from 'three';
-import { groundH, VILLAGE_R, POND } from './terrain.js';
+import { groundH, VILLAGE_R, POND, MENU_SPOT } from './terrain.js';
 import { rand, rr, T, Batch, BOX, BLOB, CYL, bevBox, softDot } from './util.js';
 import { makeKit, finishKit, house, lampPost, telePole, wires, bench, firePit, PAL } from './kit.js';
 import { makeFlora } from './ground.js';
@@ -89,6 +89,7 @@ export function buildVillage(scene, world) {
     const p = pts[i], n = nrm[i], x = p.x + n.x * side * OFF, z = p.z + n.z * side * OFF;
     if (Math.hypot(x, z) < 24 || Math.hypot(x, z) > VILLAGE_R - 4) continue;
     if (roadDist(x, z) < OFF - 1.5 || dirtDist(x, z) < 12) continue;
+    if (Math.hypot(x - MENU_SPOT.x, z - MENU_SPOT.z) < MENU_SPOT.clear + 6) continue;   // keep the start-screen stage clear
     if (placed.some(q => (q.x - x) ** 2 + (q.z - z) ** 2 < 16 ** 2)) continue;
     placed.push({ x, z });
     const style = rand() < 0.4 ? 'gingerbread' : 'victorian';
@@ -103,6 +104,16 @@ export function buildVillage(scene, world) {
     houses.push(house(K, x, z, rr(0, 6.28), { style: rand() < 0.5 ? 'gingerbread' : 'victorian' }));
   }
   const obstacles = houses.map(h => ({ x: h.x, z: h.z, r: h.r }));
+  // THE START-SCREEN STAGE: cleared ground, a fire pit beside the crew, a lamp, a bench, two framing pines behind the camera line
+  {
+    const M = MENU_SPOT, d = Math.hypot(M.x, M.z), ox = M.x / d, oz = M.z / d, sx = oz, sz = -ox;   // out (toward the pond) + side
+    obstacles.push({ x: M.x, z: M.z, r: M.clear });
+    firePit(K, M.x - sx * 3.6 - ox * 1.2, M.z - sz * 3.6 - oz * 1.2, { s: 0.9, seats: false });
+    lampPost(K, M.x + sx * 4.2 - ox * 2.5, M.z + sz * 4.2 - oz * 2.5);
+    bench(K, M.x + sx * 3.2 - ox * 1.0, M.z + sz * 3.2 - oz * 1.0, Math.atan2(-sx, -sz));
+    for (const [a, b] of [[-9, -3], [8.5, -4], [-12, 4], [12, 3]]) flora.tree(a < 0 ? 'pine' : 'frost', M.x + sx * a - ox * b, M.z + sz * a - oz * b, 1.3);
+    for (let k = 0; k < 10; k++) { const a = rr(-14, 14), b = rr(-8, 2); if (Math.abs(a) < 6 && b > -4) continue; flora.mound(M.x + sx * a - ox * b, M.z + sz * a - oz * b, rr(0.8, 1.6), rr(0.3, 0.6), rr(0.8, 1.4)); }
+  }
   const pathNear = (hh, x, z) => {
     const dx = hh.front.x - hh.x, dz = hh.front.z - hh.z, L = Math.hypot(dx, dz) || 1, ux = dx / L, uz = dz / L, px = x - hh.x, pz = z - hh.z;
     return Math.abs(px * -uz + pz * ux) < 1.8 && px * ux + pz * uz > 0 && px * px + pz * pz < 500;

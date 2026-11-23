@@ -4,6 +4,8 @@ import * as THREE from 'three';
 export const WORLD = 700;            // metres across
 export const VILLAGE_R = 92;         // flat village circle
 export const POND = { x: -125, z: 75, r: 26 };
+// the start screen's stage: a clear patch at the village edge on the pond side; the camera looks back over the village
+export const MENU_SPOT = { x: -85.7, z: 51.5, clear: 20 };
 
 export function groundH(x, z) {
   let h = 6 * Math.sin(x * 0.012 + 1.3) * Math.cos(z * 0.010 - 0.4)

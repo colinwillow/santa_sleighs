@@ -35,3 +35,8 @@ GINGERBREAD JUGGERNAUT (icing armour, peppermint shield, charge), ELF SABOTEUR (
 YETI SNOWSMASHER, PRESENT MIMIC (box with teeth + spider legs), TOY SOLDIER AUTOMATON (wind-up key, blunderbuss),
 ORNAMENT SPIDER, MILKSHOT TANK, COOKIE GOLEM, SUGAR SLIME.
 Air: SLEIGH DRONE (bauble with a propeller, antlers, bells).
+
+## Tone (Nov 23)
+"Morbid but cute and fluffy at the same time ... big and exaggerated" -- creepy-cute / cute-gore (the Happy Tree Friends,
+Cult of the Lamb, Fran Bow lane). Everything a play on candy, Santa, food. Houses: GINGERBREAD, modular and DESTRUCTIBLE
+(shoot pieces away, erode with the machine gun, blast through) -- like Korajin's breakable buildings, never Minecraft-looking.
