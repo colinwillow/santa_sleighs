@@ -39,6 +39,10 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   range, a dead piece is copied out as CPU debris and its range collapsed (draws never change). Support: blocks fall when all below are
   gone, roof panels drop under 45% wall tops, chimney with its panel. ~36k tris a house -- test-page weight; a village needs a far version.
   Test page `?scene=destruct` (`src/destructshow.js`). Tuning in `GB`.
+- **Gingerfolk + gags**: `src/gingerfolk.js` = the civilians (cookie-cutter gingerbread people, pivot limbs, expressions happy /
+  shock / embarrassed, poses idle / run / flail / cover). `src/gag.js` = hidden moments; `caughtInTheAct(scene, at)` (bed, quilt rhythm,
+  hearts; `trigger()` -> freeze, stare, "!", blush, flee). **`CONTENT.naughty` gates every naughty gag** (iOS build: false; `?tame=1`).
+  Implied only -- never shown; anything sexual involves clearly-adult characters (cookies are fine).
 - **Home-screen icon** (b11): `icons/*-vN.png` + root `apple-touch-icon.png`, `manifest.webmanifest`. Version in the FILENAME, never `?v=`
   (iOS keeps an icon per URL forever). Source art `images/reference/icon_source.png`; white corners flood-filled with the frame gold.
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by

@@ -46,3 +46,9 @@ His notes on the first pass: "I don't really love it ... you can just see throug
 I just meant slightly organic; it's OK if it's modular with straighter pieces, however it looks best." So: SOLID cookie-slab walls
 (never see-through), soft organic edges, the reference's details: round cookie-shingle roof under thick dripping icing, candy-stripe
 chimney, dormer, round window with icing swirls, striped awning, red door with candy-cane posts + wreath, lantern, gumdrops, cookie-stone base.
+
+## Naughty layer (Steam build only; Nov 23)
+GTA-style implied humour, never explicit, all behind `CONTENT.naughty` (iOS ships tame). Gags: CAUGHT IN THE ACT (shoot a gingerbread
+house open: two gingerfolk under a rocking quilt freeze, stare, blush, grab a pillow and run) -- built, waiting for the new house;
+SANTA'S NAUGHTY STOP (sleigh parks behind a chimney / dumpster and rocks, bells jingle faster, heart puffs, Santa pops up, fixes his hat,
+relights the cigar, drinks milk) -- idea. Steam: tick sexual content in the content survey (mature notice, stays visible); keep elves clearly adult.
