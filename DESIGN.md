@@ -1,5 +1,9 @@
 # SANTA SLAYS -- design notes (his words first)
 
+**Title: SANTA SLAYS** (his cover art, Nov 23: `images/reference/cover_*.jpg`; `images/cover.jpg` = the loading card).
+Cover: rooftop at night, Santa firing the snowflake minigun, cigar; four elves (goggles brunette, curly green-cape elf,
+blonde in candy-stripe stockings eating a cookie); milk bottles + cookies; snowmen with teeth, a candy-cane worm, an angry gingerbread man.
+
 **IT IS A SHOOTER (his, Nov 23):** "it's called Santa Slays" -- highly exaggerated Santa with a massive, Rambo-size machine gun
 and a fat cigar; it's all about slaying. Cozy-cute world, over-the-top action.
 

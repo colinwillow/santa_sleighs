@@ -1,5 +1,7 @@
 # Santa Slays
 
+![cover](images/cover.jpg)
+
 A cozy, slightly raunchy flying game: a chunky cartoon Santa in a decked-out sleigh, pulled on ropes by a team of
 buff reindeer, with a minigun on the rail, flying over a snow-globe village. Milk and cookies are his fuel.
 
