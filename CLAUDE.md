@@ -59,6 +59,11 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   `src/weapons.js`: `WEAPONS` table (gatling / rifle / rocket / snowball: rate, shot, speed, spread, kick, sound, len), `heldGun`, and
   `makeShots` (slugs, rockets with smoke + blast, lobbed snowballs). Switch: WEAPON button / 1-4 / Q / pad Y; pickups float over the
   village on gold rings. Support hand slides back along the gun to what his arm can reach.
+- **GODOT SPIKE** (his call, Nov 23: multiplayer Steam game -> test Godot): `godot/` (Godot 4.4.1; README there). Sleigh flight
+  port, GRID gingerbread houses (brick ids, MultiMesh, server-authoritative hits broadcast as id lists), his Santa + Gatling,
+  ENet host (drives) / join (shoots) -- verified headless: both peers agreed bricks_gone. Godot can't import Draco: keep non-Draco
+  copies in `godot/assets/`. Godot lives in the scratchpad (installing to /opt was refused); xvfb + opengl3 renders frames.
+  The web game stays the sketchbook.
 - **Home-screen icon** (b11): `icons/*-vN.png` + root `apple-touch-icon.png`, `manifest.webmanifest`. Version in the FILENAME, never `?v=`
   (iOS keeps an icon per URL forever). Source art `images/reference/icon_source.png`; white corners flood-filled with the frame gold.
 - **Tough Santa** (b17, his `models/santa_tough.glb`, original untouched): `models/santa_tough_rig.glb` = + HAND MOUNTS (his
