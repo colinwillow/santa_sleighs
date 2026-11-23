@@ -11,7 +11,7 @@ export async function loadCrew(rig, scene) {
   const M = await loadModels();
   const sl = rig.sleigh.g;
 
-  const santa = makeSanta(M.santa);
+  const santa = makeSanta(M.santa, { role: 'tipsy' });   // milk-drunk Bad Santa: swaying even at rest
   santa.holder.position.set(0, CREW.floorY, CREW.santaZ); sl.add(santa.holder);
   const crate = new THREE.Mesh(bevBox(1.3, CREW.floorY - 0.65, 1.2, 0.06), new THREE.MeshStandardMaterial({ color: '#2f6a40', roughness: 0.7 }));
   crate.position.set(0, 0.65 + (CREW.floorY - 0.65) / 2, CREW.santaZ); crate.castShadow = true; sl.add(crate);

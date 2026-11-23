@@ -1,5 +1,11 @@
 # SANTA SLAYS -- design notes (his words first)
 
+**SANTA = BAD SANTA, ON MILK (his, Nov 23):** "an absolute drunk ... bad Santa ... instead of actual alcohol it's milk and cookies,
+and he's kind of grumpy." A sloshed, grumpy, crude, swaggering Santa -- milk is his booze, cookies his bar snacks. (Spirit only: our
+own character, not the film's.) Play it everywhere: tipsy idle sway, milk-moustache, burps + hiccups, slurred grumbles, chugging a
+bottle and tossing it, gruff one-liners. MILK = health AND buzz: the more he's had, the bolder and sloppier (aim sway, wobbly
+flight, bigger swagger); run dry and he's a cranky, hungover, slow Santa until he finds more.
+
 **Title: SANTA SLAYS** (his cover art, Nov 23: `images/reference/cover_*.jpg`; `images/cover.jpg` = the loading card).
 Cover: rooftop at night, Santa firing the snowflake minigun, cigar; four elves (goggles brunette, curly green-cape elf,
 blonde in candy-stripe stockings eating a cookie); milk bottles + cookies; snowmen with teeth, a candy-cane worm, an angry gingerbread man.
