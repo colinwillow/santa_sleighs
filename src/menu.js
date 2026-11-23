@@ -69,6 +69,7 @@ export function makeMenus(G) {
     button('NEIGHBORHOOD KIT', 'green', () => G.go('?scene=kit')),
     button('VILLAGE VIEW', 'green', () => G.go('?cam=diorama&play=1')),
     button('CREW CLOSE-UP', 'green', () => G.go('?cam=crew&play=1')),
+    button('UNITY VERSION (TEST)', 'green', () => G.go('unity/')),
     button('◀ BACK', 'dim', back),
   ]);
   const toggle = (label, get, set, values) => button(`${label}: ${get()}`, '', b => {

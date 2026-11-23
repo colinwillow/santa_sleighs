@@ -1,0 +1,96 @@
+# SITE: every push to main publishes GitHub Pages = the web game (repo root, as before) + the Unity WebGL build under /unity/.
+# The Unity build runs only when unity/ changed (its output is cached by the hash of the Unity project), so web-only pushes
+# still deploy in about a minute. Unity licence: repo secrets UNITY_LICENSE / UNITY_EMAIL / UNITY_PASSWORD (GameCI).
+name: site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unity build cache key
+        id: key
+        run: echo "hash=${{ hashFiles('unity/Assets/**', 'unity/Packages/**', 'unity/ProjectSettings/**') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore last Unity WebGL build
+        id: webgl
+        uses: actions/cache@v4
+        with:
+          path: webgl-out
+          key: webgl-${{ steps.key.outputs.hash }}
+
+      - name: Restore Unity Library (speeds up builds)
+        if: steps.webgl.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: unity/Library
+          key: library-webgl-${{ steps.key.outputs.hash }}
+          restore-keys: library-webgl-
+
+      - name: Free disk space
+        if: steps.webgl.outputs.cache-hit != 'true'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+
+      - name: Build Unity WebGL (GameCI)
+        id: unity
+        if: steps.webgl.outputs.cache-hit != 'true'
+        continue-on-error: true          # a broken Unity build must never stop the web game from deploying
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: unity
+          targetPlatform: WebGL
+          unityVersion: auto
+          buildMethod: SantaBuild.BuildScript.BuildWebGL
+          buildName: WebGL
+
+      - name: Keep the WebGL build
+        if: steps.webgl.outputs.cache-hit != 'true' && steps.unity.outcome == 'success'
+        run: |
+          mkdir -p webgl-out
+          cp -r build/WebGL/WebGL/. webgl-out/
+          ls -la webgl-out
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          rsync -a --exclude '.git' --exclude '.github' --exclude 'unity' --exclude 'godot' --exclude 'tools' \
+                --exclude 'webgl-out' --exclude '_site' --exclude 'build' --exclude 'images/reference' ./ _site/
+          mkdir -p _site/unity
+          if [ -f webgl-out/index.html ]; then cp -r webgl-out/. _site/unity/
+          else printf '<!doctype html><meta name=viewport content="width=device-width"><body style="font:16px system-ui;background:#1b2340;color:#fff;padding:24px"><h2>Unity build failed</h2><p>The web game is still live. Claude reads the build log and fixes it.</p><a style="color:#ffd25a" href="../">back to the game</a>' > _site/unity/index.html; fi
+          touch _site/.nojekyll
+          du -sh _site _site/unity
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -59,6 +59,13 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   `src/weapons.js`: `WEAPONS` table (gatling / rifle / rocket / snowball: rate, shot, speed, spread, kick, sound, len), `heldGun`, and
   `makeShots` (slugs, rockets with smoke + blast, lobbed snowballs). Switch: WEAPON button / 1-4 / Q / pad Y; pickups float over the
   village on gold rings. Support hand slides back along the gun to what his arm can reach.
+- **UNITY** (his call, Nov 23: Unity is the engine for the Steam game; Godot was the spike): `unity/` = Unity 6000.0.85f2 (his
+  installed LTS), CODE-FIRST (empty scene; `Game.cs` builds everything at startup via RuntimeInitializeOnLoadMethod). Built in
+  the CLOUD by GameCI (`.github/workflows/site.yml`, secrets UNITY_LICENSE / UNITY_EMAIL / UNITY_PASSWORD -- his, never in chat):
+  every push to main deploys Pages = web game + Unity WebGL at `/unity/` (rebuilt only when unity/ changes; cached otherwise; a
+  failed Unity build never blocks the web deploy). Read build logs with the GitHub MCP actions tools. Pages source = GitHub Actions
+  (no more branch deploy; `_config.yml` no longer matters). Shaders the code needs come from Resources materials made by
+  `Assets/Editor/BuildScript.cs`. Plan: Netcode for GameObjects / Steam relay for the Steam build, Unity Relay for phone tests.
 - **GODOT SPIKE** (his call, Nov 23: multiplayer Steam game -> test Godot): `godot/` (Godot 4.4.1; README there). Sleigh flight
   port, GRID gingerbread houses (brick ids, MultiMesh, server-authoritative hits broadcast as id lists), his Santa + Gatling,
   ENet host (drives) / join (shoots) -- verified headless: both peers agreed bricks_gone. Godot can't import Draco: keep non-Draco
