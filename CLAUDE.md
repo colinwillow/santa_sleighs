@@ -34,11 +34,13 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
 - **Sound**: `src/audio.js` (`window.sfx`: play / loop handles / master / music bus), files + CREDITS in `audio/`. Game code calls
   `window.sfx?.…` so a missing module never blanks the page. Check modules with `node --input-type=module --check < file`
   (plain `node --check` missed a stray paren once).
-- **Destructible gingerbread** (b10): `src/destruct.js` -- `buildBreakableHouse(scene, opts)` + the `DESTRUCT` registry (`hitAt(p, r, power)`,
-  `raycast`, `update(dt)`; bullet `(p, .32, 1)`, blast `(p, 3.2, 30)`). One merged mesh per material a house; each piece owns a vertex
-  range, a dead piece is copied out as CPU debris and its range collapsed (draws never change). Support: blocks fall when all below are
-  gone, roof panels drop under 45% wall tops, chimney with its panel. ~36k tris a house -- test-page weight; a village needs a far version.
-  Test page `?scene=destruct` (`src/destructshow.js`). Tuning in `GB`.
+- **Destructible gingerbread** (b14, rebuilt to his kit sheet `images/reference/gingerbread_kit_sheet.jpg` + house ref): `src/destruct.js`.
+  MODULES on a 2.4 m grid (wall panels plain/snowflake/swirl/awning/lattice/door/arch, rope pillars, gables, shingle roof, dormer,
+  chimney, lantern, plinth, steps, fence, props); `buildBreakableHouse(scene, opts)` assembles them (module counts, storeys, panel
+  layout, dormer, colours). Walls = SOLID slabs cut into flush jittered chunks (no gaps); hits dent, dead chunks leave as cookie
+  debris showing the slab thickness; contact graph: anything cut off from the ground falls. `DESTRUCT` registry (`hitAt(p, r, power)`,
+  `raycast`, `update`; bullet `(p, .32, 1)`, blast `(p, 3.2, 30)`), tuning `GB`. 1 solid + 1 glow mesh a house; ~42-61k tris a house
+  (over budget: a village needs a far version). Test page `?scene=destruct`, `?kit=1` lays out every module.
 - **Gingerfolk + gags**: `src/gingerfolk.js` = the civilians (cookie-cutter gingerbread people, pivot limbs, expressions happy /
   shock / embarrassed, poses idle / run / flail / cover). `src/gag.js` = hidden moments; `caughtInTheAct(scene, at)` (bed, quilt rhythm,
   hearts; `trigger()` -> freeze, stare, "!", blush, flee). **`CONTENT.level` gates every naughty gag**: off | cheeky (default) | censored | spicy (OPTIONS > NAUGHTY, `?naughty=`;

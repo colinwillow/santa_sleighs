@@ -1,10 +1,11 @@
-// ?scene=destruct -- THE GINGERBREAD DEMOLITION TEST: three breakable gingerbread houses on snow.
+// ?scene=destruct -- THE GINGERBREAD DEMOLITION TEST: three breakable gingerbread houses (built from the kit) on snow.
+// ?kit=1 (or the KIT button) = the module kit laid out on its own, like his sheet.
 // Hold anywhere (or Space) = machine-gun toward the finger / screen centre; drag = orbit; BLAST = a big explosion where you
 // last aimed; RESET rebuilds. The chip top-right shows the frame's tris + draw calls.
 import * as THREE from 'three';
 import { makePost } from './post.js';
 import { applyLook, addInk, lookChip, initialLook, LOOK } from './look.js';
-import { buildBreakableHouse, DESTRUCT } from './destruct.js';
+import { buildBreakableHouse, buildKit, DESTRUCT, GB } from './destruct.js';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
@@ -29,15 +30,19 @@ sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0005; sun.shadow.normal
 Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 70 }); scene.add(sun);
 const flashLight = new THREE.PointLight('#ffb060', 0, 26, 2); scene.add(flashLight);
 
-// houses
+// houses: three variations assembled from the kit, placed on the module grid (GB.mod)
+const g = GB.mod;
 const LAYOUT = [
-  { x: -10.5, z: 1.5, ry: 0.4, seed: 11, w: 6.2, d: 5.8, floors: 1 },
-  { x: 0, z: -4.5, ry: 0, seed: 23, w: 9.2, d: 8, floors: 2 },
-  { x: 10.5, z: 1, ry: -0.45, seed: 37, w: 7.4, d: 6.6, floors: 2 },
+  { x: -4 * g, z: 1 * g, ry: 0.42, seed: 11, nx: 2, nz: 2, floors: 1, dormer: false, chimney: 1, awning: '#2f9a4a', front: ['swirl', 'door'] },
+  { x: 0, z: -1 * g, ry: 0, seed: 23, nx: 2, nz: 2, floors: 1, dormer: true, chimney: -1, awning: '#e3283a' },
+  { x: 4 * g, z: 1 * g, ry: -0.42, seed: 37, nx: 3, nz: 2, floors: 2, dormer: true, chimney: 1, awning: '#ff7ab8', door: '#2f8a4a',
+    front: ['lattice', 'door', 'flake'], left: ['window', 'plain'], right: ['plain', 'window'] },
 ];
+let kitMode = new URLSearchParams(location.search).get('kit') === '1';
 function buildAll() {
   DESTRUCT.clear();
-  for (const o of LAYOUT) { const H = buildBreakableHouse(scene, o); addInk(H.group, 0.03); }
+  if (kitMode) { const H = buildKit(scene, { x: 0, z: -1 }); addInk(H.group, 0.03); }
+  else for (const o of LAYOUT) { const H = buildBreakableHouse(scene, o); addInk(H.group, 0.03); }
   if (!inked) { addInk(DESTRUCT.debris.mesh, 0.025); inked = true; }
   applyLook(scene, LOOK.mode);
 }
@@ -57,6 +62,7 @@ const btn = (label, bg, size) => {
 };
 const blastB = btn('BLAST', 'radial-gradient(circle at 40% 35%, #ff8a4b, #c2281c)', 88);
 const resetB = btn('RESET', 'radial-gradient(circle at 40% 35%, #7fe6a5, #18804a)', 64);
+const kitB = btn('KIT', 'radial-gradient(circle at 40% 35%, #ffd36b, #c98a12)', 56);
 const chip = document.createElement('div');
 chip.style.cssText = 'position:fixed;top:calc(env(safe-area-inset-top) + 8px);right:calc(env(safe-area-inset-right) + 10px);z-index:5;font:700 12px/1.35 ui-monospace,monospace;color:#3a2a20;background:#ffffffcc;border-radius:10px;padding:6px 9px;text-align:right;pointer-events:none';
 document.body.appendChild(chip);
@@ -66,7 +72,8 @@ hint.textContent = 'hold: shoot · drag: orbit · space: shoot centre';
 document.body.appendChild(hint);
 
 // input: hold = fire at the finger; once it drags, it orbits instead
-const ORB = { a: 0.15, h: 10, r: 31, tx: 0, ty: 3.2, tz: -1.5 };
+const ORB_HOUSES = { a: 0.15, h: 10, r: 31, tx: 0, ty: 2.8, tz: 0 }, ORB_KIT = { a: 0, h: 21, r: 20, tx: 0, ty: 0, tz: -0.6 };
+const ORB = { ...(kitMode ? ORB_KIT : ORB_HOUSES) };
 const aim = { x: innerWidth / 2, y: innerHeight / 2 };
 let ptr = null, firing = false, spaceFire = false, lastAim = null;
 renderer.domElement.addEventListener('pointerdown', e => {
@@ -88,6 +95,7 @@ addEventListener('keydown', e => { if (e.code === 'Space') { spaceFire = true; e
 addEventListener('keyup', e => { if (e.code === 'Space') spaceFire = false; });
 blastB.addEventListener('pointerdown', e => { e.stopPropagation(); blast(); });
 resetB.addEventListener('pointerdown', e => { e.stopPropagation(); buildAll(); });
+kitB.addEventListener('pointerdown', e => { e.stopPropagation(); kitMode = !kitMode; Object.assign(ORB, kitMode ? ORB_KIT : ORB_HOUSES); buildAll(); });
 
 // shooting
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -176,4 +184,4 @@ requestAnimationFrame(frame);
 // test hooks: an instant (tracer-less) shot, and stepping the sim without frames
 const instantShot = (sx, sy) => { const tg = target(sx, sy, 0.012); if (!tg.house) return null; const dir = tg.point.clone().sub(camera.position).normalize(); return DESTRUCT.hitAt(tg.point, 0.32, 1, { dir }); };
 const step = (n, dt = 1 / 60) => { for (let i = 0; i < n; i++) DESTRUCT.update(dt); };
-window.__destruct = { instantShot, step, DESTRUCT, scene, camera, renderer, ORB, shoot, blast, buildAll, aim, setFiring: v => { firing = v; } };
+window.__destruct = { solo: (i = 1, extra = {}) => { DESTRUCT.clear(); const H = buildBreakableHouse(scene, { ...LAYOUT[i], x: 0, z: 0, ry: 0, ...extra }); addInk(H.group, 0.03); applyLook(scene, LOOK.mode); return H.tris; }, buildKit, setKit: v => { kitMode = v; Object.assign(ORB, v ? ORB_KIT : ORB_HOUSES); buildAll(); }, instantShot, step, DESTRUCT, scene, camera, renderer, ORB, shoot, blast, buildAll, aim, setFiring: v => { firing = v; } };
