@@ -29,8 +29,9 @@ const loader = new GLTFLoader();
 const draco = new DRACOLoader(); draco.setDecoderPath('./vendor/draco/'); loader.setDRACOLoader(draco);
 const load = url => new Promise((res, rej) => loader.load(url, res, undefined, rej));
 let modelsP = null;
-// which Santa: TOUGH (his Nov 23 model: goggles, milk-bottle belt; rigged here with hand mounts + a hat chain) or CLASSIC
-export const SANTAS = { tough: './models/santa_tough_rig.glb', classic: './models/santa.glb' };
+// which Santa: TOUGH (his Nov 23 model: goggles, milk-bottle belt; rigged here with hand mounts + a hat chain), NOCOAT (his coatless
+// Santa, Auto-Rig Pro + fingers + mounts + hat chain) or CLASSIC
+export const SANTAS = { tough: './models/santa_tough_rig.glb', nocoat: './models/santa_no_coat_rig.glb', classic: './models/santa.glb' };
 export function santaChoice() { try { const v = localStorage.getItem('santa'); if (SANTAS[v]) return v; } catch (e) {} return 'tough'; }
 // which elf: RED (his Nov 23 model, closer to the tough Santa's style; no jiggle bones yet) or CLASSIC (the first elf + jiggle rig)
 export const ELVES = { red: './models/elf_girl_red_rig.glb', classic: './models/elf_girl_jiggle.glb' };

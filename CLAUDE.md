@@ -107,6 +107,10 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   CHAIN (`tools/blender/hat_chain_rig.py`: `hat_01..03` + `hat_tip` along the curl to the pompom, brim stays on the Head). The game
   springs the chain (`HAT` in characters.js, high-passed head accel + idle wobble). OPTIONS > SANTA: TOUGH (default) / CLASSIC (reloads).
   EVERY new humanoid gets mounts.py; the gun still IKs both fists to its grips (mount bones are there for held props).
+  NO-COAT Santa (b37, his `models/santa_no_coat.glb`, Tripo, untouched): `models/santa_no_coat_rig.glb` = Auto-Rig Pro (`run_rig.sh`; fingers failed at
+  AI defaults (thumb), passed on a full rerun at `arp_smart_AI_samples` 6 / `arp_smart_AI_thresh` .35) -> `arp2mix.py` -> HeadTop_End (95% of mesh top) +
+  Toe_End leaves -> `mounts.py` -> `hat_chain_rig.py` with points `[[0,.02,.86],[-.02,.07,.935],[-.10,.14,.89],[-.165,.165,.775]]` -> his JPEG back
+  byte for byte -> Draco. 65 joints, 0.95 m, 1.44 MB. OPTIONS > SANTA: TOUGH / NOCOAT / CLASSIC.
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by
   `tools/blender/` (this Blender can't read Draco: undraco -> rig -> pack). The game springs them in `makeJiggle` (`CREW.jiggle`);
   input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.
