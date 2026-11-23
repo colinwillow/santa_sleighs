@@ -1,5 +1,5 @@
 {
-"build": 25,
+"build": 26,
 "files": [
 "./src/anim.js",
 "./src/audio.js",
@@ -23,6 +23,7 @@
 "./src/rope.js",
 "./src/sandbox.js",
 "./src/sleigh.js",
+"./src/sleighmodel.js",
 "./src/terrain.js",
 "./src/town.js",
 "./src/util.js",

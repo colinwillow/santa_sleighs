@@ -6,7 +6,7 @@
 // input.fire, input.boost, input.mouse (reticle in px when the mouse is aiming, else null).
 
 export const input = { steer: 0, climb: 0, aimX: 0, aimY: 0, fire: false, boost: false, mouse: null };
-export const STICKS = { R: 58, fireAt: 0.28, deadL: 0.06 };
+export const STICKS = { R: 58, fireAt: 0.35, tapR: 0.35, deadL: 0.06 };   // right pad: inside tapR = the middle (jump tap, no fire)
 
 // Lock page zoom (pinch, double tap, iOS gesture events).
 for (const ev of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick'])
@@ -47,6 +47,16 @@ window.addEventListener('pointerdown', e => {
   const side = e.clientX < innerWidth * 0.5 ? 'L' : 'R', P = pads[side];
   if (P.id !== null) return;
   P.id = e.pointerId; P.ox = e.clientX; P.oy = e.clientY; P.x = P.y = 0; P.t0 = performance.now(); P.maxd = 0;
+  // RIGHT pad (his): a touch ON the resting stick but off its middle shoots straight away, that way; the middle is the
+  // jump tap. So a touch inside the resting pad keeps the pad where it is and reads the offset at once.
+  if (side === 'R') {
+    const h = home('R'), dx = e.clientX - h.x, dy = e.clientY - h.y, R = STICKS.R;
+    if (Math.hypot(dx, dy) < R * 1.25) {
+      P.ox = h.x; P.oy = h.y; const d = Math.hypot(dx, dy), k = d > R ? R / d : 1;
+      P.x = dx * k / R; P.y = -dy * k / R; P.maxd = Math.hypot(P.x, P.y);
+      padEl.R.firstChild.style.transform = `translate(${dx * k}px,${dy * k}px)`;
+    }
+  }
   padEl[side].style.left = P.ox + 'px'; padEl[side].style.top = P.oy + 'px'; padEl[side].classList.add('act');
   lastDevice = 'touch'; hideHint();
 });
@@ -64,7 +74,7 @@ const end = e => {
   for (const s of ['L', 'R']) {
     const P = pads[s]; if (e.pointerId !== P.id) continue;
     // a quick tap in the middle of the RIGHT pad = JUMP (his: jump is always a tap in the middle of the right stick)
-    if (s === 'R' && performance.now() - P.t0 < 280 && (P.maxd || 0) < 0.35) input.tap = true;
+    if (s === 'R' && performance.now() - P.t0 < 280 && (P.maxd || 0) < STICKS.tapR) input.tap = true;
     P.id = null; P.x = P.y = 0; padEl[s].classList.remove('act', 'firing'); placeHome();
   }
 };

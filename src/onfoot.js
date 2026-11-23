@@ -7,7 +7,7 @@ import { groundH } from './terrain.js';
 import { loadModels, makeSanta } from './characters.js';
 
 export const FOOT = {
-  deckY: 0.72, deckX: 1.0, deckZ0: -2.0, deckZ1: 2.1,      // the sleigh's floor (sleigh-local metres)
+  deckY: 1.25, deckX: 0.75, deckZ0: -0.7, deckZ1: 1.7,    // the walkable floor of his sleigh (sleigh-local metres)
   walk: 4.2, run: 7.5, jump: 10.5, jump2: 9.5, flipT: 0.55, gravity: 22,   // jump ~2.5 m; the 2nd jump (in the air) is a front flip, ~+2 m
   splat: 13,                                              // landing faster than this knocks him flat
   catchR: 2.6,                                            // how close the deck must pass to grab it from the ground / air
@@ -48,7 +48,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
   function hopAction() {
     if (!st.ready) return;
     if (st.mode === 'seat') {   // stand up on the deck, a step behind the seat
-      st.local.set(0, FOOT.deckY, -0.6); st.face = rig.yaw; st.camYaw = rig.yaw; st.calling = false;
+      st.local.set(0, FOOT.deckY, 1.1); st.face = rig.yaw; st.camYaw = rig.yaw; st.calling = false;
       setMode('deck'); sfx('whoosh', { vol: 0.4, rate: 1.3 });
     } else if (st.mode === 'deck') { setMode('seat'); sfx('ui_tap'); }
     else { st.calling = true; hop.textContent = 'CALLING…'; sfx('ui_start', { vol: 0.6 }); }

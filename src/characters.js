@@ -11,8 +11,8 @@ import { loadGuns, heldGun, WEAPONS } from './weapons.js';
 
 export const CREW = {
   santaH: 2.0, elfH: 1.8,           // elves: just a little shorter than him (his, Nov 23)           // metres, standing
-  floorY: 1.05,                       // he stands on a crate of presents (sleigh local)
-  santaZ: -0.35,                      // where he stands
+  floorY: 1.42,                       // he stands on the seat cushion of his sleigh model (sleigh local)
+  santaZ: 0.35,                       // where he stands
   gunScale: 1.3,
   // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
   // arms were inside his body) the gun is held further out and the elbows flare to the sides so the arms read from behind.

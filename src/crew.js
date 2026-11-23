@@ -13,15 +13,10 @@ export async function loadCrew(rig, scene) {
 
   const santa = makeSanta(M.santa, { role: 'tipsy' });   // milk-drunk Bad Santa: swaying even at rest
   santa.holder.position.set(0, CREW.floorY, CREW.santaZ); sl.add(santa.holder);
-  const crate = new THREE.Mesh(bevBox(1.3, CREW.floorY - 0.65, 1.2, 0.06), new THREE.MeshStandardMaterial({ color: '#2f6a40', roughness: 0.7 }));
-  crate.position.set(0, 0.65 + (CREW.floorY - 0.65) / 2, CREW.santaZ); crate.castShadow = true; sl.add(crate);
-  const bench = new THREE.Mesh(bevBox(1.5, 0.3, 0.7, 0.08), new THREE.MeshStandardMaterial({ color: '#7a1a20', roughness: 0.7 }));
-  bench.position.set(0, 1.55, 1.15); bench.castShadow = true; sl.add(bench);
-
   const driver = makeElf(M.elf, { role: 'sit', seat: 0 });
-  driver.holder.position.set(0.1, 1.78, 1.05); sl.add(driver.holder);
+  driver.holder.position.set(0.1, 1.55, 1.85);   // on the front dash, feet in the footwell sl.add(driver.holder);
   const sackElf = makeElf(M.elf, { role: 'sit', seat: 0 });
-  sackElf.holder.position.set(0.2, 2.5, -1.5); sackElf.holder.rotation.y = 0.35; sl.add(sackElf.holder);
+  sackElf.holder.position.set(0.15, 3.05, -1.55);   // on top of the sack sackElf.holder.rotation.y = 0.35; sl.add(sackElf.holder);
 
   // driver: hands out on the reins, bobbing with the gallop
   const handR = new THREE.Vector3(), handL = new THREE.Vector3();

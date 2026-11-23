@@ -36,7 +36,13 @@ export function heldGun(scene, key) {
   body.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(body);
   g.scale.setScalar(W.len / Math.max(0.01, box.max.z - box.min.z));
-  body.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+  // his note: every gun read dull + dark -- the Tripo materials come in fully metallic with no reflections to show, so they go
+  // near-black. Cut the metalness, lift the albedo a touch, keep a little sheen.
+  body.traverse(o => {
+    if (!o.isMesh) return; o.castShadow = true; o.frustumCulled = false;
+    const fix = m => { m = m.clone(); if (m.metalness !== undefined) { m.metalness = Math.min(m.metalness, 0.15); m.roughness = Math.min(Math.max(m.roughness ?? 0.5, 0.35), 0.6); } if (m.color) m.color.multiplyScalar(1.25); return m; };
+    o.material = Array.isArray(o.material) ? o.material.map(fix) : fix(o.material);
+  });
   const barrels = body.getObjectByName('barrels');
   // muzzle flash: a star of additive cards at the muzzle (rockets / snowballs get a softer, smaller one)
   const flash = new THREE.Group(); muzzle.add(flash);

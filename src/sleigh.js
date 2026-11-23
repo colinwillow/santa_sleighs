@@ -64,7 +64,8 @@ function buildSleigh() {
   for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; const b = mesh(C(0.045, 0.045, 1.4, 6), M.gun, Math.cos(a) * 0.11, Math.sin(a) * 0.11, 0.7, barrels); b.rotation.x = Math.PI / 2; }
   mesh(C(0.17, 0.17, 0.1, 10), M.gold, 0, 0, 1.3, barrels).rotation.x = Math.PI / 2;
   const muzzle = new THREE.Object3D(); muzzle.position.z = 1.5; gun.add(muzzle);
-  return { g, gun, barrels, muzzle, mount };
+  const standin = g.children.filter(c => c !== mount);   // hidden once his sleigh model is fitted (sleighmodel.js)
+  return { g, gun, barrels, muzzle, mount, standin };
 }
 
 function buildSanta() {
@@ -134,7 +135,7 @@ function buildDeer(redNose) {
 
 // ---- the rig ------------------------------------------------------------------------------
 const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _u = new THREE.Vector3(), _v = new THREE.Vector3(), _m = new THREE.Matrix4();
-const UP = new THREE.Vector3(0, 1, 0);
+const UP = new THREE.Vector3(0, 1, 0), _Z = new THREE.Vector3(0, 0, 1), _rq = new THREE.Quaternion();
 
 export function buildRig(scene, colliders) {
   const sl = buildSleigh(); scene.add(sl.g);
@@ -277,10 +278,18 @@ export function buildRig(scene, colliders) {
     _m.makeBasis(_r.negate(), _u, _f);
     rig.sleighQ.setFromRotationMatrix(_m);
     sl.g.position.copy(Sp);
-    sl.g.quaternion.slerp(rig.sleighQ, 1 - Math.exp(-12 * dt));
+    rig.baseQ = rig.baseQ || sl.g.quaternion.clone();
+    rig.baseQ.slerp(rig.sleighQ, 1 - Math.exp(-12 * dt));
+    sl.g.quaternion.copy(rig.baseQ);
+    // a lost booster (sleighmodel.js): a full barrel roll, then it flies leaning on the side that still has thrust
+    if (rig.lopsided) sl.g.quaternion.multiply(_rq.setFromAxisAngle(_Z, rig.lopsided + Math.sin(t * 9) * 0.04 * Math.abs(rig.lopsided) / 0.22));
+    if (rig.rollT > 0) {
+      rig.rollT = Math.max(0, rig.rollT - dt); const u = 1 - rig.rollT / 1.3;
+      sl.g.quaternion.multiply(_rq.setFromAxisAngle(_Z, rig.rollDir * Math.PI * 2 * u * u * (3 - 2 * u)));
+    }
     sl.g.updateMatrixWorld();
-    rig.hooks[0].set(0.6, 1.4, 2.6).applyMatrix4(sl.g.matrixWorld);
-    rig.hooks[1].set(-0.6, 1.4, 2.6).applyMatrix4(sl.g.matrixWorld);
+    rig.hooks[0].set(0.6, 1.2, 2.8).applyMatrix4(sl.g.matrixWorld);
+    rig.hooks[1].set(-0.6, 1.2, 2.8).applyMatrix4(sl.g.matrixWorld);
 
     // santa wobbles on his seat (a little tipsy on milk)
     santa.g.rotation.z = -rig.sleighBank * 0.5 + Math.sin(t * 1.7) * 0.05;

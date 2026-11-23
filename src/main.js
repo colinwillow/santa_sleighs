@@ -8,6 +8,7 @@ import { input, pollInput, showReticle } from './input.js';
 import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
 import { makeOnFoot } from './onfoot.js';
+import { fitSleighModel } from './sleighmodel.js';
 import { applyLook, addInk, LOOK, initialLook } from './look.js';
 import { makeMenus } from './menu.js';
 import { WEAPONS, ORDER, makeShots, loadGuns, heldGun } from './weapons.js';
@@ -17,7 +18,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 25;
+export const BUILD = 26;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -53,6 +54,8 @@ rig.onCrash = (power, at) => {
   // the sleigh as a wrecking ball: a crash into a house knocks a hole in it the size of the hit
   if (world.town) world.town.blast(at, 2.2 + power * 2.6, 99, rig.SV.clone().multiplyScalar(0.6));
   foot.eject(power, at);
+  // his sleigh takes the hit too: pieces near the impact fly off (a reindeer-first hit only shakes the front loose)
+  if (rig.model) { const near = at.distanceTo(rig.S) < 6; rig.model.hit(near ? at : rig.sleigh.g.localToWorld(new THREE.Vector3(0, 1, 2.6)), near ? 1.5 + power * 2.5 : 1.2, near ? 2 + power * 6 : 1 + power * 2); }
 };
 // the look: LIT (shaded) or FLAT (self-lit textures + ink outlines) -- his switch (OPTIONS / DEBUG), remembered
 const setLook = m => { applyLook(scene, m); try { localStorage.setItem('look', m); } catch (e) {} };
@@ -64,7 +67,10 @@ const setState = s => { STATE = s; document.body.classList.toggle('play', s === 
 setState(STATE);
 const hideBoot = () => document.getElementById('boot').classList.add('gone');
 setTimeout(hideBoot, 12000);   // never hold the game hostage to a slow model load
-Promise.all([loadCrew(rig, scene), buildMenuCrew()]).then(([c]) => { rig.crew = c; setWeapon(weapon, false); addInk(rig.sleigh.g); for (const d of rig.deer) addInk(d.g); setLook(initialLook('lit')); setTimeout(hideBoot, 300); }).catch(e => { hideBoot(); document.getElementById('build').textContent += ' crew: ' + e.message; });
+Promise.all([loadCrew(rig, scene), buildMenuCrew(), fitSleighModel(rig, scene, groundH).then(m => {
+  rig.model = m;
+  m.onBoosterLost = () => { shake = Math.max(shake, 1.2); crashZoom = Math.max(crashZoom, 0.8); foot.eject(0.9, rig.S.clone()); };
+}).catch(e => console.warn('sleigh model', e))]).then(([c]) => { rig.crew = c; setWeapon(weapon, false); addInk(rig.sleigh.g); for (const d of rig.deer) addInk(d.g); setLook(initialLook('lit')); setTimeout(hideBoot, 300); }).catch(e => { hideBoot(); document.getElementById('build').textContent += ' crew: ' + e.message; });
 
 // ---- THE START SCREEN SCENE: Santa + two elves in the plaza by the big tree, fire pit glow, snow, bloom --------------
 const MENU = { spot: new THREE.Vector3(MENU_SPOT.x, 0, MENU_SPOT.z), crew: null, burstT: 3, firing: false, fireCd: 0 };
@@ -104,7 +110,7 @@ const menus = makeMenus({
   dbgHud: () => dbgHud ? 'ON' : 'OFF', setDbgHud: v => { dbgHud = v === 'ON'; if (!dbgHud) menus.hud(null); },
   cam: () => (camOverride || camMode || 'chase').toUpperCase(), setCam: v => { camOverride = v === 'CHASE' ? null : v.toLowerCase(); },
   slow: () => slow + 'x', setSlow: v => { slow = parseFloat(v); },
-  resetSleigh: () => { rig.lead.set(0, 40, -120); rig.yaw = 0; rig.pitch = 0; rig.S.set(0, 40, -134); rig.SV.set(0, 0, FLY.speed); for (const d of rig.deer) { d.p.copy(rig.lead); d.v.set(0, 0, FLY.speed); } },
+  resetSleigh: () => { rig.lead.set(0, 40, -120); rig.yaw = 0; rig.pitch = 0; rig.S.set(0, 40, -134); rig.SV.set(0, 0, FLY.speed); for (const d of rig.deer) { d.p.copy(rig.lead); d.v.set(0, 0, FLY.speed); } rig.model?.repair(); },
   stats: () => statsText(),
 });
 if (STATE === 'menu') menus.showStart();
@@ -209,7 +215,7 @@ function updateAim(dt) {
 
 // ---- WEAPONS: his four guns; switch with the WEAPON button / 1-4 / Q / gamepad Y; fly through a floating gun to grab it -------
 const shots = makeShots(scene, groundH, {
-  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); world.town?.blast(p, 3.6, 99); },
+  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); world.town?.blast(p, 3.6, 99); rig.model?.hit(p, 3.2, 8); },
   onHit: (p, kind) => { if (kind === 'snowball') world.town?.blast(p, 1.0, 1); },
   solid: p => !!world.town?.solidAt(p),
 });
@@ -257,7 +263,7 @@ const footShooter = {
   get muzzle() { return foot.santa?.muzzle; }, get eject() { return foot.santa?.eject; }, kick: () => foot.santa?.kick(),
   get def() { return foot.santa?.def; }, get rate() { return foot.santa?.rate ?? 0.08; },
 };
-let wasFiring = false;
+let wasFiring = false, retFrame = 0;
 const RET3 = (() => {
   const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.scale(128 / 46, 128 / 46); g.lineCap = 'round';
   g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(23, 23, 15, 0, 7); g.stroke();
@@ -274,16 +280,17 @@ function updateGun(dt, t) {
   if (scr) {
     // on foot the crosshair is a sprite in the world just past Santa, so HE draws over it (his note: drawn on top of him it
     // looked wrong); in the sleigh it stays the screen overlay
+    // the crosshair is drawn after the world (over houses / trees) but BEFORE the player's own things (renderOrder 11):
+    // Santa on foot, or the sleigh + crew + team when riding, so they cover it (his note: it was drawn on top of them)
     const onFoot = foot.active;
-    document.body.classList.toggle('ret3d', onFoot); RET3.visible = onFoot;
-    if (onFoot) {
-      // drawn after the world (on top of houses, the sleigh) but BEFORE Santa (renderOrder 11), so he covers it
-      foot.santa?.holder.traverse(o => { o.renderOrder = 11; });
-      const d = camera.position.distanceTo(foot.st.pos) + 1.5;
+    document.body.classList.add('ret3d'); RET3.visible = true;
+    if ((retFrame++ % 20) === 0) { const mark = o => { o.renderOrder = 11; }; foot.santa?.holder.traverse(mark); rig.sleigh.g.traverse(mark); for (const d of rig.deer) d.g.traverse(mark); }
+    {
+      const d = onFoot ? camera.position.distanceTo(foot.st.pos) + 1.5 : camera.position.distanceTo(rig.S) + 3.5;
       RET3.position.copy(AIM.ray.ray.origin).addScaledVector(AIM.ray.ray.direction, d);
       const s = 46 / innerHeight / 0.866 * (firing ? 0.9 + Math.random() * 0.15 : 1);
       RET3.scale.set(s, s, 1); RET3.material.rotation = firing ? (Math.random() - 0.5) * 0.35 : 0;
-    } else showReticle(scr.px, scr.py, firing);
+    }
   } else { RET3.visible = false; AIM.target.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.target.y -= 8; }
   if (firing !== wasFiring) { sfx(firing ? 'gun_spinup' : 'gun_spindown', { vol: 0.5 }); wasFiring = firing; }
   rig.aimTarget = AIM.target;
@@ -313,15 +320,19 @@ function updateGun(dt, t) {
     _d.subVectors(AIM.target, from).normalize();   // straight at the reticle's point (the gun swings after it)
     _d.x += (Math.random() - 0.5) * W.spread; _d.y += (Math.random() - 0.5) * W.spread; _d.normalize();
     // hitscan the town for the fast guns: the tracer stops at the wall, the brick takes the hit now
-    const hit = (W.shot === 'tracer' || W.shot === 'slug') ? world.town?.raycast(from, _d, 250) : null;
-    if (hit) {
+    let hit = (W.shot === 'tracer' || W.shot === 'slug') ? world.town?.raycast(from, _d, 250) : null;
+    // on foot he can shoot his own sleigh to bits
+    const mh = out && (W.shot === 'tracer' || W.shot === 'slug') ? rig.model?.raycast(from, _d, 250) : null;
+    if (mh && (!hit || mh.dist < hit.dist)) { rig.model.shoot(mh, W.shot === 'slug' ? 3 : 1); shots.puff(mh.point, '#ffd060', 3, 3, 0.4); hit = { dist: mh.dist, sleigh: true }; }
+    if (hit && !hit.sleigh) {
       if (W.shot === 'slug') world.town.blast(hit.point, 0.95, 99, _d.clone().multiplyScalar(10));
       else world.town.hitBrick(hit.id, 1, _d.clone().multiplyScalar(6));
       shots.puff(hit.point, '#c0743a', 3, 3, 0.5);
     }
     if (W.shot === 'tracer') {
       const tr = tracers[trI++ % TR];
-      tr.p.copy(from); tr.v.copy(_d).multiplyScalar(W.speed);   // no inherited sleigh speed: the tracer flies down the aim line (on foot it was adding the SLEIGH's velocity) tr.life = hit ? hit.dist / W.speed : 1.2;
+      // no inherited sleigh speed: the tracer flies down the aim line (on foot it was adding the SLEIGH's velocity)
+      tr.p.copy(from); tr.v.copy(_d).multiplyScalar(W.speed); tr.life = hit ? hit.dist / W.speed : 1.2;
     } else {
       if (W.shot === 'snowball') _d.y += 0.12;      // lob it a little
       shots.fire(W, from, _d.normalize(), (out ? foot.st.vel : rig.SV).clone().multiplyScalar(0.6));
@@ -451,6 +462,7 @@ function frame(now) {
     rig.update(dt, STATE === 'play' ? (foot.sleighInput() || input) : AUTO, t);
     if (STATE === 'play') foot.update(dt, t);
     updateGun(dt, t);
+    rig.model?.update(dt, t, STATE === 'play' && input.boost);
     updatePickups(dt, t); pollWeaponPad();
     if (STATE === 'menu' && MENU.crew) updateMenuCrew(dt, t);
   }
