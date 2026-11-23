@@ -22,6 +22,7 @@ export class Rope {
     this.geo = g;
     this.mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color, roughness: 0.8 }));
     this.mesh.frustumCulled = false; this.mesh.castShadow = true;
+    this.mesh.userData.noMerge = true;   // rewritten every frame: the static merge must never freeze it (b30 pinned the reins to the ground)
     scene.add(this.mesh);
   }
   update(dt) {

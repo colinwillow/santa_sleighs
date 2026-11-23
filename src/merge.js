@@ -25,13 +25,13 @@ export function makeStaticMerger(scene, { exclude = () => [], after = 3 } = {}) 
   };
   function snapshot() {
     scene.updateMatrixWorld(true);
-    snap = new Map(); for (const o of candidates()) snap.set(o, o.matrixWorld.clone());
+    snap = new Map(); for (const o of candidates()) snap.set(o, { m: o.matrixWorld.clone(), v: o.geometry.attributes.position.version, g: o.geometry });
   }
   function commit() {
     scene.updateMatrixWorld(true);
     const groups = new Map();
     for (const o of candidates()) {
-      const m0 = snap.get(o); if (!m0 || !m0.equals(o.matrixWorld)) continue;   // new since the snapshot, or it moved
+      const s0 = snap.get(o); if (!s0 || !s0.m.equals(o.matrixWorld) || s0.g !== o.geometry || s0.v !== o.geometry.attributes.position.version) continue;   // new, moved, or its vertices changed
       const mat = o.userData.litMat || o.material, g = o.geometry;
       const sig = Object.keys(g.attributes).sort().map(k => k + g.attributes[k].itemSize).join(',') + (g.index ? 'i' : 'n');
       const key = mat.uuid + '|' + o.castShadow + o.receiveShadow + '|' + o.renderOrder + '|' + sig;

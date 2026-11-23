@@ -14,7 +14,7 @@ export const TOWN = {
   brick: new THREE.Vector3(1.2, 0.5, 0.55),   // long, high, deep (m)
   courses: 9, wallBricksX: 6, wallBricksZ: 4,
   hp: { wall: 2, roof: 2, gable: 2 },
-  span: 3,                 // a brick can hang off its course this many bricks from the nearest one held from below
+  span: 2,                 // a brick can hang off its course this many bricks from the nearest one held from below
   debrisMax: 420, gravity: 20,
   cookie: ['#d98f4e', '#cf8446', '#e39a58'], roof: ['#8a4c2a', '#9a5631', '#7c4325'], icing: '#fff8f0',
 };

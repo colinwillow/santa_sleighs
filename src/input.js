@@ -6,7 +6,7 @@
 // input.fire, input.boost, input.mouse (reticle in px when the mouse is aiming, else null).
 
 export const input = { steer: 0, climb: 0, aimX: 0, aimY: 0, fire: false, boost: false, mouse: null };
-export const STICKS = { R: 58, fireAt: 0.35, tapR: 0.35, deadL: 0.06 };   // right pad: inside tapR = the middle (jump tap, no fire)
+export const STICKS = { R: 58, fireAt: 0.35, tapR: 0.35, tapMs: 180, deadL: 0.06 };   // right pad: inside tapR = the middle (jump tap, no fire)
 
 // Lock page zoom (pinch, double tap, iOS gesture events).
 for (const ev of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick'])
@@ -109,7 +109,7 @@ const end = e => {
   for (const s of ['L', 'R']) {
     const P = pads[s]; if (e.pointerId !== P.id) continue;
     // a quick tap in the middle of the RIGHT pad = JUMP (his: jump is always a tap in the middle of the right stick)
-    if (s === 'R' && performance.now() - P.t0 < 280 && (P.maxd || 0) < STICKS.tapR) input.tap = true;
+    if (s === 'R' && performance.now() - P.t0 < STICKS.tapMs && (P.maxd || 0) < STICKS.tapR) input.tap = true;
     P.id = null; P.x = P.y = 0; padEl[s].classList.remove('act', 'firing'); placeHome();
   }
 };
@@ -162,8 +162,10 @@ export function pollInput() {
   if (R.id === null && gp) { ax = gp.rx; ay = gp.ry; }
   input.aimX = ax; input.aimY = ay;
   const push = Math.hypot(ax, ay);
-  input.fire = push > STICKS.fireAt || mouseDown || keys.has('Space') || !!gp?.fire;
-  padEl.R.classList.toggle('firing', R.id !== null && push > STICKS.fireAt);
+  // his: the whole right stick shoots -- off-centre at once, the middle once it's held past a tap (a quick tap = jump)
+  const heldR = R.id !== null && performance.now() - (R.t0 || 0) > STICKS.tapMs;
+  input.fire = (R.id !== null && push > STICKS.fireAt) || heldR || mouseDown || keys.has('Space') || !!gp?.fire;
+  padEl.R.classList.toggle('firing', R.id !== null && (push > STICKS.fireAt || heldR));
   input.boost = boostBtn || keys.has('ShiftLeft') || keys.has('ShiftRight') || !!gp?.boost;
   if (lastDevice !== 'mouse') input.mouse = null;
   input.device = lastDevice;

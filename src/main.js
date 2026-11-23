@@ -19,7 +19,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 31;
+export const BUILD = 32;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -335,8 +335,9 @@ function updateGun(dt, t) {
     const mh = out && (W.shot === 'tracer' || W.shot === 'slug') ? rig.model?.raycast(from, _d, 250) : null;
     if (mh && (!hit || mh.dist < hit.dist)) { rig.model.shoot(mh, W.shot === 'slug' ? 3 : 1); shots.puff(mh.point, '#ffd060', 3, 3, 0.4); hit = { dist: mh.dist, sleigh: true }; }
     if (hit && !hit.sleigh) {
-      if (W.shot === 'slug') world.town.blast(hit.point, 0.95, 99, _d.clone().multiplyScalar(10));
-      else world.town.hitBrick(hit.id, 1, _d.clone().multiplyScalar(6));
+      // his: bullets should hit harder -- a Gatling round now takes out the brick it hits + chips its neighbours; the rifle punches a big hole
+      if (W.shot === 'slug') world.town.blast(hit.point, 1.7, 99, _d.clone().multiplyScalar(10));
+      else { world.town.hitBrick(hit.id, 2, _d.clone().multiplyScalar(6)); world.town.blast(hit.point, 0.7, 1, _d.clone().multiplyScalar(5)); }
       shots.puff(hit.point, '#c0743a', 3, 3, 0.5);
     }
     if (W.shot === 'tracer') {
@@ -408,7 +409,22 @@ const ORB = { a: 0.6, h: 22, r: 58, drag: null };
 addEventListener('pointerdown', e => { if (camMode === 'orbit') ORB.drag = { x: e.clientX, y: e.clientY }; });
 addEventListener('pointermove', e => { if (!ORB.drag) return; ORB.a -= (e.clientX - ORB.drag.x) * 0.006; ORB.h = Math.max(3, Math.min(70, ORB.h + (e.clientY - ORB.drag.y) * 0.1)); ORB.drag = { x: e.clientX, y: e.clientY }; });
 addEventListener('pointerup', () => ORB.drag = null);
+// EVERY camera change EASES (his): when the camera's owner changes (seat <-> on foot, menu -> play, a camera mode), the next
+// ~1.2 s blend from where the camera actually was toward the new rig's pose instead of cutting
+const CAMB = { key: null, t: 0, pos: new THREE.Vector3(), q: new THREE.Quaternion(), fov: 60, dur: 1.2 };
 function updateCamera(dt) {
+  const key = STATE + '|' + (foot.active ? 'foot' : 'ride') + '|' + (camOverride || '');
+  if (CAMB.key !== null && key !== CAMB.key) CAMB.t = CAMB.dur;
+  CAMB.key = key;
+  updateCamera0(dt);
+  if (CAMB.t > 0 && camOverride !== 'free') {
+    CAMB.t = Math.max(0, CAMB.t - dt);
+    const k = 1 - Math.exp(-4.5 * dt * (1 + 3 * (1 - CAMB.t / CAMB.dur)));   // starts soft, firms up as it lands
+    camera.position.copy(CAMB.pos.lerp(camera.position, k)); camera.quaternion.copy(CAMB.q.slerp(camera.quaternion, k));
+  }
+  CAMB.pos.copy(camera.position); CAMB.q.copy(camera.quaternion);
+}
+function updateCamera0(dt) {
   if (STATE === 'menu') {   // the start screen: low over the crew, tree + village behind
     // fit the three of them (~4 m wide) in the frame at any aspect; a slow drift side to side
     const tt = performance.now() / 1000, asp = camera.aspect, port = asp < 1;

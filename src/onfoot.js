@@ -10,7 +10,7 @@ export const FOOT = {
   deckY: 1.25, deckX: 0.75, deckZ0: -0.7, deckZ1: 1.7,    // the walkable floor of his sleigh (sleigh-local metres)
   walk: 4.2, run: 7.5, jump: 10.5, jump2: 9.5, flipT: 0.55, gravity: 22,   // jump ~2.5 m; the 2nd jump (in the air) is a front flip, ~+2 m
   splat: 13,                                              // landing faster than this knocks him flat
-  catchR: 2.6,                                            // how close the deck must pass to grab it from the ground / air
+  catchR: 2.6, noCatch: 1.2,                            // after he leaves the deck the sleigh can't grab him back for this long                                            // how close the deck must pass to grab it from the ground / air
 };
 
 export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
@@ -107,9 +107,9 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
       const inv = rig.sleigh.g.quaternion.clone().invert();
       const lv = want.clone().applyQuaternion(inv); lv.y = 0;
       st.local.addScaledVector(lv, spd * dt);
-      if (doJump) { st.mode = 'air'; st.jumps = 1; sleighWorld(st.local, st.pos); st.vel.copy(rig.SV).add(want.clone().multiplyScalar(spd)); st.vel.y += FOOT.jump; sfx('whoosh', { vol: 0.4, rate: 1.5 }); setMode('air'); }
+      if (doJump) { st.mode = 'air'; st.jumps = 1; st.noCatch = FOOT.noCatch; sleighWorld(st.local, st.pos); st.vel.copy(rig.SV).add(want.clone().multiplyScalar(spd)); st.vel.y += FOOT.jump; sfx('whoosh', { vol: 0.4, rate: 1.5 }); setMode('air'); }
       else if (Math.abs(st.local.x) > FOOT.deckX + 0.15 || st.local.z < FOOT.deckZ0 - 0.2 || st.local.z > FOOT.deckZ1 + 0.2) {
-        sleighWorld(st.local, st.pos); st.vel.copy(rig.SV).add(want.clone().multiplyScalar(spd)); st.jumps = 1; setMode('air');   // walked off the edge
+        sleighWorld(st.local, st.pos); st.vel.copy(rig.SV).add(want.clone().multiplyScalar(spd)); st.jumps = 1; st.noCatch = FOOT.noCatch; setMode('air');   // walked off the edge
       } else sleighWorld(st.local, st.pos);
     } else {
       // air + ground: real world physics
@@ -144,7 +144,8 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
       } else if (st.mode === 'ground' && st.pos.y > floor + 0.4) { st.mode = 'air'; st.jumps = 1; setMode('air'); }
       // catch the sleigh: its deck passes close -> he's on it
       sleighWorld(new THREE.Vector3(0, FOOT.deckY, 0), deckW);
-      if (st.stun <= 0 && st.pos.distanceTo(deckW) < FOOT.catchR) {
+      st.noCatch = Math.max(0, (st.noCatch || 0) - dt);
+      if (st.stun <= 0 && st.noCatch <= 0 && st.pos.distanceTo(deckW) < FOOT.catchR) {
         toSleighLocal(st.pos, st.local); st.local.y = FOOT.deckY;
         st.local.x = THREE.MathUtils.clamp(st.local.x, -FOOT.deckX, FOOT.deckX); st.local.z = THREE.MathUtils.clamp(st.local.z, FOOT.deckZ0, FOOT.deckZ1);
         st.calling = false; st.jumps = 0; st.flip = 0; setMode('deck'); sfx('debris', { vol: 0.5, rate: 1.4 });
