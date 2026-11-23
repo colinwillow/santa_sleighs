@@ -112,3 +112,7 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.
   b36: the RED elf (default) = `models/elf_girl_red_rig.glb` = his `elf_girl_red.glb` + jiggle (`elf_jiggle_rig.py` with a per-model `C` override arg:
   `cx=0.032,cy=-0.122,cz=0.655,rx=0.05,ry=0.05,rz=0.05,base_y=-0.088`) + mounts.py hand mounts; packed, then his original WebP put back byte for byte.
+- **SNOWMAN MONSTER** (his `models/enemies/snowman_monster.glb`, Tripo, original untouched): `models/enemies/snowman_monster_rig.glb` =
+  Auto-Rig Pro (blender-addons `run_rig.sh`: weld, Smart + AI body + fingers, voxel bind -- 8 gave no weights, 9 bound) -> `arp2mix.py`
+  (mixamorig_*) -> HeadTop_End / Left/RightToe_End leaf joints (top of the hat, toe fronts) -> `mounts.py` hand mounts -> his JPEG put
+  back byte for byte -> Draco. FINGERS OK on the first run (thumb + 4 per hand, default AI thresh .5). 61 joints, 0.7 m tall, 1.38 MB.
