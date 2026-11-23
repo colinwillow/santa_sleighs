@@ -24,8 +24,8 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
 
   // ---- buttons: HOP (out / sit / call), JUMP --------------------------------------------------------------------------
   const mk = (id, txt, css) => { const b = document.createElement('div'); b.className = 'btn'; b.id = id; b.textContent = txt; b.style.cssText = css; document.getElementById('hud').appendChild(b); return b; };
-  const hop = mk('hopBtn', 'HOP OUT', 'width:auto;height:auto;border-radius:16px;padding:9px 12px;z-index:7;font-size:12px;top:calc(env(safe-area-inset-top) + 8px);right:calc(50% + 6px);background:linear-gradient(#e0343c,#a8141e)');
-  const jump = mk('jumpBtn', 'JUMP', 'width:70px;height:70px;z-index:7;right:calc(env(safe-area-inset-right) + 18px);bottom:calc(env(safe-area-inset-bottom) + 150px);background:radial-gradient(circle at 40% 35%,#7fc8ff,#1a5aa8);display:none');
+  const hop = mk('hopBtn', 'HOP OUT', 'width:auto;height:auto;z-index:7;font-size:12px;top:calc(env(safe-area-inset-top) + 8px);right:calc(50% + 6px)');
+  const jump = mk('jumpBtn', 'JUMP', 'width:70px;height:70px;z-index:7;right:calc(env(safe-area-inset-right) + 18px);bottom:calc(env(safe-area-inset-bottom) + 150px);display:none');
   let jumpPress = false;
   const press = (b, f) => b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); f(); });
   press(hop, () => hopAction());

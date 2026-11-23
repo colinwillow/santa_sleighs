@@ -31,8 +31,9 @@ const CSS = `
   .mn:not(.dark) .col { align-self: flex-end; width: min(34vw, 320px); }
 }
 #pauseBtn { position: fixed; z-index: 7; top: calc(env(safe-area-inset-top) + 34px); right: calc(env(safe-area-inset-right) + 10px);
-  width: 44px; height: 44px; border-radius: 50%; background: #0007; border: 2px solid #fff9; color: #fff; display: none;
-  place-items: center; font: 900 16px/1 system-ui; pointer-events: auto; user-select: none; -webkit-user-select: none; }
+  width: 42px; height: 42px; border-radius: 47% 53% 52% 48% / 52% 46% 54% 48%; background: #fcefd4; border: 3px solid #1d1420;
+  box-shadow: 2px 3px 0 #1d1420, inset 0 -5px 0 #f4b73a; color: #1d1420; display: none; transform: rotate(-4deg);
+  place-items: center; font: 900 15px/1 system-ui; pointer-events: auto; user-select: none; -webkit-user-select: none; }
 body.play #pauseBtn { display: grid; }
 body:not(.play) #stick, body:not(.play) #boost, body:not(.play) #fire, body:not(.play) #hopBtn, body:not(.play) #jumpBtn, body:not(.play) #weaponBtn, body:not(.play) #stats, body:not(.play) #hint { display: none !important; }
 #dbgHud { position: fixed; z-index: 7; left: calc(env(safe-area-inset-left) + 8px); top: calc(env(safe-area-inset-top) + 24px);

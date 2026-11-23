@@ -14,14 +14,45 @@ for (const ev of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick'])
 document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
 // ---- pads ---------------------------------------------------------------------------------------------------
+// LOOK (b27, his: "take the game logo and the flat drawn style"): the pads are stickers -- an ink outline, a solid offset
+// shadow (never CSS filter / drop-shadow on always-on HUD: iOS re-rasterises it every frame), LEFT = a gold + icing ring
+// with fly chevrons and a gold-star knob, RIGHT = a candy-cane-ringed target with a peppermint knob. The art is SVG data
+// URIs (drawn once), so nothing here repaints while a thumb moves.
+const INK = '#1d1420', CREAM = '#fcefd4', CANDY = '#e8263a', GOLD = '#f4b73a';
+const svgUrl = (vb, body) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${vb}'>${body}</svg>`)}")`;
+const chev = (rot, col) => `<path transform='rotate(${rot} 68 68)' d='M60 27l8-8 8 8' fill='none' stroke='${INK}' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/><path transform='rotate(${rot} 68 68)' d='M60 27l8-8 8 8' fill='none' stroke='${col}' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/>`;
+const PAD_L = svgUrl('0 0 136 136', `<circle cx='68' cy='68' r='64' fill='${CREAM}' fill-opacity='.16'/>
+<circle cx='68' cy='68' r='63.5' fill='none' stroke='${GOLD}' stroke-width='9'/>
+<path d='M17 46A55 55 0 0 1 46 15' fill='none' stroke='#fff4c8' stroke-width='3' stroke-linecap='round'/>
+<circle cx='68' cy='68' r='58.2' fill='none' stroke='${INK}' stroke-width='2.6'/>
+<circle cx='68' cy='68' r='44' fill='none' stroke='${CREAM}' stroke-width='2' stroke-dasharray='5 7' stroke-opacity='.7'/>
+${chev(0, CREAM)}${chev(90, CREAM)}${chev(180, CREAM)}${chev(270, CREAM)}`);
+const PAD_R = svgUrl('0 0 136 136', `<circle cx='68' cy='68' r='64' fill='${CANDY}' fill-opacity='.12'/>
+<circle cx='68' cy='68' r='63.5' fill='none' stroke='${CREAM}' stroke-width='9'/>
+<circle cx='68' cy='68' r='63.5' fill='none' stroke='${CANDY}' stroke-width='9' stroke-dasharray='12.47 12.47' transform='rotate(-8 68 68)'/>
+<circle cx='68' cy='68' r='58.2' fill='none' stroke='${INK}' stroke-width='2.6'/>
+<circle cx='68' cy='68' r='44' fill='none' stroke='${CREAM}' stroke-width='2.4' stroke-opacity='.8'/>
+<circle cx='68' cy='68' r='44' fill='none' stroke='${CANDY}' stroke-width='2.4' stroke-dasharray='6 8'/>
+<path d='M68 16v12M68 108v12M16 68h12M108 68h12' stroke='${INK}' stroke-width='6.5' stroke-linecap='round'/>
+<path d='M68 16v12M68 108v12M16 68h12M108 68h12' stroke='${CREAM}' stroke-width='3' stroke-linecap='round'/>`);
+const KN_L = svgUrl('0 0 56 56', `<circle cx='28' cy='28' r='25.5' fill='${CREAM}' stroke='${INK}' stroke-width='3.5'/>
+<circle cx='28' cy='28' r='19' fill='none' stroke='${GOLD}' stroke-width='4'/>
+<path d='M28 15.5l3.4 7.6 8.2.8-6.2 5.5 1.8 8.1L28 33.3l-7.2 4.2 1.8-8.1-6.2-5.5 8.2-.8z' fill='${GOLD}' stroke='${INK}' stroke-width='2.4' stroke-linejoin='round'/>
+<path d='M10 22a19 19 0 0 1 9-10' fill='none' stroke='#fff' stroke-width='3.2' stroke-linecap='round'/>`);
+const KN_R = svgUrl('0 0 56 56', `<circle cx='28' cy='28' r='25.5' fill='#fff8ec' stroke='${INK}' stroke-width='3.5'/>
+<g fill='${CANDY}'>${[0, 60, 120, 180, 240, 300].map(a => `<path transform='rotate(${a} 28 28)' d='M28 28C24 21 22 13 25 6.5c4.5-.6 8.5 0 12 1.8C32 12 29 19 28 28z'/>`).join('')}</g>
+<circle cx='28' cy='28' r='19.5' fill='none' stroke='${INK}' stroke-width='1.6' stroke-opacity='.35'/>
+<circle cx='28' cy='28' r='4' fill='#fff8ec' stroke='${INK}' stroke-width='1.8'/>
+<path d='M10 22a19 19 0 0 1 9-10' fill='none' stroke='#fff' stroke-width='3.2' stroke-linecap='round'/>`);
 const css = document.createElement('style');
 css.textContent = `
 .pad { position: fixed; width: 136px; height: 136px; margin: -68px 0 0 -68px; border-radius: 50%; pointer-events: none; z-index: 6;
-  border: 3px solid #ffffff66; background: #ffffff12; opacity: .35; transition: opacity .3s; }
+  border: 3px solid ${INK}; background: ${PAD_L} center/100% 100% no-repeat; box-shadow: 3px 4px 0 ${INK}99; opacity: .4; transition: opacity .3s; }
 .pad.act { opacity: 1; transition: opacity .06s; }
-.pad .kn { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: #ffffffcc; }
-#padR { border-color: #ff8a7a88; } #padR .kn { background: radial-gradient(circle at 40% 35%, #ff8a7a, #c41a22); }
-#padR.firing { box-shadow: 0 0 18px #ff6a40aa; }
+.pad .kn { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
+  background: ${KN_L} center/100% 100% no-repeat; box-shadow: 2px 3px 0 ${INK}; }
+#padR { background-image: ${PAD_R}; } #padR .kn { background-image: ${KN_R}; }
+#padR.firing { box-shadow: 0 0 0 4px #ff3d7f, 3px 4px 0 4px ${INK}; }
 #reticle { position: fixed; width: 46px; height: 46px; margin: -23px 0 0 -23px; pointer-events: none; z-index: 5; display: none; }
 body.play:not(.ret3d) #reticle { display: block; }
 body:not(.play) .pad { display: none; }
@@ -30,8 +61,12 @@ document.head.appendChild(css);
 const mkPad = id => { const p = document.createElement('div'); p.className = 'pad'; p.id = id; p.innerHTML = '<div class="kn"></div>'; document.body.appendChild(p); return p; };
 const padEl = { L: mkPad('padL'), R: mkPad('padR') };
 const ret = document.createElement('div'); ret.id = 'reticle';
-ret.innerHTML = `<svg viewBox="0 0 46 46" width="46" height="46"><circle cx="23" cy="23" r="15" fill="none" stroke="#fff" stroke-width="3" opacity=".9"/>
-<circle cx="23" cy="23" r="15" fill="none" stroke="#e8303a" stroke-width="1.5"/><path d="M23 2v9M23 35v9M2 23h9M35 23h9" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="23" cy="23" r="2.5" fill="#e8303a"/></svg>`;
+// the crosshair: an ink-outlined candy-cane ring + four icing ticks + a red pip (src/main.js RET3 paints the same on a canvas)
+ret.innerHTML = `<svg viewBox="0 0 46 46" width="46" height="46"><g fill="none" stroke-linecap="round">
+<circle cx="23" cy="23" r="14" stroke="${INK}" stroke-width="6.5"/><circle cx="23" cy="23" r="14" stroke="${CREAM}" stroke-width="3"/>
+<circle cx="23" cy="23" r="14" stroke="${CANDY}" stroke-width="3" stroke-dasharray="5.5 5.5" stroke-linecap="butt"/>
+<path d="M23 4v7M23 35v7M4 23h7M35 23h7" stroke="${INK}" stroke-width="6.5"/><path d="M23 4v7M23 35v7M4 23h7M35 23h7" stroke="${CREAM}" stroke-width="3"/></g>
+<circle cx="23" cy="23" r="3.6" fill="${CANDY}" stroke="${INK}" stroke-width="2"/></svg>`;
 document.body.appendChild(ret);
 
 const pads = { L: { id: null, ox: 0, oy: 0, x: 0, y: 0 }, R: { id: null, ox: 0, oy: 0, x: 0, y: 0 } };

@@ -27,13 +27,29 @@
   /* build number: below the status bar (iOS blurs the top strip), a readable pill */
   #build { position: fixed; z-index: 9; top: calc(env(safe-area-inset-top) + 34px); left: calc(env(safe-area-inset-left) + 10px);
     font: 800 13px/1 ui-monospace, monospace; color: #9ff; background: #0009; border-radius: 10px; padding: 5px 8px; pointer-events: none; }
+  /* HUD LOOK (b27, his: "take the game logo and the flat drawn style"): sticker buttons -- thick ink outline, a solid offset
+     shadow (no blur: never CSS filter / drop-shadow / backdrop-filter on always-on HUD, iOS re-rasterises them), candy-cane red,
+     gold, icing cream, milk green; slightly wonky radii + a tilt = hand drawn. Sizes / positions are unchanged. */
+  :root { --ink: #1d1420; --cream: #fcefd4; --candy: #e8263a; --pink: #ff3d7f; --gold: #f4b73a; --milk: #3dbb6a; }
   #stats { position: fixed; top: calc(env(safe-area-inset-top) + 6px); right: calc(env(safe-area-inset-right) + 10px);
-    font: 700 14px/1.3 inherit; text-align: right; text-shadow: 0 1px 2px #0008; }
+    font: italic 900 13px/1.2 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; color: var(--ink); text-align: right;
+    background: var(--cream); border: 2.5px solid var(--ink); border-radius: 12px 15px 11px 16px / 15px 11px 16px 12px;
+    padding: 2px 9px 2px 8px; box-shadow: 2px 3px 0 var(--ink); transform: rotate(1.5deg); }
   .btn { position: fixed; pointer-events: auto; border-radius: 50%; display: grid; place-items: center;
-    font: 800 13px/1 inherit; color: #fff; letter-spacing: .04em; border: 3px solid #fff8; }
+    font: italic 900 13px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; color: var(--cream); letter-spacing: .05em;
+    border: 3px solid var(--ink); box-shadow: 3px 4px 0 var(--ink); text-shadow: 1.5px 1.5px 0 var(--ink); }
+  .btn > * { pointer-events: none; }
   #boost { width: 70px; height: 70px; z-index: 7; right: calc(env(safe-area-inset-right) + 18px); bottom: calc(env(safe-area-inset-bottom) + 232px);
-    background: radial-gradient(circle at 40% 35%, #7fe6a5, #18804a); }
-  .btn.on { transform: scale(.92); border-color: #fff; }
+    border-radius: 48% 52% 50% 50% / 53% 47% 53% 47%; transform: rotate(-5deg); align-content: center; gap: 1px; font-size: 12px;
+    background: radial-gradient(circle at 34% 28%, #8ee8a8 0 14%, transparent 15%), var(--milk);
+    box-shadow: inset 0 0 0 3px #bff2cf, 3px 4px 0 var(--ink); }
+  #boost svg { width: 22px; height: 30px; display: block; margin: 0 auto; }
+  .btn.on { transform: translate(2px, 3px) scale(.94); box-shadow: 1px 1px 0 var(--ink); }
+  #boost.on { transform: rotate(-5deg) translate(2px, 3px) scale(.94); box-shadow: inset 0 0 0 3px #fff, 1px 1px 0 var(--ink); }
+  #hopBtn, #weaponBtn { border-radius: 14px 19px 15px 18px / 18px 14px 19px 15px; padding: 8px 12px 9px; }
+  #hopBtn { background: linear-gradient(var(--candy) 0 58%, #b8142a 58%); transform: rotate(-2deg); }
+  #weaponBtn { background: linear-gradient(var(--gold) 0 58%, #d98f1c 58%); color: var(--ink); text-shadow: 1px 1px 0 #ffe9a8; transform: rotate(2deg); }
+  #jumpBtn { background: radial-gradient(circle at 34% 28%, #bfe4ff 0 14%, transparent 15%), #3b8fe0; transform: rotate(4deg); }
   /* loading card: his cover art, fills the screen (blurred copy behind), fades once the crew is in */
   #boot { position: fixed; inset: 0; z-index: 10; background: #1b2340; transition: opacity .8s; pointer-events: none; }
   #boot .bg { position: absolute; inset: -40px; background: url(images/cover.jpg) center/cover; filter: blur(24px) brightness(.6); }
@@ -60,7 +76,7 @@
 <div id="hud">
   <div id="build">b<span id="bnum">1</span></div>
   <div id="stats">🍪 <span id="cookies">0</span> &nbsp; 🥛 <span id="milk">100</span></div>
-  <div id="boost" class="btn">BOOST</div>
+  <div id="boost" class="btn"><svg viewBox="0 0 22 30"><path d="M8 2.5h6v4.5l3.2 4.2c.9 1.2 1.3 2.4 1.3 3.9V25c0 1.4-1 2.5-2.5 2.5H6c-1.5 0-2.5-1.1-2.5-2.5v-9.9c0-1.5.4-2.7 1.3-3.9L8 7z" fill="#fffaf0" stroke="#1d1420" stroke-width="2.2" stroke-linejoin="round"/><path d="M7.4 2h7.2v4.2H7.4z" fill="#e8263a" stroke="#1d1420" stroke-width="2" stroke-linejoin="round"/><path d="M5.6 17.5c2.4 1.3 4.6-.8 6.8.4 1.6.8 3 .6 4-.3V25H5.6z" fill="#d8ecff"/><path d="M6.5 13.5v6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg><span>BOOST</span></div>
   <div id="hint">left thumb: fly · right thumb: aim + shoot · BOOST drinks milk</div>
 </div>
 <script>

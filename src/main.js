@@ -18,7 +18,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 26;
+export const BUILD = 27;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -221,7 +221,7 @@ const shots = makeShots(scene, groundH, {
 });
 let shake = 0, crashZoom = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
 const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
-wBtn.style.cssText = 'width:auto;height:auto;border-radius:16px;padding:9px 12px;z-index:7;font-size:12px;left:calc(50% + 6px);top:calc(env(safe-area-inset-top) + 8px);background:linear-gradient(#5a5f7a,#3a3e56)';
+wBtn.style.cssText = 'width:auto;height:auto;z-index:7;font-size:12px;left:calc(50% + 6px);top:calc(env(safe-area-inset-top) + 8px)';
 document.getElementById('hud').appendChild(wBtn);
 function setWeapon(key, announce = true) {
   weapon = key; try { localStorage.setItem('weapon', key); } catch (e) {}
@@ -266,10 +266,12 @@ const footShooter = {
 let wasFiring = false, retFrame = 0;
 const RET3 = (() => {
   const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.scale(128 / 46, 128 / 46); g.lineCap = 'round';
-  g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(23, 23, 15, 0, 7); g.stroke();
-  g.strokeStyle = '#e8303a'; g.lineWidth = 1.5; g.beginPath(); g.arc(23, 23, 15, 0, 7); g.stroke();
-  g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); for (const [a, b, x, y] of [[23, 2, 23, 11], [23, 35, 23, 44], [2, 23, 11, 23], [35, 23, 44, 23]]) { g.moveTo(a, b); g.lineTo(x, y); } g.stroke();
-  g.fillStyle = '#e8303a'; g.beginPath(); g.arc(23, 23, 2.5, 0, 7); g.fill();
+  // the same crosshair as input.js's #reticle SVG (b27): ink-outlined candy-cane ring, icing ticks, a red pip
+  const ring = (col, w, dash = []) => { g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash); g.beginPath(); g.arc(23, 23, 14, 0, Math.PI * 2); g.stroke(); };
+  const ticks = (col, w) => { g.setLineDash([]); g.strokeStyle = col; g.lineWidth = w; g.beginPath(); for (const [a, b, x, y] of [[23, 4, 23, 11], [23, 35, 23, 42], [4, 23, 11, 23], [35, 23, 42, 23]]) { g.moveTo(a, b); g.lineTo(x, y); } g.stroke(); };
+  ring('#1d1420', 6.5); ring('#fcefd4', 3); g.lineCap = 'butt'; ring('#e8263a', 3, [5.5, 5.5]); g.lineCap = 'round';
+  ticks('#1d1420', 6.5); ticks('#fcefd4', 3);
+  g.beginPath(); g.arc(23, 23, 3.6, 0, Math.PI * 2); g.fillStyle = '#e8263a'; g.fill(); g.strokeStyle = '#1d1420'; g.lineWidth = 2; g.stroke();
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, sizeAttenuation: false, depthTest: false, depthWrite: false, toneMapped: false, transparent: false, alphaTest: 0.35 }));
   s.renderOrder = 10; s.visible = false; s.frustumCulled = false; scene.add(s); return s;
