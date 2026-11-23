@@ -1,5 +1,5 @@
 {
-"build": 24,
+"build": 25,
 "files": [
 "./src/anim.js",
 "./src/audio.js",

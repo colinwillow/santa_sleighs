@@ -17,7 +17,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
   const st = { mode: 'seat', santa: null, local: new THREE.Vector3(0, FOOT.deckY, -0.3), pos: new THREE.Vector3(), vel: new THREE.Vector3(),
     face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false, zoom: 1, kick: 0, jumps: 0, flip: 0 };
   loadModels().then(M => {
-    st.santa = makeSanta(M.santa, { role: 'idle' });
+    st.santa = makeSanta(M.santa, { role: 'idle', stance: 'foot' });
     try { st.santa.setWeapon(localStorage.getItem('weapon') || 'gatling'); } catch (e) { st.santa.setWeapon('gatling'); }
     st.santa.holder.visible = false; scene.add(st.santa.holder); st.ready = true;
   });
@@ -42,7 +42,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     if (st.santa) st.santa.holder.visible = out;
     if (crewSanta()) crewSanta().holder.visible = !out;
     hop.textContent = m === 'seat' ? 'HOP OUT' : m === 'deck' ? 'SIT DOWN' : st.calling ? 'CALLING…' : 'CALL SLEIGH';
-    jump.style.display = out ? 'grid' : 'none';
+    jump.style.display = 'none';   // jump = a tap on the right pad (F on a keyboard)
     document.getElementById('boost').style.display = out ? 'none' : '';
   }
   function hopAction() {
@@ -90,6 +90,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     return f;
   }
   function update(dt, t) {
+    if (input.tap) { input.tap = false; if (st.mode !== 'seat') jumpPress = true; }   // right-pad tap = jump
     if (!st.ready || st.mode === 'seat') { if (st.santa) st.santa.holder.visible = false; return; }
     const S = st.santa;
     // stick -> a world direction, relative to the camera
@@ -188,7 +189,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     if (st.camPos.lengthSq() === 0 || st.camPos.distanceTo(want) > 60) st.camPos.copy(want);
     st.camPos.lerp(want, 1 - Math.exp(-(st.mode === 'air' ? 3 : 5) * dt));
     camera.position.copy(st.camPos);
-    camera.lookAt(st.pos.x + back.x * 3, st.pos.y + 2.3, st.pos.z + back.z * 3);   // he sits a little lower in frame; the crosshair has room above him
+    camera.lookAt(st.pos.x + back.x * 3, st.pos.y + 1.6, st.pos.z + back.z * 3);
     if (camera.fov !== 60) { camera.fov = 60; camera.updateProjectionMatrix(); }
   }
 
@@ -197,9 +198,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     get active() { return st.ready && st.mode !== 'seat'; },
     get santa() { return st.santa; },
     /** where the reticle rests when he's on foot: ahead of the camera, at about his height */
-    aimRest(out) { const b = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); return out.copy(st.pos).addScaledVector(b, 22).setY(st.pos.y + 2.4); },
-    /** his screen box: feet + head points (for keeping the crosshair off him) */
-    body(feet, head) { feet.copy(st.pos); head.copy(st.pos).setY(st.pos.y + 2.1); },
+    aimRest(out) { const b = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); return out.copy(st.pos).addScaledVector(b, 22).setY(st.pos.y + 1.0); },
     setFiring(on) { st.firing = on; },
     crashZoom(k) { st.kick = Math.max(st.kick, k); },
   };

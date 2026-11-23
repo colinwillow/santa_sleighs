@@ -17,7 +17,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 24;
+export const BUILD = 25;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -166,7 +166,7 @@ function casing(from) {
   const i = casI++ % CAS;
   from.getWorldPosition(_p); casP[i * 3] = _p.x; casP[i * 3 + 1] = _p.y; casP[i * 3 + 2] = _p.z;
   _right.set(-1, 0, 0).applyQuaternion(rig.sleigh.g.quaternion);
-  casV[i].copy(rig.SV).addScaledVector(_right, 3 + Math.random() * 2); casV[i].y += 3 + Math.random() * 2; casL[i] = 1.2;
+  casV[i].copy(foot?.active ? foot.st.vel : rig.SV).addScaledVector(_right, 3 + Math.random() * 2); casV[i].y += 3 + Math.random() * 2; casL[i] = 1.2;
 }
 function updateCasings(dt) {
   for (let i = 0; i < CAS; i++) {
@@ -180,7 +180,7 @@ function updateCasings(dt) {
 
 // ---- AIM: the right stick moves a reticle round a rest point ahead of the sleigh; the gun shoots at what's under it --------
 const AIM = { rest: new THREE.Vector3(), reach: 0.42, sx: 0, sy: 0, target: new THREE.Vector3(), ray: new THREE.Raycaster() };
-const _ndc = new THREE.Vector2(), _bf = new THREE.Vector3(), _bh = new THREE.Vector3();
+const _ndc = new THREE.Vector2();
 function updateAim(dt) {
   // rest: where the gun points with the stick centred -- ahead of the team, a little down
   if (foot.active) foot.aimRest(AIM.rest);
@@ -196,13 +196,6 @@ function updateAim(dt) {
     px = (rp.x * 0.5 + 0.5) * W + AIM.sx; py = (-rp.y * 0.5 + 0.5) * H + AIM.sy;
   }
   px = THREE.MathUtils.clamp(px, 20, W - 20); py = THREE.MathUtils.clamp(py, 20, H - 20);
-  // on foot the crosshair never sits ON Santa (his note: drawn over him it reads as behind him) -- inside his screen box it is
-  // lifted to just above his head, out in front of him
-  if (foot.active) {
-    foot.body(_bf, _bh); _bf.project(camera); _bh.project(camera);
-    const fy = (-_bf.y * 0.5 + 0.5) * H, hy = (-_bh.y * 0.5 + 0.5) * H, cx = (_bh.x * 0.5 + 0.5) * W, half = (fy - hy) * 0.35 + 26;
-    if (_bh.z < 1 && Math.abs(px - cx) < half && py > hy - 26) py = hy - 26;
-  }
   // what's under the reticle: march the camera ray down to the terrain, else a point far along it
   _ndc.set(px / W * 2 - 1, -(py / H) * 2 + 1); AIM.ray.setFromCamera(_ndc, camera);
   const o = AIM.ray.ray.origin, d = AIM.ray.ray.direction; let hit = false;
@@ -265,11 +258,33 @@ const footShooter = {
   get def() { return foot.santa?.def; }, get rate() { return foot.santa?.rate ?? 0.08; },
 };
 let wasFiring = false;
+const RET3 = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.scale(128 / 46, 128 / 46); g.lineCap = 'round';
+  g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(23, 23, 15, 0, 7); g.stroke();
+  g.strokeStyle = '#e8303a'; g.lineWidth = 1.5; g.beginPath(); g.arc(23, 23, 15, 0, 7); g.stroke();
+  g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); for (const [a, b, x, y] of [[23, 2, 23, 11], [23, 35, 23, 44], [2, 23, 11, 23], [35, 23, 44, 23]]) { g.moveTo(a, b); g.lineTo(x, y); } g.stroke();
+  g.fillStyle = '#e8303a'; g.beginPath(); g.arc(23, 23, 2.5, 0, 7); g.fill();
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, sizeAttenuation: false, depthTest: false, depthWrite: false, toneMapped: false, transparent: false, alphaTest: 0.35 }));
+  s.renderOrder = 10; s.visible = false; s.frustumCulled = false; scene.add(s); return s;
+})();
 function updateGun(dt, t) {
   const firing = STATE === 'play' && input.fire;
   const scr = STATE === 'play' ? updateAim(dt) : null;
-  if (scr) showReticle(scr.px, scr.py, firing);
-  else { AIM.target.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.target.y -= 8; }
+  if (scr) {
+    // on foot the crosshair is a sprite in the world just past Santa, so HE draws over it (his note: drawn on top of him it
+    // looked wrong); in the sleigh it stays the screen overlay
+    const onFoot = foot.active;
+    document.body.classList.toggle('ret3d', onFoot); RET3.visible = onFoot;
+    if (onFoot) {
+      // drawn after the world (on top of houses, the sleigh) but BEFORE Santa (renderOrder 11), so he covers it
+      foot.santa?.holder.traverse(o => { o.renderOrder = 11; });
+      const d = camera.position.distanceTo(foot.st.pos) + 1.5;
+      RET3.position.copy(AIM.ray.ray.origin).addScaledVector(AIM.ray.ray.direction, d);
+      const s = 46 / innerHeight / 0.866 * (firing ? 0.9 + Math.random() * 0.15 : 1);
+      RET3.scale.set(s, s, 1); RET3.material.rotation = firing ? (Math.random() - 0.5) * 0.35 : 0;
+    } else showReticle(scr.px, scr.py, firing);
+  } else { RET3.visible = false; AIM.target.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.target.y -= 8; }
   if (firing !== wasFiring) { sfx(firing ? 'gun_spinup' : 'gun_spindown', { vol: 0.5 }); wasFiring = firing; }
   rig.aimTarget = AIM.target;
   const out = foot.active;
@@ -306,10 +321,10 @@ function updateGun(dt, t) {
     }
     if (W.shot === 'tracer') {
       const tr = tracers[trI++ % TR];
-      tr.p.copy(from); tr.v.copy(_d).multiplyScalar(W.speed).add(rig.SV); tr.life = hit ? hit.dist / W.speed : 1.2;
+      tr.p.copy(from); tr.v.copy(_d).multiplyScalar(W.speed);   // no inherited sleigh speed: the tracer flies down the aim line (on foot it was adding the SLEIGH's velocity) tr.life = hit ? hit.dist / W.speed : 1.2;
     } else {
       if (W.shot === 'snowball') _d.y += 0.12;      // lob it a little
-      shots.fire(W, from, _d.normalize(), rig.SV.clone().multiplyScalar(0.6));
+      shots.fire(W, from, _d.normalize(), (out ? foot.st.vel : rig.SV).clone().multiplyScalar(0.6));
       if (W.shot === 'rocket') shots.puff(from, '#d8d6e0', 6, 3, 0.8);
     }
     flash.position.copy(from); flash.intensity = W.shot === 'snowball' ? 6 : 25;

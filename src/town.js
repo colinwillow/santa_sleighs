@@ -14,6 +14,7 @@ export const TOWN = {
   brick: new THREE.Vector3(1.2, 0.5, 0.55),   // long, high, deep (m)
   courses: 9, wallBricksX: 6, wallBricksZ: 4,
   hp: { wall: 2, roof: 2, gable: 2 },
+  span: 3,                 // a brick can hang off its course this many bricks from the nearest one held from below
   debrisMax: 420, gravity: 20,
   cookie: ['#d98f4e', '#cf8446', '#e39a58'], roof: ['#8a4c2a', '#9a5631', '#7c4325'], icing: '#fff8f0',
 };
@@ -228,40 +229,40 @@ export function makeTown(scene) {
 
   function remove(hs, ids, at, push) {
     const gone = new Set(ids);
-    // support: anything (wall / gable) with nothing alive beneath it falls too
+    // SUPPORT (his note: one shot dropped a whole wall -- he wants to shoot out bricks one by one until it gives):
+    // a brick stands if it connects to the ground through living bricks -- straight down through any brick it overlaps,
+    // or sideways along its course for up to TOWN.span bricks (bricks bridge a hole the way a real bonded wall does)
+    if (!hs.nb) {
+      hs.nb = new Map();
+      const pos = new Map(); for (const id of hs.ids) pos.set(id, new THREE.Vector3().setFromMatrixPosition(bricks[id].local));
+      for (const id of hs.ids) {
+        const b = bricks[id]; if (b.kind === 'roof') continue;
+        const bp = pos.get(id), up = [], side = [];
+        for (const jd of hs.ids) {
+          if (jd === id) continue; const c = bricks[jd]; if (c.kind === 'roof') continue;
+          const cp = pos.get(jd), dh = Math.hypot(cp.x - bp.x, cp.z - bp.z), dy = cp.y - bp.y;
+          if (dy > B.y * 0.5 && dy < B.y * 1.5 && dh < B.x * 1.02) up.push(jd);
+          else if (Math.abs(dy) < B.y * 0.5 && dh < B.x * 1.12) side.push(jd);
+        }
+        hs.nb.set(id, { up, side, ground: b.row === 0 });
+      }
+    }
     let changed = true;
     while (changed) {
       changed = false;
-      for (const id of hs.ids) {
-        const b = bricks[id];
-        if (!b.alive || gone.has(id) || b.kind === 'roof' || b.row === 0) continue;
-        const bp = new THREE.Vector3().setFromMatrixPosition(b.local);
-        let held = false;
-        for (const jd of hs.ids) {
-          const c = bricks[jd];
-          if (!c.alive || gone.has(jd) || c.kind === 'roof' || c.row !== b.row - 1) continue;
-          const cp = new THREE.Vector3().setFromMatrixPosition(c.local);
-          if (Math.abs(cp.y - (bp.y - B.y)) < 0.05 && Math.hypot(cp.x - bp.x, cp.z - bp.z) < B.x * 0.8) { held = true; break; }
-        }
-        // a one-brick-wide column with no neighbours in its course is too thin to stand (above the bottom two courses)
-        if (held && b.row >= 2 && b.kind === 'wall') {
-          let side = false;
-          for (const jd of hs.ids) {
-            if (jd === id) continue; const c = bricks[jd];
-            if (!c.alive || gone.has(jd) || c.row !== b.row) continue;
-            const cp = new THREE.Vector3().setFromMatrixPosition(c.local);
-            if (Math.hypot(cp.x - bp.x, cp.z - bp.z) < B.x * 1.15) { side = true; break; }
-          }
-          if (!side) held = false;
-        }
-        if (!held) { gone.add(id); changed = true; }
+      const live = id => bricks[id].alive && !gone.has(id);
+      const best = new Map(), q = [];   // best = fewest sideways steps since the last brick under it
+      for (const [id, n] of hs.nb) if (n.ground && live(id)) { best.set(id, 0); q.push(id); }
+      while (q.length) {
+        const id = q.shift(), n = hs.nb.get(id), k = best.get(id);
+        for (const u of n.up) if (live(u) && !(best.get(u) <= 0)) { best.set(u, 0); q.push(u); }
+        if (k < TOWN.span) for (const u of n.side) if (live(u) && !(best.get(u) <= k + 1)) { best.set(u, k + 1); q.push(u); }
       }
+      for (const [id] of hs.nb) if (live(id) && !best.has(id)) { gone.add(id); changed = true; }
       // the roof drops when the wall tops under it are mostly gone
       const topAlive = hs.top.filter(i => bricks[i].alive && !gone.has(i)).length;
       if (hs.top.length && topAlive < hs.top.length * 0.4) for (const r of hs.roof) if (bricks[r].alive && !gone.has(r)) { gone.add(r); changed = true; }
     }
-    // a house that's mostly gone caves in: everything above the bottom two courses comes down -> a low ruin
-    if ((hs.alive - gone.size) / hs.total < 0.35) for (const id of hs.ids) { const b = bricks[id]; if (b.alive && (b.row >= 2 || b.kind === 'roof')) gone.add(id); }
     for (const id of gone) {
       const b = bricks[id]; b.alive = false; hs.alive--;
       mesh.setMatrixAt(id, ZERO);

@@ -23,7 +23,7 @@ css.textContent = `
 #padR { border-color: #ff8a7a88; } #padR .kn { background: radial-gradient(circle at 40% 35%, #ff8a7a, #c41a22); }
 #padR.firing { box-shadow: 0 0 18px #ff6a40aa; }
 #reticle { position: fixed; width: 46px; height: 46px; margin: -23px 0 0 -23px; pointer-events: none; z-index: 5; display: none; }
-body.play #reticle { display: block; }
+body.play:not(.ret3d) #reticle { display: block; }
 body:not(.play) .pad { display: none; }
 `;
 document.head.appendChild(css);
@@ -46,7 +46,7 @@ window.addEventListener('pointerdown', e => {
   if (isUI(e.target) || e.pointerType === 'mouse') return;
   const side = e.clientX < innerWidth * 0.5 ? 'L' : 'R', P = pads[side];
   if (P.id !== null) return;
-  P.id = e.pointerId; P.ox = e.clientX; P.oy = e.clientY; P.x = P.y = 0;
+  P.id = e.pointerId; P.ox = e.clientX; P.oy = e.clientY; P.x = P.y = 0; P.t0 = performance.now(); P.maxd = 0;
   padEl[side].style.left = P.ox + 'px'; padEl[side].style.top = P.oy + 'px'; padEl[side].classList.add('act');
   lastDevice = 'touch'; hideHint();
 });
@@ -57,12 +57,14 @@ window.addEventListener('pointermove', e => {
     let dx = e.clientX - P.ox, dy = e.clientY - P.oy; const d = Math.hypot(dx, dy), R = STICKS.R;
     if (d > R) { dx *= R / d; dy *= R / d; }
     padEl[s].firstChild.style.transform = `translate(${dx}px,${dy}px)`;
-    P.x = dx / R; P.y = -dy / R;
+    P.x = dx / R; P.y = -dy / R; P.maxd = Math.max(P.maxd || 0, Math.hypot(P.x, P.y));
   }
 });
 const end = e => {
   for (const s of ['L', 'R']) {
     const P = pads[s]; if (e.pointerId !== P.id) continue;
+    // a quick tap in the middle of the RIGHT pad = JUMP (his: jump is always a tap in the middle of the right stick)
+    if (s === 'R' && performance.now() - P.t0 < 280 && (P.maxd || 0) < 0.35) input.tap = true;
     P.id = null; P.x = P.y = 0; padEl[s].classList.remove('act', 'firing'); placeHome();
   }
 };

@@ -14,6 +14,10 @@ export const CREW = {
   floorY: 1.05,                       // he stands on a crate of presents (sleigh local)
   santaZ: -0.35,                      // where he stands
   gunScale: 1.3,
+  // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
+  // arms were inside his body) the gun is held further out and the elbows flare to the sides so the arms read from behind.
+  seatStance: { fwd: 0.3, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2] },
+  footStance: { fwd: 0.55, poleR: [-1.6, 0.1, -0.1], poleL: [1.6, -0.2, 0.3] },
   aimYaw: 1.5, aimUp: 0.6, aimDown: 1.1,   // aim limits (rad) relative to the sleigh
   recoil: 0.11,                       // metres of kick per shot
   // secondary motion on the elves' jiggle bones (models/elf_girl_jiggle.glb, see tools/blender/)
@@ -223,7 +227,8 @@ function makeHatSway(B) {
 }
 
 // ---- SANTA: his model + a clip + the gun on his Spine with both fists IK'd onto its grips -------------------------
-export function makeSanta(gltf, { role = 'idle' } = {}) {
+export function makeSanta(gltf, { role = 'idle', stance = 'seat' } = {}) {
+  const ST = stance === 'foot' ? CREW.footStance : CREW.seatStance;
   const inst = skClone(gltf.scene);
   const S = prep(inst, CREW.santaH), B = S.B, H = S.holder;
   H.updateMatrixWorld(true);
@@ -245,7 +250,7 @@ export function makeSanta(gltf, { role = 'idle' } = {}) {
   let gun = buildGun(); const pivot = new THREE.Group();
   const hipL = H.worldToLocal(wpos(B.RightUpLeg)), chestL = H.worldToLocal(wpos(B.Spine2));
   B.Spine.add(pivot);
-  pivot.position.copy(B.Spine.worldToLocal(local(hipL.x * 0.55, hipL.y + (chestL.y - hipL.y) * 0.55, hipL.z + 0.3)));   // across the belly
+  pivot.position.copy(B.Spine.worldToLocal(local(hipL.x * 0.55, hipL.y + (chestL.y - hipL.y) * 0.55, hipL.z + ST.fwd)));   // across the belly (on foot: held out in front, so his arms show)
   pivot.scale.setScalar(1 / B.Spine.getWorldScale(V()).x);
   gun.g.scale.setScalar(CREW.gunScale); pivot.add(gun.g);
 
@@ -289,13 +294,13 @@ export function makeSanta(gltf, { role = 'idle' } = {}) {
       gun.firing = firing; gun.updBelt(t, dt);
       cig.ember.scale.setScalar(1 + Math.sin(t * 3) * 0.15);
       pivot.updateMatrixWorld(true);
-      ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), local(-1.2, 0.2, -0.6));
+      ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), local(...ST.poleR));
       // support hand: the gun's front grip if he can reach it, else slide back along the gun to the farthest point he can
       {
         const sh = B.LeftArm.getWorldPosition(V()), reach = (wpos(B.LeftForeArm).distanceTo(sh) + wpos(B.LeftHand).distanceTo(wpos(B.LeftForeArm))) * 0.97;
         const gl = gun.grips.left.getWorldPosition(V()), gr = gun.grips.right.getWorldPosition(V()), tgt = gl.clone();
         if (tgt.distanceTo(sh) > reach) { let lo = 0, hi = 1; for (let k = 0; k < 12; k++) { const m = (lo + hi) / 2; tgt.lerpVectors(gr, gl, m); if (tgt.distanceTo(sh) > reach) hi = m; else lo = m; } tgt.lerpVectors(gr, gl, lo); }
-        ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, local(1.0, -0.6, 0.2));
+        ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, local(...ST.poleL));
       }
       hat(dt);
     },
