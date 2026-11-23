@@ -10,6 +10,13 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Santa Slays</title>
+<!-- HOME SCREEN ICON. The version is in the FILENAME, never a query string: iOS caches an icon by URL forever and drops an
+     apple-touch-icon link whose href has a query (Korajin m4612). New icon = new -vN files + repoint these. -->
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon-v1.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192-v1.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32-v1.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Santa Slays">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2340;
     touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;

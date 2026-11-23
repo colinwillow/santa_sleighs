@@ -39,6 +39,8 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   range, a dead piece is copied out as CPU debris and its range collapsed (draws never change). Support: blocks fall when all below are
   gone, roof panels drop under 45% wall tops, chimney with its panel. ~36k tris a house -- test-page weight; a village needs a far version.
   Test page `?scene=destruct` (`src/destructshow.js`). Tuning in `GB`.
+- **Home-screen icon** (b11): `icons/*-vN.png` + root `apple-touch-icon.png`, `manifest.webmanifest`. Version in the FILENAME, never `?v=`
+  (iOS keeps an icon per URL forever). Source art `images/reference/icon_source.png`; white corners flood-filled with the frame gold.
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by
   `tools/blender/` (this Blender can't read Draco: undraco -> rig -> pack). The game springs them in `makeJiggle` (`CREW.jiggle`);
   input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.
