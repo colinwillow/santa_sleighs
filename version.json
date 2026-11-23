@@ -1,5 +1,5 @@
 {
-"build": 29,
+"build": 30,
 "files": [
 "./src/anim.js",
 "./src/audio.js",
@@ -17,6 +17,7 @@
 "./src/look.js",
 "./src/main.js",
 "./src/menu.js",
+"./src/merge.js",
 "./src/onfoot.js",
 "./src/paint.js",
 "./src/post.js",

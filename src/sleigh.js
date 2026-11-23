@@ -2,6 +2,7 @@
 // rope tether (a slack distance constraint + gravity, so it swings out on turns and sags on climbs).
 // Models are primitive stand-ins until the real GLBs land in models/ (see models/README.md).
 import * as THREE from 'three';
+import { mergeChildren } from './merge.js';
 import { groundH } from './world.js';
 import { Rope } from './rope.js';
 
@@ -155,6 +156,7 @@ export function buildRig(scene, colliders) {
   const slots = [[-1.5, 0], [1.5, 0], [-1.5, -4.4], [1.5, -4.4]];
   rig.deer = slots.map(([x, z], i) => {
     const d = buildDeer(i === 0); d.g.scale.setScalar(1.3); scene.add(d.g);
+    mergeChildren(d.g);   // ~34 primitive meshes -> one per material per moving part (draw calls)
     const p = rig.lead.clone().add(new THREE.Vector3(x, 0, z));
     return { ...d, slot: new THREE.Vector3(x, 0, z), p, v: new THREE.Vector3(0, 0, FLY.speed), phase: i * 0.37, hook: new THREE.Vector3() };
   });

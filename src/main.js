@@ -9,6 +9,7 @@ import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
 import { makeOnFoot } from './onfoot.js';
 import { fitSleighModel } from './sleighmodel.js';
+import { makeStaticMerger } from './merge.js';
 import { applyLook, addInk, LOOK, initialLook } from './look.js';
 import { makeMenus } from './menu.js';
 import { WEAPONS, ORDER, makeShots, loadGuns, heldGun } from './weapons.js';
@@ -18,7 +19,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 29;
+export const BUILD = 30;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -123,15 +124,20 @@ function statsText() {
 const cookieMat = new THREE.MeshStandardMaterial({ color: '#c98a4a', emissive: '#7a4010', emissiveIntensity: 0.6, roughness: 0.8 });
 const chipMat = new THREE.MeshStandardMaterial({ color: '#3a2014' });
 const cookies = [];
-for (let i = 0; i < 24; i++) {
+// INSTANCED (draw calls: 24 cookies x 6 meshes were 144 draws, now 2): each cookie keeps an invisible transform tree;
+// the two InstancedMeshes copy its world matrices every frame
+const NCOOK = 24, cookieDisc = new THREE.InstancedMesh(new THREE.CylinderGeometry(1.1, 1.1, 0.3, 20), cookieMat, NCOOK);
+const cookieChips = new THREE.InstancedMesh(new THREE.SphereGeometry(0.16, 6, 4), chipMat, NCOOK * 5);
+cookieDisc.frustumCulled = cookieChips.frustumCulled = false; scene.add(cookieDisc, cookieChips);
+for (let i = 0; i < NCOOK; i++) {
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.3, 20), cookieMat));
-  for (let k = 0; k < 5; k++) { const c = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 4), chipMat); c.position.set(Math.cos(k * 2.4) * 0.6, 0.16, Math.sin(k * 2.4) * 0.6); g.add(c); }
+  g.add(new THREE.Object3D());
+  for (let k = 0; k < 5; k++) { const c = new THREE.Object3D(); c.position.set(Math.cos(k * 2.4) * 0.6, 0.16, Math.sin(k * 2.4) * 0.6); g.add(c); }
   g.rotation.x = Math.PI / 2;
   const a = (i / 24) * Math.PI * 2, r = 60 + (i % 3) * 45;
   g.position.set(Math.cos(a) * r, groundH(Math.cos(a) * r, Math.sin(a) * r) + 18 + (i % 4) * 9, Math.sin(a) * r);
   const holder = new THREE.Group(); holder.add(g); holder.position.copy(g.position); g.position.set(0, 0, 0);
-  scene.add(holder); cookies.push({ o: holder, alive: true, t: 0 });
+  cookies.push({ o: holder, parts: g.children, alive: true, t: 0 });
 }
 let cookieCount = 0, milk = 100;
 const $cookies = document.getElementById('cookies'), $milk = document.getElementById('milk');
@@ -264,6 +270,8 @@ const footShooter = {
   get def() { return foot.santa?.def; }, get rate() { return foot.santa?.rate ?? 0.08; },
 };
 let wasFiring = false, retFrame = 0;
+// draw calls: a few seconds in, every static mesh is merged per material (src/merge.js); the rig + team are never touched
+const merger = makeStaticMerger(scene, { exclude: () => [rig.sleigh.g, ...rig.deer.map(d => d.g), foot.santa?.holder] });
 const RET3 = (() => {
   const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.scale(128 / 46, 128 / 46); g.lineCap = 'round';
   // the same crosshair as input.js's #reticle SVG (b27): ink-outlined candy-cane ring, icing ticks, a red pip
@@ -475,8 +483,11 @@ function frame(now) {
       c.alive = false; cookieCount++; milk = Math.min(100, milk + 20); sfx('cookie_pickup');
     }
   }
+  cookies.forEach((c, i) => { c.o.updateMatrixWorld(true); cookieDisc.setMatrixAt(i, c.parts[0].matrixWorld); for (let k = 0; k < 5; k++) cookieChips.setMatrixAt(i * 5 + k, c.parts[k + 1].matrixWorld); });
+  cookieDisc.instanceMatrix.needsUpdate = true; cookieChips.instanceMatrix.needsUpdate = true;
   $cookies.textContent = cookieCount; $milk.textContent = Math.round(milk);
   if (dt > 0) world.tick(t, dt);
+  merger.tick(dt);
   updateCamera(dt);
   world.snowUpdate(camera.position, t, dt);
   // keep the shadow camera centred on the sleigh
@@ -529,4 +540,4 @@ function updateSound(dt) {
   let near = 1e9; for (const f of world.fireList) near = Math.min(near, f.p.distanceTo(camera.position));
   L.fire.setVolume(Math.max(0, 1 - near / 28) * 0.8, 0.3);
 }
-window.__game = { rig, scene, camera, FLY, renderer, post, menus, MENU, foot, world, freeCam: () => { camOverride = 'free'; }, get state() { return STATE; } };
+window.__game = { rig, scene, camera, FLY, renderer, post, menus, MENU, foot, world, merger, freeCam: () => { camOverride = 'free'; }, get state() { return STATE; } };
