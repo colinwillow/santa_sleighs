@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#1b2340">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Santa Sleighs</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2340;
+    touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent; overscroll-behavior: none;
+    font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; }
+  #build { position: fixed; top: calc(env(safe-area-inset-top) + 6px); left: calc(env(safe-area-inset-left) + 8px);
+    font: 600 12px/1 ui-monospace, monospace; color: #7ff; opacity: .85; }
+  #stats { position: fixed; top: calc(env(safe-area-inset-top) + 6px); right: calc(env(safe-area-inset-right) + 10px);
+    font: 700 14px/1.3 inherit; text-align: right; text-shadow: 0 1px 2px #0008; }
+  .btn { position: fixed; pointer-events: auto; border-radius: 50%; display: grid; place-items: center;
+    font: 800 13px/1 inherit; color: #fff; letter-spacing: .04em; border: 3px solid #fff8; }
+  #fire  { width: 92px; height: 92px; right: calc(env(safe-area-inset-right) + 22px); bottom: calc(env(safe-area-inset-bottom) + 26px);
+    background: radial-gradient(circle at 40% 35%, #ff6b5b, #b3141c); }
+  #boost { width: 66px; height: 66px; right: calc(env(safe-area-inset-right) + 128px); bottom: calc(env(safe-area-inset-bottom) + 34px);
+    background: radial-gradient(circle at 40% 35%, #7fe6a5, #18804a); }
+  .btn.on { transform: scale(.92); border-color: #fff; }
+  #stick { position: fixed; width: 130px; height: 130px; margin: -65px 0 0 -65px; border-radius: 50%;
+    border: 3px solid #ffffff55; background: #ffffff14; display: none; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+    border-radius: 50%; background: #ffffffcc; }
+  #hint { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 14px); transform: translateX(-50%);
+    font: 600 13px/1.3 inherit; opacity: .8; text-align: center; transition: opacity 1s; white-space: nowrap; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/" } }
+</script>
+</head>
+<body>
+<div id="hud">
+  <div id="build">b<span id="bnum">1</span></div>
+  <div id="stats">🍪 <span id="cookies">0</span> &nbsp; 🥛 <span id="milk">100</span></div>
+  <div id="stick"><div id="knob"></div></div>
+  <div id="boost" class="btn">BOOST</div>
+  <div id="fire" class="btn">FIRE</div>
+  <div id="hint">left thumb: steer &amp; climb · WASD / arrows · shift boost · space fire</div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
