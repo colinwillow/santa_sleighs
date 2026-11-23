@@ -20,3 +20,6 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
 - **The crew** (`src/crew.js`): his GLBs posed in code, no clips yet. Santa's hands are two-bone IK'd onto the gun's grip sockets
   (never a world-position guess); the cigar hangs off the Head bone. Elves = one model cloned (`SkeletonUtils.clone`).
   Tuning in `CREW`. `?cam=crew` = the close-up for checking poses.
+- **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by
+  `tools/blender/` (this Blender can't read Draco: undraco -> rig -> pack). The game springs them in `makeJiggle` (`CREW.jiggle`);
+  input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.

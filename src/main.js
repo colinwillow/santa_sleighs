@@ -7,7 +7,7 @@ import { input, pollInput } from './input.js';
 import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
 
-export const BUILD = 4;
+export const BUILD = 5;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });

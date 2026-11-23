@@ -17,6 +17,8 @@ export const CREW = {
   gunScale: 1.3,
   aimYaw: 0.9, aimUp: 0.35, aimDown: 0.7,   // aim limits (rad) relative to the sleigh
   recoil: 0.11,                       // metres of kick per shot
+  // secondary motion on the elves' jiggle bones (models/elf_girl_jiggle.glb, see tools/blender/)
+  jiggle: { k: 150, damp: 7, inertia: 0.35, max: 0.03, bounce: 0.035 },
 };
 
 const loader = new GLTFLoader();
@@ -140,9 +142,45 @@ function buildCigar() {
   return { c, tip, ember };
 }
 
+/** spring the jiggle bones: each one lags its anchor (where the bind pose puts it) and springs back */
+function makeJiggle(E) {
+  const J = ['jiggle_L', 'jiggle_R'].map(n => E.B[n]).filter(Boolean).map((bone, i) => ({
+    bone, bind: bone.position.clone(), prev: null, warm: 0, vel: new THREE.Vector3(), accS: new THREE.Vector3(), accAvg: new THREE.Vector3(), o: new THREE.Vector3(), ov: new THREE.Vector3(), phase: i * 0.7,
+  }));
+  const anchor = new THREE.Vector3(), acc = new THREE.Vector3(), pq = new THREE.Quaternion(), ps = new THREE.Vector3(), lo = new THREE.Vector3();
+  const fn = dt => {
+    if (!J.length || dt <= 0) return;
+    const P = CREW.jiggle;
+    for (const j of J) {
+      j.bone.position.copy(j.bind);
+      j.bone.parent.updateWorldMatrix(true, false);
+      anchor.copy(j.bind).applyMatrix4(j.bone.parent.matrixWorld);
+      if (!j.prev) { j.prev = anchor.clone(); continue; }
+      const v = lo.copy(anchor).sub(j.prev).divideScalar(dt);
+      acc.copy(v).sub(j.vel).divideScalar(dt); j.vel.copy(v); j.prev.copy(anchor);
+      if (j.warm++ < 3) continue;                                     // first frames: no velocity history yet
+      if (acc.lengthSq() > 4e4) acc.setLength(200);                 // ignore teleports / first frames
+      j.accS.lerp(acc, 1 - Math.exp(-25 * dt));                       // smooth frame-time noise
+      j.accAvg.lerp(j.accS, 1 - Math.exp(-0.8 * dt));                 // the steady part (a long turn) ...
+      acc.subVectors(j.accS, j.accAvg);                               // ... is ignored: only CHANGES in motion jiggle
+      // o'' = -k o - c o' - inertia * a   (the flesh lags the body)
+      j.ov.addScaledVector(j.o, -P.k * dt).addScaledVector(j.ov, -P.damp * dt).addScaledVector(acc, -P.inertia * dt);
+      j.o.addScaledVector(j.ov, dt);
+      const ol = j.o.length();
+      if (ol > P.max) { j.o.multiplyScalar(P.max / ol); const out = j.ov.dot(j.o) / P.max; if (out > 0) j.ov.addScaledVector(j.o, -out / P.max); }   // stop at the limit, don't wind up
+      // world offset -> parent-local
+      j.bone.parent.getWorldQuaternion(pq); j.bone.parent.getWorldScale(ps);
+      lo.copy(j.o).applyQuaternion(pq.invert()).divideScalar(ps.x);
+      j.bone.position.copy(j.bind).add(lo);
+    }
+  };
+  fn.J = J;
+  return fn;
+}
+
 // ---- the crew ----------------------------------------------------------------------------------------
 export async function loadCrew(rig, scene) {
-  const [santaG, elfG] = await Promise.all([load('./models/santa.glb'), load('./models/elf_girl.glb')]);
+  const [santaG, elfG] = await Promise.all([load('./models/santa.glb'), load('./models/elf_girl_jiggle.glb')]);
   const sl = rig.sleigh.g;
 
   // SANTA
@@ -213,6 +251,8 @@ export async function loadCrew(rig, scene) {
     storeBind(B);
   };
   sit(driver); sit(sackElf, 0.4);
+  const jigDriver = makeJiggle(driver), jigSack = makeJiggle(sackElf);
+  const driverY = driver.holder.position.y;
 
   // reins: from the driver's hands to the rear reindeer
   const handR = new THREE.Vector3(), handL = new THREE.Vector3();
@@ -256,6 +296,7 @@ export async function loadCrew(rig, scene) {
       resetBind(driver.B); resetBind(sackElf.B);
       driver.holder.updateMatrixWorld(true);
       const bob = Math.sin(t * 6) * 0.03;
+      driver.holder.position.y = driverY + Math.abs(Math.sin(t * 6)) * CREW.jiggle.bounce;   // bouncing on the bench with the gallop
       const DR = (x, y, z) => driver.holder.localToWorld(new THREE.Vector3(x, y, z));
       ik2(driver.B.RightArm, driver.B.RightForeArm, driver.B.RightHand, DR(-0.18, 0.55 + bob, 0.42), DR(-0.8, 0, -0.3));
       ik2(driver.B.LeftArm, driver.B.LeftForeArm, driver.B.LeftHand, DR(0.18, 0.55 - bob, 0.42), DR(0.8, 0, -0.3));
@@ -266,9 +307,10 @@ export async function loadCrew(rig, scene) {
       const SE = (x, y, z) => sackElf.holder.localToWorld(new THREE.Vector3(x, y, z));
       ik2(sackElf.B.RightArm, sackElf.B.RightForeArm, sackElf.B.RightHand, SE(-0.32 + Math.sin(t * 7) * 0.1, 0.95, 0.15), SE(-0.6, 0.2, -0.4));
       ik2(sackElf.B.LeftArm, sackElf.B.LeftForeArm, sackElf.B.LeftHand, SE(0.3, 0.05, 0.05), SE(0.6, 0.4, -0.3));
+      jigDriver(dt); jigSack(dt);
       void tmpM;
     },
   };
-  crew.debug = { driver, sackElf, santa };
+  crew.debug = { driver, sackElf, santa, jigDriver };
   return crew;
 }
