@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { mergeVertices } from 'three/addons/BufferGeometryUtils.js';
 import { groundH } from './terrain.js';
-import { rand, rr, softDot } from './util.js';
+import { rand, rr, softDot, shadowProxy } from './util.js';
 
 export const TOWN = {
   brick: new THREE.Vector3(1.2, 0.5, 0.55),   // long, high, deep (m)
@@ -32,11 +32,24 @@ function chamferBox(w, h, d, c) {
   g = mergeVertices(g, 1e-4); g.computeVertexNormals();
   return g;
 }
-/** an icing cap: a soft slab with two drips hanging off the front edge */
+/** a slab bevelled along its TOP edges only (the underside sits on the brick): 20 tris, smooth-shaded */
+function topChamferSlab(w, h, d, c) {
+  const pts = [];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    pts.push(new THREE.Vector3(sx * w / 2, -h / 2, sz * d / 2), new THREE.Vector3(sx * w / 2, h / 2 - c, sz * d / 2),
+      new THREE.Vector3(sx * (w / 2 - c), h / 2, sz * (d / 2 - c)));
+  }
+  let g = new ConvexGeometry(pts);
+  g.deleteAttribute('normal'); g.deleteAttribute('uv');
+  g = mergeVertices(g, 1e-4); g.computeVertexNormals();
+  return g;
+}
+/** an icing cap: a soft slab with two drips hanging off the front edge (b30: 50 tris, was 212 -- slab 20 + two 15-tri drips) */
 function icingGeo(w, d) {
-  const parts = [chamferBox(w * 1.04, 0.14, d * 1.12, 0.06)];
+  const parts = [topChamferSlab(w * 1.04, 0.14, d * 1.12, 0.06)];
   for (const [x, len] of [[-w * 0.22, 0.32], [w * 0.18, 0.22]]) {
-    const drip = new THREE.CapsuleGeometry(0.06, len, 3, 6); drip.translate(x, -len / 2 - 0.02, d * 0.56); parts.push(drip);
+    const stem = new THREE.CylinderGeometry(0.06, 0.055, len, 5, 1, true); stem.translate(x, -len / 2 - 0.02, d * 0.56); parts.push(stem);
+    const tip = new THREE.ConeGeometry(0.055, 0.08, 5, 1, true); tip.rotateX(Math.PI); tip.translate(x, -len - 0.06, d * 0.56); parts.push(tip);
   }
   const P = [], N = [];
   for (const g0 of parts) { const g = g0.index ? g0.toNonIndexed() : g0; P.push(...g.attributes.position.array); N.push(...g.attributes.normal.array); }
@@ -49,7 +62,7 @@ export function makeTown(scene) {
   const B = TOWN.brick;
   const bricks = [];       // { h: house, local: Matrix4, world: Matrix4, half: Vector3, kind, row, alive, hp, ice: index|-1, col: Color }
   const houses = [];
-  let built = false, mesh, ice, debrisMesh;
+  let built = false, mesh, ice, debrisMesh, wallProxy, roofProxy;
   const ices = [];         // { b: brick index, world: Matrix4 }
   const decor = [];        // non-destructible dressing per house (hidden when the house is mostly gone)
 
@@ -111,6 +124,7 @@ export function makeTown(scene) {
       }
     }
     hs.total = hs.alive = hs.ids.length;
+    hs.wallH = top; hs.roofBase = top - 0.15; hs.roofW = run * 2; hs.roofH = rise + 0.1; hs.roofD = D + 1.0;   // shadow proxy sizes
     // dressing: door, glowing windows, candy canes, gumdrops, a chimney smoke point
     const D2 = D / 2;
     hs.decor.push({ kind: 'door', m: H.clone().multiply(new THREE.Matrix4().compose(new THREE.Vector3((door + 0.5) * B.x - W / 2 + B.x / 2 - B.x / 2, 1.0, D2 - 0.2), q0, new THREE.Vector3(1.05, 2.0, 0.12))) });
@@ -136,26 +150,36 @@ export function makeTown(scene) {
   function finish() {
     mesh = new THREE.InstancedMesh(brickGeo, mat, bricks.length);
     bricks.forEach((b, i) => { mesh.setMatrixAt(i, b.world); mesh.setColorAt(i, b.col); });
-    mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = false; scene.add(mesh);
+    // b30: the bricks / icing / dressing no longer cast -- the shadow pass draws one box + one roof prism per house instead
+    mesh.castShadow = false; mesh.receiveShadow = true; mesh.frustumCulled = false; scene.add(mesh);
     ice = new THREE.InstancedMesh(icingGeo(B.x * 0.97, B.z), iceMat, Math.max(1, ices.length));
     ices.forEach((c, i) => ice.setMatrixAt(i, c.world));
-    ice.castShadow = true; ice.frustumCulled = false; scene.add(ice);
+    ice.castShadow = false; ice.receiveShadow = true; ice.frustumCulled = false; scene.add(ice);
     debrisMesh = new THREE.InstancedMesh(brickGeo, mat, TOWN.debrisMax); debrisMesh.count = 0; debrisMesh.castShadow = true; debrisMesh.frustumCulled = false;
     debrisMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TOWN.debrisMax * 3), 3); scene.add(debrisMesh);
     // dressing: one instanced mesh per kind
     const kinds = {
       door: [new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: '#b82a26', roughness: 0.5 })],
       win: [new THREE.PlaneGeometry(1, 1), glowMat],
-      cane: [(() => { const pts = []; for (let k = 0; k <= 12; k++) { const t = k / 12; pts.push(t < 0.75 ? new THREE.Vector3(0, t / 0.75 * 1.3, 0) : new THREE.Vector3(0.18 - Math.cos((t - 0.75) / 0.25 * Math.PI) * 0.18, 1.3 + Math.sin((t - 0.75) / 0.25 * Math.PI) * 0.18, 0)); } return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.07, 6); })(),
+      cane: [(() => { const pts = []; for (let k = 0; k <= 12; k++) { const t = k / 12; pts.push(t < 0.75 ? new THREE.Vector3(0, t / 0.75 * 1.3, 0) : new THREE.Vector3(0.18 - Math.cos((t - 0.75) / 0.25 * Math.PI) * 0.18, 1.3 + Math.sin((t - 0.75) / 0.25 * Math.PI) * 0.18, 0)); } return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.07, 5); })(), /* b30: 240 -> 120 tris */
         new THREE.MeshStandardMaterial({ map: caneTex(), roughness: 0.4 })],
-      gum: [(() => { const g = new THREE.SphereGeometry(0.32, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2); g.scale(1, 1.3, 1); return g; })(), new THREE.MeshStandardMaterial({ roughness: 0.35 })],
+      gum: [(() => { const g = new THREE.SphereGeometry(0.32, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2); /* b30: 150 -> 56 tris */ g.scale(1, 1.3, 1); return g; })(), new THREE.MeshStandardMaterial({ roughness: 0.35 })],
     };
     for (const [k, [g, m]] of Object.entries(kinds)) {
       const list = []; houses.forEach((h, hi) => h.decor.forEach(d => { if (d.kind === k) list.push({ h: hi, d }); }));
       const im = new THREE.InstancedMesh(g, m, Math.max(1, list.length));
       list.forEach((e, i) => { im.setMatrixAt(i, e.d.m); if (e.d.col) im.setColorAt(i, new THREE.Color(e.d.col)); });
-      im.castShadow = k !== 'win'; im.frustumCulled = false; scene.add(im); decorMeshes.push({ im, list });
+      im.castShadow = false; im.receiveShadow = k !== 'win'; im.frustumCulled = false; scene.add(im); decorMeshes.push({ im, list });
     }
+    // SHADOW PROXIES: walls = a unit box (base at y 0) scaled W x wall height x D; roof = a unit prism over the gables
+    wallProxy = shadowProxy(scene, new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), houses.length, houses.length);
+    const tri = new THREE.Shape(); tri.moveTo(-0.5, 0); tri.lineTo(0.5, 0); tri.lineTo(0, 1); tri.lineTo(-0.5, 0);
+    roofProxy = shadowProxy(scene, new THREE.ExtrudeGeometry(tri, { depth: 1, bevelEnabled: false }).translate(0, 0, -0.5), houses.length, houses.length);
+    houses.forEach((hs, i) => {
+      hs.pi = i; hs.walls = hs.ids.filter(id => bricks[id].kind === 'wall'); hs.wallTotal = hs.walls.length;
+      roofProxy.setMatrixAt(i, hs.H.clone().multiply(new THREE.Matrix4().compose(new THREE.Vector3(0, hs.roofBase, 0), new THREE.Quaternion(), new THREE.Vector3(hs.roofW, hs.roofH, hs.roofD))));
+      proxyFollow(hs);
+    });
     built = true;
   }
   function caneTex() {
@@ -270,6 +294,7 @@ export function makeTown(scene) {
       spawnDebris(b, at, push, ids.includes(id));
     }
     mesh.instanceMatrix.needsUpdate = true; ice.instanceMatrix.needsUpdate = true;
+    proxyFollow(hs);
     // the house's crash collider + dressing follow what's left
     const frac = hs.alive / hs.total;
     if (frac < 0.35 && !hs.dead) {
@@ -278,6 +303,19 @@ export function makeTown(scene) {
     } else hs.collider.top = hs.gy + Math.max(1, frac) * (hs.collider.top - hs.gy);
     window.sfx?.play(gone.size > 6 ? 'debris' : 'crunch', { vol: Math.min(1, 0.4 + gone.size * 0.05) });
     return gone.size;
+  }
+
+  /** the house's shadow stand-ins follow what is left: the wall box's height = the share of wall bricks still up, the roof
+   *  prism goes when most of the roof has dropped */
+  const _pm = new THREE.Matrix4(), _ps = new THREE.Vector3(), _pp = new THREE.Vector3(), _pq = new THREE.Quaternion();
+  function proxyFollow(hs) {
+    if (!wallProxy || hs.pi === undefined) return;
+    let w = 0; for (const id of hs.walls) if (bricks[id].alive) w++;
+    const f = hs.wallTotal ? w / hs.wallTotal : 0;
+    wallProxy.setMatrixAt(hs.pi, f > 0.02 ? _pm.multiplyMatrices(hs.H, new THREE.Matrix4().compose(_pp.set(0, 0, 0), _pq, _ps.set(hs.W, hs.wallH * f, hs.D))) : ZERO);
+    let r = 0; for (const id of hs.roof) if (bricks[id].alive) r++;
+    if (r < hs.roof.length * 0.5) roofProxy.setMatrixAt(hs.pi, ZERO);
+    wallProxy.instanceMatrix.needsUpdate = roofProxy.instanceMatrix.needsUpdate = true;
   }
 
   // ---- debris: knocked-out bricks tumble, bounce, settle as rubble (oldest recycled) -----------------------------------

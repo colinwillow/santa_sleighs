@@ -2,7 +2,7 @@
 // snow, dry grass tufts, and the instanced flora (frosted round trees, snowy pines, bushes, snow mounds).
 import * as THREE from 'three';
 import { groundH } from './terrain.js';
-import { rand, rr, T, Batch, BLOB, CYL } from './util.js';
+import { rand, rr, T, Batch, CYL6, LOBLOB, shadowProxy } from './util.js';
 import { foliageTex, paintUV } from './paint.js';
 
 /** turn a MeshStandardMaterial into painterly snow: soft world-space colour mottling + tiny glints */
@@ -60,37 +60,51 @@ function bladeTexture() {
 
 /** flora + patches, placed with add*() then finish() */
 export function makeFlora(scene) {
+  // b30 tris cut: crowns are 48-tri smooth spheres (were 80-tri BLOBs), trunks open 6-sided, pine tiers 7-sided with the
+  // snow caps + tip open-bottomed (their undersides sit inside the tier below) -- frost 520 -> 300, pine 184 -> 103, bush 160 -> 96
   const frost = new Batch();
-  frost.add(CYL, '#4a3428', T(0, 1.2, 0, 0.25, 2.4, 0.25));
+  frost.add(CYL6, '#4a3428', T(0, 1.2, 0, 0.25, 2.4, 0.25));
   for (const [bx, by, bz, s] of [[0, 3.2, 0, 1.6], [0.9, 2.7, 0.3, 1.1], [-0.8, 2.8, -0.4, 1.15], [0.2, 4.3, -0.2, 1.15], [-0.3, 2.5, 0.9, 1.0], [0.4, 2.6, -1.0, 1.0]])
-    frost.add(BLOB, by > 3 ? '#eef2ff' : '#c4d0ee', T(bx, by, bz, s, s * 0.9, s), 0.1);
+    frost.add(LOBLOB, by > 3 ? '#eef2ff' : '#c4d0ee', T(bx, by, bz, s, s * 0.9, s), 0.1);
   const pine = new Batch();
-  pine.add(CYL, '#4a3428', T(0, 0.6, 0, 0.25, 1.2, 0.25));
+  pine.add(CYL6, '#4a3428', T(0, 0.6, 0, 0.25, 1.2, 0.25));
   for (let k = 0; k < 4; k++) {
     const r = 2.2 - k * 0.45, yb = 1.2 + k * 1.35;
-    pine.add(new THREE.ConeGeometry(r, 2.2, 8), '#1f4a3c', T(0, yb + 1.1, 0));
-    pine.add(new THREE.ConeGeometry(r * 0.78, 0.9, 8), '#eef2ff', T(0, yb + 1.75, 0), 0.03);
+    pine.add(new THREE.ConeGeometry(r, 2.2, 7), '#1f4a3c', T(0, yb + 1.1, 0));
+    pine.add(new THREE.ConeGeometry(r * 0.78, 0.9, 7, 1, true), '#eef2ff', T(0, yb + 1.75, 0), 0.03);
   }
-  pine.add(new THREE.ConeGeometry(0.4, 0.7, 8), '#eef2ff', T(0, 7.2, 0));
+  pine.add(new THREE.ConeGeometry(0.4, 0.7, 7, 1, true), '#eef2ff', T(0, 7.2, 0));
   const bush = new Batch();
-  bush.add(BLOB, '#8396bd', T(0, 0.45, 0, 0.9, 0.7, 0.9)); bush.add(BLOB, '#f3f5ff', T(0, 0.85, 0, 0.8, 0.4, 0.8), 0.03);
+  bush.add(LOBLOB, '#8396bd', T(0, 0.45, 0, 0.9, 0.7, 0.9)); bush.add(LOBLOB, '#f3f5ff', T(0, 0.85, 0, 0.8, 0.4, 0.8), 0.03);
+  // snow mounds sit half in the ground: a dome a little past the equator (so slopes don't show its rim), 40 tris (was 80)
+  const MOUND = new THREE.SphereGeometry(1, 8, 3, 0, Math.PI * 2, 0, Math.PI * 0.62);
 
   // hand-painted: one shared neutral brush map multiplies the vertex colours (needles, caps, bark, frosted crowns)
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, map: foliageTex() });
   mat.color.setScalar(1.12);   // the map averages ~0.89: keep the colours where they were
   const snowMat = snowShader(new THREE.MeshStandardMaterial({ color: '#f3f5ff', roughness: 0.95 }), { glint: 0.6 });
-  const inst = (geo, m, n, shadow = true) => { const im = new THREE.InstancedMesh(geo, m, n); im.castShadow = shadow; im.receiveShadow = true; im.count = 0; scene.add(im); return im; };
+  // b30: nothing here casts for real; trees + bushes cast through shadow-only stand-ins (SH below)
+  const inst = (geo, m, n) => { const im = new THREE.InstancedMesh(geo, m, n); im.castShadow = false; im.receiveShadow = true; im.count = 0; scene.add(im); return im; };
   const I = {
     frost: inst(paintUV(frost.geometry(), 2.0, 1.2), mat, 260), pine: inst(paintUV(pine.geometry(), 2.2, 1.5), mat, 260), bush: inst(paintUV(bush.geometry(), 1.4, 0.8), mat, 400),
-    mound: inst(BLOB, snowMat, 1400, false),
+    mound: inst(MOUND, snowMat, 1400),
     patch: inst(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: blobTexture(), transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 }), 500, false),
     tuft: inst(crossQuads(), new THREE.MeshStandardMaterial({ map: bladeTexture(), alphaTest: 0.4, side: THREE.DoubleSide, roughness: 1 }), 3000, false),
   };
   I.patch.renderOrder = 1;
+  const SH = {   // round tree = a 20-tri icosahedron over the crowns, pine = an open 8-tri cone, bush = a squashed icosahedron
+    frost: shadowProxy(scene, new THREE.IcosahedronGeometry(1.9, 0).scale(1, 1.05, 1).translate(0, 3.25, 0), 260),
+    pine: shadowProxy(scene, new THREE.ConeGeometry(2.2, 6.6, 8, 1, true).translate(0, 4.5, 0), 260),
+    bush: shadowProxy(scene, new THREE.IcosahedronGeometry(0.9, 0).scale(1, 0.85, 1).translate(0, 0.55, 0), 400),
+  };
   const c = new THREE.Color();
   const put = (im, m, col) => { if (im.count >= im.instanceMatrix.count) return false; im.setMatrixAt(im.count, m); if (col) im.setColorAt(im.count, col); im.count++; return true; };
   return {
-    tree(kind, x, z, s = rr(0.8, 1.35)) { return put(I[kind], T(x, groundH(x, z), z, s, s * rr(0.9, 1.2), s, 0, rand() * 6, 0), c.setScalar(rr(0.9, 1.05))); },
+    tree(kind, x, z, s = rr(0.8, 1.35)) {
+      const m = T(x, groundH(x, z), z, s, s * rr(0.9, 1.2), s, 0, rand() * 6, 0);
+      if (!put(I[kind], m, c.setScalar(rr(0.9, 1.05)))) return false;
+      put(SH[kind], m); return true;
+    },
     mound(x, z, sx, sy, sz, y) { return put(I.mound, T(x, (y ?? groundH(x, z)) + 0.05, z, sx, sy, sz, 0, rand() * 6, 0)); },
     /** kind 'grass' | 'dirt' */
     patch(x, z, r, kind = 'grass', tufts = 6) {

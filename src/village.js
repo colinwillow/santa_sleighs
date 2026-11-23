@@ -11,6 +11,8 @@ import { makeTown } from './town.js';
 
 const LOOP = [[-50, -30], [-20, -46], [14, -36], [44, -52], [62, -22], [40, 4], [56, 30], [36, 54], [2, 40], [-24, 58], [-58, 38], [-42, 6]];
 export const ROAD = { half: 3.6, curbH: 0.22, walk: 2.2, y: 0.06 };
+// b30: road dashes + sidewalk seams are flat quads (2 tris) -- they were 1 cm boxes (12 tris), only their tops ever showed
+const FLAT = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 const DIRT = [[62, -22], [90, -26], [120, -12], [150, -20], [182, -4], [212, 10]];
 
 export function buildVillage(scene, world) {
@@ -57,11 +59,11 @@ export function buildVillage(scene, world) {
   }
   for (let i = 0; i < NS; i += 6) {   // centre dashes
     const p = pts[i], t = tan[i];
-    R.add(BOX, '#efe2b0', T(p.x, y + 0.012, p.z, 0.14, 0.01, 2.2, 0, Math.atan2(t.x, t.z), 0), 0);
+    R.add(FLAT, '#efe2b0', T(p.x, y + 0.017, p.z, 0.14, 1, 2.2, 0, Math.atan2(t.x, t.z), 0), 0);
   }
   for (let i = 0; i < NS; i += 2) for (const s of [-1, 1]) {   // sidewalk slab seams
     const p = pts[i], n = nrm[i], o = s * (half + 0.3 + walk / 2), t = tan[i];
-    R.add(BOX, '#9e97a8', T(p.x + n.x * o, top + 0.005, p.z + n.z * o, walk - 0.1, 0.01, 0.05, 0, Math.atan2(t.x, t.z), 0), 0);
+    R.add(FLAT, '#9e97a8', T(p.x + n.x * o, top + 0.01, p.z + n.z * o, walk - 0.1, 1, 0.05, 0, Math.atan2(t.x, t.z), 0), 0);
   }
   {   // dirt road: snow shoulders, a muddy bed, two dark ruts
     const dn = [], gy = (x, z) => groundH(x, z) + 0.22;

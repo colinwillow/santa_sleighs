@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 
 import { WORLD, VILLAGE_R, POND, groundH } from './terrain.js';
-import { rand, rr, softDot } from './util.js';
+import { rand, rr, softDot, shadowProxy } from './util.js';
 import { buildVillage } from './village.js';
 import { buildKitShow } from './kitshow.js';
 import { snowShader } from './ground.js';
@@ -51,7 +51,9 @@ export function buildWorld(scene, camera, { mode = 'village' } = {}) {
   world.moonLight = moonLight;
 
   // ---- terrain ----------------------------------------------------------------------
-  const seg = 180;
+  // b30: 120 segments (was 180: 64.8k -> 28.8k tris). The mesh is sampled from groundH, so the vertices sit exactly on it;
+  // between them the mean gap to groundH went 2 cm -> 4 cm (worst spots at the pond rim / bowl edge). The village bowl is flat.
+  const seg = 120;
   const tg = new THREE.PlaneGeometry(WORLD * 1.6, WORLD * 1.6, seg, seg);
   tg.rotateX(-Math.PI / 2);
   const pos = tg.attributes.position, col = [];
@@ -137,8 +139,11 @@ export function buildWorld(scene, camera, { mode = 'village' } = {}) {
       const g = new THREE.ConeGeometry(2.4 - i * 0.6, 3.2, 7); g.translate(0, 2 + i * 1.9, 0); geos.push(g);
     }
     const coneMesh = new THREE.InstancedMesh(paintUV(mergeGeos(geos), 2.2, 1.6), M.pine, N);
-    const capMesh = new THREE.InstancedMesh(paintUV(new THREE.ConeGeometry(0.8, 1.1, 7).translate(0, 7.05, 0), 2.2, 0.8), M.treeSnow, N);
-    const trunkMesh = new THREE.InstancedMesh(paintUV(new THREE.CylinderGeometry(0.3, 0.4, 1.4, 6).translate(0, 0.7, 0), 1.2, 0.5), M.trunk, N);
+    // b30: the snow tip + trunk are open-ended (their ends sit inside the cone / under the ground): 14 -> 7 and 24 -> 12 tris
+    const capMesh = new THREE.InstancedMesh(paintUV(new THREE.ConeGeometry(0.8, 1.1, 7, 1, true).translate(0, 7.05, 0), 2.2, 0.8), M.treeSnow, N);
+    const trunkMesh = new THREE.InstancedMesh(paintUV(new THREE.CylinderGeometry(0.3, 0.4, 1.4, 6, 1, true).translate(0, 0.7, 0), 1.2, 0.5), M.trunk, N);
+    // shadows come from an open 8-tri cone per tree (was the 42-tri tiers + 24-tri trunk)
+    const shadowMesh = shadowProxy(scene, new THREE.ConeGeometry(2.4, 7.2, 8, 1, true).translate(0, 4.0, 0), N);
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), e = new THREE.Euler();
     let n = 0;
     for (let tries = 0; n < N && tries < N * 6; tries++) {
@@ -152,9 +157,10 @@ export function buildWorld(scene, camera, { mode = 'village' } = {}) {
       const sc = rr(0.7, 1.7);
       p.set(x, groundH(x, z) - 0.2, z); q.setFromEuler(e.set(rr(-0.05, 0.05), rr(0, 6.28), rr(-0.05, 0.05))); s.set(sc, sc * rr(0.9, 1.25), sc);
       m4.compose(p, q, s);
-      coneMesh.setMatrixAt(n, m4); capMesh.setMatrixAt(n, m4); trunkMesh.setMatrixAt(n, m4); n++;
+      coneMesh.setMatrixAt(n, m4); capMesh.setMatrixAt(n, m4); trunkMesh.setMatrixAt(n, m4); shadowMesh.setMatrixAt(n, m4); n++;
     }
-    for (const im of [coneMesh, capMesh, trunkMesh]) { im.count = n; im.castShadow = im !== capMesh; im.receiveShadow = true; scene.add(im); }
+    for (const im of [coneMesh, capMesh, trunkMesh]) { im.count = n; im.castShadow = false; im.receiveShadow = true; scene.add(im); }
+    shadowMesh.count = n;
   }
 
   // ---- mountain ring (backdrop silhouettes) -------------------------------------------

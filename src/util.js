@@ -48,6 +48,22 @@ export const BLOB = new THREE.IcosahedronGeometry(1, 1);      // 80 tris, soft s
 export const BALL = new THREE.IcosahedronGeometry(1, 0);      // 20 tris, bulbs
 export const CYL = new THREE.CylinderGeometry(1, 1, 1, 10);
 export const CYL6 = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);   // open, 12 tris: canes, stripes, posts
+export const LOBLOB = new THREE.SphereGeometry(1, 8, 4);                // 48 tris, smooth: tree crowns + bushes (BLOB was 80)
+
+// SHADOW-ONLY PROXIES (b30): the shadow pass draws cheap stand-ins (a box per house, a cone per pine, a lump per round
+// tree) instead of the real bricks / needles. The material writes neither colour nor depth, so the main pass shows nothing;
+// the shadow pass uses its own depth material and draws them. Real meshes keep receiveShadow, castShadow goes off.
+export const SHADOW_ONLY = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+SHADOW_ONLY.name = 'shadowOnly';
+/** an InstancedMesh of `geo` that only casts shadows; count starts at 0 unless `count` is given */
+export function shadowProxy(scene, geo, max, count = 0) {
+  for (const k of Object.keys(geo.attributes)) if (k !== 'position') geo.deleteAttribute(k);
+  const im = new THREE.InstancedMesh(geo, SHADOW_ONLY, Math.max(1, max));
+  im.castShadow = true; im.receiveShadow = false; im.frustumCulled = false; im.count = count; im.renderOrder = -2;
+  im.name = 'shadowProxy'; im.userData.noMerge = true;
+  scene.add(im);
+  return im;
+}
 
 /** a box with bevelled edges, centred (w,h,d), bevel r */
 export function bevBox(w, h, d, r = 0.08, segs = 2) {
