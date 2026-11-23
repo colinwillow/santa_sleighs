@@ -78,3 +78,10 @@ them and throwing everyone off. Destruction battle-royale energy. Guns lie in th
 Pieces of the sleigh come off under fire, the same way the houses do. The two back BOOSTERS take more hits; shoot one off and the
 sleigh goes lopsided -- barrel-rolling, the reins wrapping up and dragging the reindeer down, or snapping so the team flies on
 without it. "The worst flight ever" friend-slop chaos (the clips people share). Next after the destructible town.
+
+## Characters + costumes (his, Nov 23)
+- Characters are being modelled mostly WITHOUT their clothes (e.g. `models/santa_no_coat.glb`); costumes become separate pieces
+  (coat with cloth dynamics / its own rig, hats, belts...) so a player picks a CHARACTER, then customises the COSTUME.
+- Built now as single player / co-op / story (enemies are enemies). If it becomes the multiplayer game, every character is
+  playable: Santa, the snowman monster, the candy monster, and whatever else he makes -- keep characters rig-compatible
+  (Mixamo names + hand mounts) so any of them can drive the same controller and clips.
