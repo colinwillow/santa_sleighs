@@ -5,7 +5,7 @@ const CSS = `
   padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 22px); pointer-events: none;
   font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; color: #fff; }
 .mn.on { display: flex; }
-.mn .logo { width: min(86vw, 560px); max-height: 40vh; object-fit: contain; filter: none; animation: mnBob 4s ease-in-out infinite; }
+.mn .logo { width: min(92vw, 620px); max-height: 34vh; object-fit: contain; filter: none; animation: mnBob 4s ease-in-out infinite; }
 @keyframes mnBob { 0%,100% { transform: translateY(0) rotate(-1deg) } 50% { transform: translateY(6px) rotate(1deg) } }
 .mn .col { display: flex; flex-direction: column; gap: 10px; align-items: stretch; width: min(78vw, 340px); pointer-events: auto; }
 .mn .b { font-weight: 900; font-size: 17px; letter-spacing: .06em; text-align: center; padding: 13px 16px; border-radius: 18px;
