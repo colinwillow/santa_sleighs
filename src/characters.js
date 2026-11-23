@@ -17,7 +17,7 @@ export const CREW = {
   // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
   // arms were inside his body) the gun is held further out and the elbows flare to the sides so the arms read from behind.
   seatStance: { fwd: 0.3, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2] },
-  footStance: { fwd: 0.55, poleR: [-1.6, 0.1, -0.1], poleL: [1.6, -0.2, 0.3] },
+  footStance: { fwd: 0.4, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2], still: true },   // b29: the sleigh's working elbows; `still` = walk/run clips don't swing his shoulders + hands (they dragged the IK arms through his body)
   aimYaw: 1.5, aimUp: 0.6, aimDown: 1.1,   // aim limits (rad) relative to the sleigh
   recoil: 0.11,                       // metres of kick per shot
   // secondary motion on the elves' jiggle bones (models/elf_girl_jiggle.glb, see tools/blender/)
@@ -293,6 +293,9 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat' } = {}) {
       flashT -= dt; gun.flash.visible = flashT > 0;
       gun.firing = firing; gun.updBelt(t, dt);
       cig.ember.scale.setScalar(1 + Math.sin(t * 3) * 0.15);
+      // on foot the walk / run clips swing the clavicles and wrists; with both fists on a gun that throws the IK'd arms
+      // through his chest -- hold shoulders + hands at the bind pose so only the IK moves the arms
+      if (ST.still) for (const k of ['LeftShoulder', 'RightShoulder', 'LeftHand', 'RightHand']) if (B[k]?.userData.bind) B[k].quaternion.copy(B[k].userData.bind);
       pivot.updateMatrixWorld(true);
       ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), local(...ST.poleR));
       // support hand: the gun's front grip if he can reach it, else slide back along the gun to the farthest point he can

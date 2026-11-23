@@ -13,6 +13,12 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   Say what changed in one or two lines, "shipped unverified".
   He playtests on his phone.
 - Build only what he asks for; one small slice at a time, refined.
+- **ALWAYS PUSH UNVERIFIED (his rule, Nov 23: "You never verify... I verify... Always push unverified unless it's something
+  where the engineering actually requires verification in order to create the effect").** No headless-browser screenshots or
+  play-throughs to check a build: make the change, syntax-check (`node --input-type=module --check`), bump, push, say
+  "shipped unverified". He checks on his phone. Measure only when the effect can't be built without the number.
+- **Parallel workers are fine** (his, Nov 23: "you can use multiple workers to make this quicker"): split independent slices
+  across workers with disjoint files; each takes the next BUILD number on a rebase conflict.
 - Primitive models are stand-ins until his GLBs land in `models/` (`models/santa.glb`, `models/elf_girl.glb`: Mixamo-rigged, no clips yet).
 - **The neighborhood kit** (`src/kit.js`): every piece is `piece(K, x, z, ry, opts)` writing into one batched context; layout files
   (`village.js`, `kitshow.js`) only decide placement. New piece = a builder in kit.js + a spot in the showroom (`?scene=kit`).
