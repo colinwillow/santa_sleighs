@@ -40,3 +40,9 @@ Air: SLEIGH DRONE (bauble with a propeller, antlers, bells).
 "Morbid but cute and fluffy at the same time ... big and exaggerated" -- creepy-cute / cute-gore (the Happy Tree Friends,
 Cult of the Lamb, Fran Bow lane). Everything a play on candy, Santa, food. Houses: GINGERBREAD, modular and DESTRUCTIBLE
 (shoot pieces away, erode with the machine gun, blast through) -- like Korajin's breakable buildings, never Minecraft-looking.
+
+## Gingerbread house -- his reference (Nov 23): `images/reference/gingerbread_house_ref.jpg`
+His notes on the first pass: "I don't really love it ... you can just see through the bits and pieces of the house. I said rounded --
+I just meant slightly organic; it's OK if it's modular with straighter pieces, however it looks best." So: SOLID cookie-slab walls
+(never see-through), soft organic edges, the reference's details: round cookie-shingle roof under thick dripping icing, candy-stripe
+chimney, dormer, round window with icing swirls, striped awning, red door with candy-cane posts + wreath, lantern, gumdrops, cookie-stone base.
