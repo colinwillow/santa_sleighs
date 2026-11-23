@@ -16,6 +16,10 @@ export const TOWN = {
   hp: { wall: 2, roof: 2, gable: 2 },
   span: 2,                 // a brick can hang off its course this many bricks from the nearest one held from below
   debrisMax: 420, gravity: 20,
+  // FAR LOD (b33): past `far` m from the camera a house swaps its bricks for a few painted SLABS (walls with the door / window
+  // holes, 2 gables, 2 roof planes, icing strips; budget ~300-800 tris a house, all far houses ONE draw); back under `near`
+  // m it is real bricks again. Checked every `every` s. A house that has been hit is near forever (its slabs would hide the holes).
+  lod: { near: 55, far: 65, every: 0.25, budget: [300, 800], bevel: 0.07 },
   cookie: ['#d98f4e', '#cf8446', '#e39a58'], roof: ['#8a4c2a', '#9a5631', '#7c4325'], icing: '#fff8f0',
 };
 
@@ -124,6 +128,7 @@ export function makeTown(scene) {
       }
     }
     hs.total = hs.alive = hs.ids.length;
+    hs.lp = { rows, nx, nz, door, top, gRows, run, rise, pitch, slope, nRows };   // the far slabs are built from these
     hs.wallH = top; hs.roofBase = top - 0.15; hs.roofW = run * 2; hs.roofH = rise + 0.1; hs.roofD = D + 1.0;   // shadow proxy sizes
     // dressing: door, glowing windows, candy canes, gumdrops, a chimney smoke point
     const D2 = D / 2;
@@ -180,12 +185,166 @@ export function makeTown(scene) {
       roofProxy.setMatrixAt(i, hs.H.clone().multiply(new THREE.Matrix4().compose(new THREE.Vector3(0, hs.roofBase, 0), new THREE.Quaternion(), new THREE.Vector3(hs.roofW, hs.roofH, hs.roofD))));
       proxyFollow(hs);
     });
+    buildFar();
     built = true;
   }
   function caneTex() {
     const c = document.createElement('canvas'); c.width = 64; c.height = 8; const x = c.getContext('2d');
     for (let i = 0; i < 8; i++) { x.fillStyle = i % 2 ? '#fff6ec' : '#e3283a'; x.fillRect(i * 8, 0, 8, 8); }
     const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6, 1); t.colorSpace = THREE.SRGBColorSpace; return t;
+  }
+
+  // ---- FAR LOD: painted slabs, one merged mesh; a house is hidden in it by zeroing its index range (as sleighmodel.js) -------
+  /** a slab w x h x d centred on its frame origin, outer face +z with its rim chamfered (20 tris, flat-shaded); UVs from the frame
+   *  ((x + u0) / us, (y + v0) / vs) so the brick courses line up across neighbouring slabs */
+  function slab(w, h, d, c, M, u0, v0, us, vs, col, out) {
+    c = Math.min(c, w / 3, h / 3, d / 2);
+    const pts = [];
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      pts.push(new THREE.Vector3(sx * w / 2, sy * h / 2, -d / 2), new THREE.Vector3(sx * w / 2, sy * h / 2, d / 2 - c),
+        new THREE.Vector3(sx * (w / 2 - c), sy * (h / 2 - c), d / 2));
+    }
+    emit(new ConvexGeometry(pts), M, u0, v0, us, vs, col, out);
+  }
+  /** any convex point set (gables) or a plain box (icing: uvFixed = a spot mid-brick, no grooves) through the same path */
+  function emit(g, M, u0, v0, us, vs, col, out, uvFixed = null) {
+    g = g.index ? g.toNonIndexed() : g;
+    const P = g.attributes.position, nm = new THREE.Matrix3().getNormalMatrix(M), v = new THREE.Vector3(), n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+    for (let i = 0; i < P.count; i += 3) {
+      // the face normal in the frame decides the projection
+      const a = new THREE.Vector3().fromBufferAttribute(P, i), b = new THREE.Vector3().fromBufferAttribute(P, i + 1), c2 = new THREE.Vector3().fromBufferAttribute(P, i + 2);
+      n.crossVectors(e1.subVectors(b, a), e2.subVectors(c2, a)).normalize();
+      const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
+      for (const p of [a, b, c2]) {
+        let u, w;
+        if (az >= ax && az >= ay) { u = p.x; w = p.y; } else if (ax >= ay) { u = p.z; w = p.y; } else { u = p.x; w = p.z; }
+        if (uvFixed) out.uv.push(uvFixed[0], uvFixed[1]); else out.uv.push((u + u0) / us, (w + v0) / vs);
+        v.copy(p).applyMatrix4(M); out.pos.push(v.x, v.y, v.z);
+        out.col.push(col.r, col.g, col.b);
+      }
+      v.copy(n).applyMatrix3(nm).normalize();
+      for (let k = 0; k < 3; k++) out.nrm.push(v.x, v.y, v.z);
+    }
+  }
+  /** the wall run (length len, height top) minus its holes -> rectangles: bands between hole edges, merged when they match */
+  function panels(len, top, holes) {
+    const ys = [...new Set([0, top, ...holes.flatMap(h => [h.y0, h.y1])])].filter(y => y >= 0 && y <= top).sort((a, b) => a - b);
+    const out = [];
+    let prev = null;
+    for (let i = 0; i < ys.length - 1; i++) {
+      const y0 = ys[i], y1 = ys[i + 1], mid = (y0 + y1) / 2;
+      let segs = [[0, len]];
+      for (const h of holes) if (mid > h.y0 && mid < h.y1) segs = segs.flatMap(([a, b]) => h.x1 <= a || h.x0 >= b ? [[a, b]] : [[a, h.x0], [h.x1, b]].filter(([p, q]) => q - p > 0.05));
+      const key = segs.map(s => s.join()).join('|');
+      if (prev && prev.key === key) { prev.rects.forEach(r => r.y1 = y1); continue; }
+      prev = { key, rects: segs.map(([a, b]) => ({ x0: a, x1: b, y0, y1 })) }; out.push(...prev.rects);
+    }
+    return out;
+  }
+  function brickTex() {
+    // 4 bricks x 4 courses, hand-painted: warm mortar grooves, soft dabs on each face, a lit top edge + shaded underside
+    const c = document.createElement('canvas'); c.width = 256; c.height = 256; const x = c.getContext('2d');
+    let sd = 7; const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+    x.fillStyle = '#8f8278'; x.fillRect(0, 0, 256, 256);
+    for (let row = 0; row < 4; row++) for (let k = -1; k < 4; k++) {
+      const bx = (k + (row % 2 ? 0.5 : 0)) * 64, by = 256 - (row + 1) * 64, g = 222 + r() * 30 | 0;
+      x.fillStyle = `rgb(${g},${g - 4},${g - 10})`; x.beginPath(); x.roundRect(bx + 3, by + 5, 58, 55, 9); x.fill();
+      x.fillStyle = 'rgba(255,250,240,0.45)'; x.fillRect(bx + 8, by + 7, 48, 5);                       // the lit top edge
+      x.fillStyle = 'rgba(90,60,50,0.22)'; x.fillRect(bx + 6, by + 52, 52, 6);                         // shaded underside
+      for (let d = 0; d < 5; d++) { const v = 200 + r() * 55 | 0; x.fillStyle = `rgba(${v},${v - 8},${v - 18},0.25)`; x.beginPath(); x.ellipse(bx + 10 + r() * 44, by + 14 + r() * 34, 6 + r() * 9, 3 + r() * 5, r() * 3, 0, 7); x.fill(); }
+    }
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+  }
+  let far = null, farIndex0 = null;
+  const _avg = (ids, f) => { const c = new THREE.Color(0, 0, 0); let n = 0; for (const id of ids) if (f(bricks[id])) { c.add(bricks[id].col); n++; } return n ? c.multiplyScalar(1 / n) : c.set(TOWN.cookie[0]); };
+  function buildFar() {
+    const out = { pos: [], nrm: [], uv: [], col: [] }, bev = TOWN.lod.bevel, iceC = new THREE.Color(TOWN.icing);
+    const BU = B.x * 4, BV = B.y * 4;   // one texture tile = 4 bricks x 4 courses
+    for (const hs of houses) {
+      const L = hs.lp, start = out.pos.length / 3, W = hs.W, D = hs.D, top = L.top;
+      const wallC = _avg(hs.ids, b => b.kind !== 'roof'), roofC = _avg(hs.roof, () => true);
+      const frame = (x, y, z, ry, M2 = null) => { const m = hs.H.clone().multiply(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry), new THREE.Vector3(1, 1, 1))); return M2 ? m.multiply(M2) : m; };
+      // walls: front (+z, the door), back (-z), sides (+x / -x, shortened by the wall depth so the corners don't z-fight)
+      const win = (cx, w = B.x) => ({ x0: cx - w / 2, x1: cx + w / 2, y0: 4 * B.y, y1: 6 * B.y });
+      const walls = [
+        { len: W, x: 0, z: D / 2 - B.z / 2, ry: 0, holes: [{ x0: (L.door + 0.5) * B.x - B.x / 2, x1: (L.door + 0.5) * B.x + B.x / 2, y0: 0, y1: 4 * B.y }, win(W / 2 - W * 0.28), win(W / 2 + W * 0.28)] },
+        { len: W, x: 0, z: -D / 2 + B.z / 2, ry: Math.PI, holes: [win(W / 2 - W * 0.28), win(W / 2 + W * 0.28)] },
+        { len: D - 2 * B.z, x: W / 2 - B.z / 2, z: 0, ry: Math.PI / 2, holes: [win((D - 2 * B.z) / 2)] },
+        { len: D - 2 * B.z, x: -W / 2 + B.z / 2, z: 0, ry: -Math.PI / 2, holes: [win((D - 2 * B.z) / 2)] },
+      ];
+      for (const w of walls) {
+        for (const r of panels(w.len, top, w.holes)) {
+          const cx = (r.x0 + r.x1) / 2 - w.len / 2, cy = (r.y0 + r.y1) / 2;
+          // frame x runs along the wall: rotate the along-wall offset into the house
+          const M = frame(w.x + Math.cos(w.ry) * cx, cy, w.z - Math.sin(w.ry) * cx, w.ry);
+          slab(r.x1 - r.x0, r.y1 - r.y0, B.z, bev, M, r.x0 + (r.x1 - r.x0) / 2, cy, BU, BV, wallC, out);
+        }
+        // the iced top course: one strip along the wall
+        emit(new THREE.BoxGeometry(w.len + 0.1, 0.14, B.z * 1.12), frame(w.x, top + 0.05, w.z, w.ry), 0, 0, 1, 1, iceC, out, [0.12, 0.12]);
+      }
+      // gables: a trapezoid prism on the front + back (courses narrow to the peak)
+      if (L.gRows > 0) {
+        const hw = gr => Math.max(1, Math.floor((W / 2) * (1 - (gr + 1) / (L.gRows + 1)) * 2 / B.x)) * B.x / 2;
+        const b0 = hw(0), b1 = hw(L.gRows - 1), gh = L.gRows * B.y, pts = [];
+        for (const sz of [-1, 1]) for (const [px, py] of [[-b0, 0], [b0, 0], [b1, gh], [-b1, gh]]) pts.push(new THREE.Vector3(px, py, sz * B.z / 2));
+        for (const s of [1, -1]) emit(new ConvexGeometry(pts), frame(0, top, s * (D / 2 - B.z / 2), s > 0 ? 0 : Math.PI), b0 + 0, 0, BU, BV, wallC, out);
+      }
+      // roof: two shingle planes (frame x along the ridge, y up the slope, z out of the roof), eave + ridge icing strips
+      const RW = D + 1.0, CV = 0.48 * 4;
+      for (const sgn of [1, -1]) {
+        const up = new THREE.Vector3(-sgn * L.run, L.rise, 0).normalize(), nrm = new THREE.Vector3(sgn * L.rise, L.run, 0).normalize(), ax = new THREE.Vector3(0, 0, -sgn);
+        const basis = new THREE.Matrix4().makeBasis(ax, up, nrm);
+        const at = t => new THREE.Vector3(sgn * L.run * (1 - t), top - 0.3 + L.rise * t + 0.15, 0);
+        const c0 = at(0.5), len = L.slope + 0.2;
+        const M = hs.H.clone().multiply(new THREE.Matrix4().makeTranslation(c0.x, c0.y, c0.z)).multiply(basis).multiply(new THREE.Matrix4().makeTranslation(0, 0.05, 0));
+        slab(RW, len, 0.3, bev, M, RW / 2, len / 2, BU, CV, roofC, out);
+        for (const t of [0.5 / L.nRows, 1 - 0.5 / L.nRows]) {
+          const p = at(t).addScaledVector(nrm, 0.2);
+          emit(new THREE.BoxGeometry(RW + 0.1, 0.62, 0.14), hs.H.clone().multiply(new THREE.Matrix4().makeTranslation(p.x, p.y, p.z)).multiply(basis), 0, 0, 1, 1, iceC, out, [0.12, 0.12]);
+        }
+      }
+      hs.farStart = start; hs.farCount = out.pos.length / 3 - start; hs.far = false; hs.damaged = false;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(out.pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(out.nrm, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(out.uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(out.col, 3));
+    const n = out.pos.length / 3, ix = new Uint32Array(n); for (let i = 0; i < n; i++) ix[i] = i;
+    farIndex0 = ix.slice(); ix.fill(0);   // every house starts NEAR (its far range collapsed)
+    g.setIndex(new THREE.BufferAttribute(ix, 1)); g.computeBoundingSphere();
+    far = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: brickTex(), vertexColors: true, roughness: 0.8 }));
+    far.name = 'townFar'; far.castShadow = false; far.receiveShadow = true; far.userData.noMerge = true;   // the merger must not swallow the index trick
+    scene.add(far);
+  }
+  /** swap one house between bricks (near) and slabs (far); gameplay data (brick records, colliders) never changes */
+  function setFar(hs, on) {
+    if (hs.far === on || !far) return;
+    if (on && hs.damaged) return;
+    hs.far = on;
+    for (const id of hs.ids) {
+      const b = bricks[id]; if (!b.alive) continue;
+      mesh.setMatrixAt(id, on ? ZERO : b.world);
+      if (b.ice >= 0) ice.setMatrixAt(b.ice, on ? ZERO : ices[b.ice].world);
+    }
+    mesh.instanceMatrix.needsUpdate = true; ice.instanceMatrix.needsUpdate = true;
+    const ix = far.geometry.index;
+    if (on) ix.array.set(farIndex0.subarray(hs.farStart, hs.farStart + hs.farCount), hs.farStart); else ix.array.fill(0, hs.farStart, hs.farStart + hs.farCount);
+    ix.needsUpdate = true;
+  }
+  /** a hit: the house shows its real bricks now and for good */
+  function hurt(hs) { hs.damaged = true; setFar(hs, false); }
+  let lodT = 0;
+  const _cp = new THREE.Vector3();
+  /** call every frame with the camera; re-picks near / far a few times a second (hysteresis TOWN.lod.near / far) */
+  function lodTick(camera, dt = 0.016) {
+    if (!built || !far) return;
+    lodT -= dt; if (lodT > 0) return; lodT = TOWN.lod.every;
+    _cp.setFromMatrixPosition(camera.matrixWorld);
+    const n2 = TOWN.lod.near ** 2, f2 = TOWN.lod.far ** 2;
+    for (const hs of houses) {
+      if (hs.damaged) continue;
+      const d2 = (_cp.x - hs.x) ** 2 + (_cp.y - hs.gy - hs.wallH / 2) ** 2 + (_cp.z - hs.z) ** 2;
+      if (hs.far && d2 < n2) setFar(hs, false); else if (!hs.far && d2 > f2) setFar(hs, true);
+    }
   }
 
   // ---- hits ----------------------------------------------------------------------------------------------------------------
@@ -244,6 +403,7 @@ export function makeTown(scene) {
   /** damage one brick (bullets) */
   function hitBrick(id, dmg, from) {
     const b = bricks[id]; if (!b || !b.alive) return 0;
+    hurt(b.h);
     b.hp -= dmg;
     // a bruise: darken it a little each hit
     b.col.multiplyScalar(0.86); mesh.setColorAt(id, b.col); mesh.instanceColor.needsUpdate = true;
@@ -252,6 +412,7 @@ export function makeTown(scene) {
   }
 
   function remove(hs, ids, at, push) {
+    hurt(hs);   // bricks first, then the holes
     const gone = new Set(ids);
     // SUPPORT (his note: one shot dropped a whole wall -- he wants to shoot out bricks one by one until it gives):
     // a brick stands if it connects to the ground through living bricks -- straight down through any brick it overlaps,
@@ -353,7 +514,8 @@ export function makeTown(scene) {
   }
 
   return {
-    house, finish, update, raycast, solidAt, blast, hitBrick, houses,
-    get stats() { return { bricks: bricks.length, alive: bricks.filter(b => b.alive).length, houses: houses.length }; },
+    house, finish, update, lodTick, raycast, solidAt, blast, hitBrick, houses,
+    get stats() { return { bricks: bricks.length, alive: bricks.filter(b => b.alive).length, houses: houses.length,
+      far: houses.filter(h => h.far).length, farTris: far ? far.geometry.index.count / 3 : 0 }; },
   };
 }

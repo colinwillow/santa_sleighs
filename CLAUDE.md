@@ -67,7 +67,8 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   houses (~370k tris). `town.raycast / hitBrick / blast / solidAt`: Gatling = 1 dmg a hit (2 hp bricks), rifle = 0.95 m blast,
   rocket = 3.6 m, snowball = 1 m soft, a CRASH = 2.2-4.8 m along the sleigh's velocity. Unsupported bricks fall; the roof drops
   when <40% of the wall tops remain; under 35% the house is "dead" (crash collider gone, dressing hidden). Debris: one
-  InstancedMesh (420), CPU tumble, settles as rubble. `village.js` places them (gHouse). His sleigh model (133 parts) is next.
+  InstancedMesh (420), CPU tumble, settles as rubble. `village.js` places them (gHouse). FAR LOD (b33): past `TOWN.lod.far` m each house is ~540 tris of painted slabs in ONE merged mesh (`townFar`,
+  a house hidden by zeroing its index range), bricks zero-scaled; `town.lodTick(camera)` from main.js; a hit house stays near for good. His sleigh model (133 parts) is next.
 - **ON FOOT + CRASHES** (b20, his slice): `src/onfoot.js` -- states seat | deck | air | ground. HOP OUT (E) = stand on the deck
   while the sleigh flies itself (holds heading + altitude); walk the deck in sleigh-local space; JUMP (F) or walk off the edge
   = fall (FOOT.gravity); landing faster than FOOT.splat knocks him flat; CALL SLEIGH = the sleigh autopilots low + slow to him

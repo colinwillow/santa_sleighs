@@ -19,7 +19,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 32;
+export const BUILD = 33;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -505,6 +505,7 @@ function frame(now) {
   if (dt > 0) world.tick(t, dt);
   merger.tick(dt);
   updateCamera(dt);
+  world.town?.lodTick(camera, real);   // b33: far houses swap to painted slabs (town.js TOWN.lod)
   world.snowUpdate(camera.position, t, dt);
   // keep the shadow camera centred on the sleigh
   const cm = camOverride || CAM0, sc = STATE === 'menu' ? MENU.spot : cm === 'diorama' ? DIORAMA.look : cm === 'orbit' ? new THREE.Vector3() : rig.S;
