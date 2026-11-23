@@ -28,4 +28,4 @@ Fly through the floating cookies to refill milk.
 
 ![build 3](images/build3_village.png)
 
-`?cam=diorama` = a fixed high view of the village (the reference framing). `?scene=kit` = the kit showroom (drag to orbit). `?bloom=0` = no bloom. `?cam=crew` = close look at Santa + the elves.
+`?cam=diorama` = a fixed high view of the village (the reference framing). `?scene=kit` = the kit showroom (drag to orbit). `?bloom=0` = no bloom. `?cam=crew` = close look at Santa + the elves. `?scene=sandbox` = the white character sandbox (clip buttons, FIRE). `?look=flat` = the illustration look (also the LOOK chip).

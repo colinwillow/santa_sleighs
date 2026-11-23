@@ -20,6 +20,13 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
 - **The crew** (`src/crew.js`): his GLBs posed in code, no clips yet. Santa's hands are two-bone IK'd onto the gun's grip sockets
   (never a world-position guess); the cigar hangs off the Head bone. Elves = one model cloned (`SkeletonUtils.clone`).
   Tuning in `CREW`. `?cam=crew` = the close-up for checking poses.
+- **Animation** (b7): Mixamo clips from `colinwillow/retarget-anims` (Y Bot, `library/clips/*.glb`) are COPIED into
+  `models/anims/` and retargeted at load (`src/retarget.js` = a copy of that repo's layer 1, patched to read plain nodes).
+  Roles per character in `CLIPS` (`src/anim.js`); add a role = copy the GLB + one line. Code layers run AFTER the clip:
+  Santa's fists IK'd to the gun (gun rides his Spine, aimed in his frame), elf arm overrides, jiggle. `characters.js` builds
+  them; `crew.js` places them in the sleigh; `sandbox.js` (`?scene=sandbox`) shows them on white with clip buttons.
+- **Look** (b7): `src/look.js` -- FLAT = every lit material swapped for a self-lit copy + ink outlines (inverted hulls, skinning-aware);
+  LIT = original. A taste switch: the LOOK chip (remembered), `?look=flat|lit`. Sandbox defaults FLAT, the game LIT.
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by
   `tools/blender/` (this Blender can't read Draco: undraco -> rig -> pack). The game springs them in `makeJiggle` (`CREW.jiggle`);
   input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.

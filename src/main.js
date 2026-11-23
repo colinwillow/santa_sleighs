@@ -6,8 +6,9 @@ import { buildRig, FLY } from './sleigh.js';
 import { input, pollInput } from './input.js';
 import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
+import { applyLook, addInk, lookChip, initialLook } from './look.js';
 
-export const BUILD = 6;
+export const BUILD = 7;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -32,9 +33,11 @@ addEventListener('resize', () => {
 
 const world = buildWorld(scene, camera, { mode: MODE });
 const rig = buildRig(scene, world.colliders);
+// the look: LIT (shaded) or FLAT (self-lit textures + ink outlines) -- his switch, top-left chip
+const setLook = lookChip(m => applyLook(scene, m));
 const hideBoot = () => document.getElementById('boot').classList.add('gone');
 setTimeout(hideBoot, 12000);   // never hold the game hostage to a slow model load
-loadCrew(rig, scene).then(c => { rig.crew = c; setTimeout(hideBoot, 300); }).catch(e => { hideBoot(); document.getElementById('build').textContent += ' crew: ' + e.message; });
+loadCrew(rig, scene).then(c => { rig.crew = c; addInk(rig.sleigh.g); for (const d of rig.deer) addInk(d.g); setLook(initialLook('lit')); setTimeout(hideBoot, 300); }).catch(e => { hideBoot(); document.getElementById('build').textContent += ' crew: ' + e.message; });
 
 // ---- cookies to fly through (refill milk) -- placeholder pickups ------------------------
 const cookieMat = new THREE.MeshStandardMaterial({ color: '#c98a4a', emissive: '#7a4010', emissiveIntensity: 0.6, roughness: 0.8 });
@@ -107,7 +110,7 @@ function updateGun(dt, t) {
   // aim ahead of the team, a little down toward the ground
   _p.copy(rig.lead).addScaledVector(rig.fwd, 30); _p.y -= 8;
   let muzzle, ready = true;
-  if (crew) { crew.aim(_p); crew.update(dt, t); muzzle = crew.muzzle; }
+  if (crew) { crew.setFiring(firing); crew.aim(_p); crew.update(dt, t); muzzle = crew.muzzle; }
   else {   // stand-in rail minigun until his models load
     spin += ((firing ? 28 : 0) - spin) * (1 - Math.exp(-(firing ? 4 : 1.5) * dt));
     rig.sleigh.barrels.rotation.z += spin * dt;
