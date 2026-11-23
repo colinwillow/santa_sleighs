@@ -110,3 +110,5 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by
   `tools/blender/` (this Blender can't read Draco: undraco -> rig -> pack). The game springs them in `makeJiggle` (`CREW.jiggle`);
   input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.
+  b36: the RED elf (default) = `models/elf_girl_red_rig.glb` = his `elf_girl_red.glb` + jiggle (`elf_jiggle_rig.py` with a per-model `C` override arg:
+  `cx=0.032,cy=-0.122,cz=0.655,rx=0.05,ry=0.05,rz=0.05,base_y=-0.088`) + mounts.py hand mounts; packed, then his original WebP put back byte for byte.

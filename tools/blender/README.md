@@ -9,3 +9,5 @@ The container's Blender 4.0 can't read Draco, so a GLB round-trips like this (no
 
 `elf_jiggle_rig.py`: two deform bones parented to Spine2, weighted to the bust with a smoothstep falloff,
 only on vertices the torso already owns. The bust centre / radii are the `C` table at the top (metres, Blender space, front = -Y).
+
+A different body takes its bust table as a third arg (`cx=..,cy=..,cz=..,rx=..,ry=..,rz=..,base_y=..`), e.g. the red elf (b36).

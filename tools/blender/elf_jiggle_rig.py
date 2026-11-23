@@ -5,10 +5,12 @@ from mathutils import Vector
 args = sys.argv[sys.argv.index('--')+1:]
 src, out = args[0], args[1]
 C = dict(cx=0.042, cy=-0.118, cz=0.652, rx=0.06, ry=0.055, rz=0.055, base_y=-0.082)  # metres, Blender space (front = -Y)
+if len(args) > 2: C.update({k: float(v) for k, v in (kv.split('=') for kv in args[2].split(','))})  # per-model override: cx=..,cz=..
+print('JIGGLE C', C)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=src)
 arm = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
-me = next(o for o in bpy.data.objects if o.type == 'MESH')
+me = next(o for o in bpy.data.objects if o.type == 'MESH' and not o.name.startswith('Icosphere'))
 AW = arm.matrix_world; AWi = AW.inverted()
 spine2 = next(b.name for b in arm.data.bones if b.name.endswith('Spine2'))
 torso = {g.index for g in me.vertex_groups if any(g.name.endswith(s) for s in ('Spine', 'Spine1', 'Spine2'))}

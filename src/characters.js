@@ -33,7 +33,7 @@ let modelsP = null;
 export const SANTAS = { tough: './models/santa_tough_rig.glb', classic: './models/santa.glb' };
 export function santaChoice() { try { const v = localStorage.getItem('santa'); if (SANTAS[v]) return v; } catch (e) {} return 'tough'; }
 // which elf: RED (his Nov 23 model, closer to the tough Santa's style; no jiggle bones yet) or CLASSIC (the first elf + jiggle rig)
-export const ELVES = { red: './models/elf_girl_red.glb', classic: './models/elf_girl_jiggle.glb' };
+export const ELVES = { red: './models/elf_girl_red_rig.glb', classic: './models/elf_girl_jiggle.glb' };
 export function elfChoice() { try { const v = localStorage.getItem('elf'); if (ELVES[v]) return v; } catch (e) {} return 'red'; }
 export const loadModels = () => modelsP || (modelsP = Promise.all([load(SANTAS[santaChoice()]), load(ELVES[elfChoice()]).catch(() => load(ELVES.classic))]).then(([santa, elf]) => ({ santa, elf })));
 
