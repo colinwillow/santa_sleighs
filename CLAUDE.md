@@ -8,7 +8,9 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   never import its code wholesale. Rigging: `colinwillow/blender-addons` (Auto-Rig Pro pipeline). Mocap retargeting: `colinwillow/retarget-anims`.
 - Tuning numbers live in tables (`FLY` in `src/sleigh.js`). Velocities damp with `Math.exp(-k*dt)`, never a bare `*= k`.
 - **ALWAYS PUSH TO `main`** (his, Nov 23: "always push to main"). Commit, `git pull --rebase origin main`, `git push origin main`. No PRs unless he asks.
-- Every build: raise `BUILD` in `src/main.js` (the cyan number top-left), say what changed in one or two lines, "shipped unverified".
+- Every build: raise `BUILD` in `src/main.js` (the pill top-left), then **`python3 tools/version.py`** (writes `version.json`: index.html
+  stamps `?v=<build>` on every module URL so phones never run a stale copy -- a new src/vendor .js file is picked up automatically).
+  Say what changed in one or two lines, "shipped unverified".
   He playtests on his phone.
 - Build only what he asks for; one small slice at a time, refined.
 - Primitive models are stand-ins until his GLBs land in `models/` (`models/santa.glb`, `models/elf_girl.glb`: Mixamo-rigged, no clips yet).

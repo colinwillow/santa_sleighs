@@ -24,8 +24,9 @@
     font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; }
   #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; }
-  #build { position: fixed; top: calc(env(safe-area-inset-top) + 6px); left: calc(env(safe-area-inset-left) + 8px);
-    font: 600 12px/1 ui-monospace, monospace; color: #7ff; opacity: .85; }
+  /* build number: below the status bar (iOS blurs the top strip), a readable pill */
+  #build { position: fixed; z-index: 9; top: calc(env(safe-area-inset-top) + 34px); left: calc(env(safe-area-inset-left) + 10px);
+    font: 800 13px/1 ui-monospace, monospace; color: #9ff; background: #0009; border-radius: 10px; padding: 5px 8px; pointer-events: none; }
   #stats { position: fixed; top: calc(env(safe-area-inset-top) + 6px); right: calc(env(safe-area-inset-right) + 10px);
     font: 700 14px/1.3 inherit; text-align: right; text-shadow: 0 1px 2px #0008; }
   .btn { position: fixed; pointer-events: auto; border-radius: 50%; display: grid; place-items: center;
@@ -42,8 +43,16 @@
   #hint { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 14px); transform: translateX(-50%);
     font: 600 13px/1.3 inherit; opacity: .8; text-align: center; transition: opacity 1s; white-space: nowrap; }
 </style>
-<script type="importmap">
-{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/" } }
+<script>
+  // FRESH FILES EVERY BUILD (no stale phone caches): fetch version.json uncached, then build the import map so every module URL
+  // carries ?v=<build>. Browsers key their cache on the full URL, so a new build = new URLs = fresh files; same build = cached.
+  window.__importsReady = fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).catch(() => null).then(v => {
+    const q = v ? '?v=' + v.build : '';
+    const map = { imports: { three: './vendor/three.module.min.js' + q, 'three/addons/': './vendor/' } };
+    if (v) for (const f of v.files) map.imports[new URL(f, location.href).href] = new URL(f + q, location.href).href;
+    const s = document.createElement('script'); s.type = 'importmap'; s.textContent = JSON.stringify(map); document.head.appendChild(s);
+    window.__build = v?.build;
+  });
 </script>
 </head>
 <body>
@@ -54,12 +63,17 @@
   <div id="boost" class="btn">BOOST</div>
   <div id="hint">left thumb: fly · right thumb: aim + shoot · BOOST drinks milk</div>
 </div>
-<script type="module">
+<script>
+window.__importsReady.then(() => { const s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('entry').textContent; document.body.appendChild(s); });
+</script>
+<script type="text/plain" id="entry">
   // ?scene=sandbox -> the white character sandbox; ?scene=destruct -> the destructible gingerbread test; anything else -> the game
   const sc = new URLSearchParams(location.search).get('scene');
   if (sc === 'sandbox') { document.body.classList.add('sandbox'); import('./src/sandbox.js'); }
   else if (sc === 'destruct') { document.body.classList.add('sandbox'); import('./src/destructshow.js'); }
   else import('./src/main.js');
+  // the build number, also on test pages (from version.json)
+  if (window.__build) { const bn = document.getElementById('bnum'); if (bn) bn.textContent = window.__build; }
   // every test page gets a way home
   const q = new URLSearchParams(location.search);
   if (sc || q.has('cam')) {
