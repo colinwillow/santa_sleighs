@@ -53,6 +53,13 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   point ahead of the sleigh (`AIM` in main.js, `reach` = fraction of the short screen side); the camera ray under it marches to the
   terrain and tracers fly straight at that point (Santa's gun swings after it). Mouse = reticle + left button; gamepad: L fly, R aim/fire,
   RT/A boost, RB fire.
+- **ON FOOT + CRASHES** (b20, his slice): `src/onfoot.js` -- states seat | deck | air | ground. HOP OUT (E) = stand on the deck
+  while the sleigh flies itself (holds heading + altitude); walk the deck in sleigh-local space; JUMP (F) or walk off the edge
+  = fall (FOOT.gravity); landing faster than FOOT.splat knocks him flat; CALL SLEIGH = the sleigh autopilots low + slow to him
+  (`input.slow`), touching its deck (FOOT.catchR) puts him back on; SIT DOWN = back in the seat. `sleigh.js` CRASHES: lead or
+  sleigh hitting a house side (below its roof) or slamming the ground bounces the team, kills speed, calls `rig.onCrash` ->
+  shake + debris sound + snow burst + `foot.eject` (throws him out, cartwheeling). His call (Nov 23): web is the engine,
+  Unity parked; sandbox order = on foot -> destructible houses everywhere (crash through them) -> an enemy or two.
 - **WEAPONS** (b18): his `models/weapons/guns_01.glb` (4 solid guns) -> `guns_rigged.glb` by `tools/blender/gun_rig.py` (split by
   loose parts + 3D k-means, each recentred on its main grip, muzzle = +Z, sockets `grip_r grip_l muzzle eject` as empties, the
   Gatling's `barrels` its own spinning node). Pack with `tools/blender/pack.mjs` (prune keepLeaves, or the sockets vanish).

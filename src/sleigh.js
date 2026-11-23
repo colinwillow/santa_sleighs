@@ -170,7 +170,7 @@ export function buildRig(scene, colliders) {
   rig.update = (dt, input, t) => {
     // ---- lead (the player-flown team anchor) ----
     const boosting = input.boost;
-    const targetSpeed = boosting ? FLY.boostSpeed : FLY.speed;
+    const targetSpeed = input.slow ? FLY.speed * 0.45 : boosting ? FLY.boostSpeed : FLY.speed;
     rig.speed += (targetSpeed - rig.speed) * (1 - Math.exp(-FLY.accel * dt));
     rig.yaw -= input.steer * FLY.turnRate * dt;                          // stick right = turn right
     const targetPitch = input.climb * FLY.climbRate;
@@ -234,11 +234,32 @@ export function buildRig(scene, colliders) {
       const out = SV.dot(_v) - rig.deer[2].v.dot(_v);
       if (out > 0) SV.addScaledVector(_v, -out * 1.02);
     }
+    // CRASHES (his: run into stuff, take out houses, fly off the sleigh): the lead or the sleigh hitting a house side below its
+    // roof, or the sleigh slamming the ground, bounces the team off, kills speed, and reports the hit (rig.onCrash)
+    rig.crashCd = Math.max(0, (rig.crashCd || 0) - dt);
+    for (const c of colliders) {
+      for (const [P, isLead] of [[rig.lead, true], [Sp, false]]) {
+        const dx = P.x - c.x, dz = P.z - c.z, d2 = dx * dx + dz * dz;
+        if (d2 > c.r * c.r || P.y > c.top - 1.0) continue;
+        const d = Math.sqrt(d2) || 0.01, nx = dx / d, nz = dz / d;
+        P.x = c.x + nx * (c.r + 0.3); P.z = c.z + nz * (c.r + 0.3);
+        if (rig.crashCd > 0) continue;
+        rig.crashCd = 0.6;
+        const power = Math.min(1, (isLead ? rig.speed : Math.hypot(SV.x, SV.z)) / 30);
+        if (isLead) {   // bounce the team's heading off the wall and lose most of the speed
+          const fx = Math.sin(rig.yaw), fz = Math.cos(rig.yaw), dot = fx * nx + fz * nz;
+          rig.yaw = Math.atan2(fx - 2 * dot * nx, fz - 2 * dot * nz); rig.speed *= 0.3; rig.pitch = 0.25;
+        } else { const vn = SV.x * nx + SV.z * nz; if (vn < 0) { SV.x -= 1.6 * vn * nx; SV.z -= 1.6 * vn * nz; } SV.y += 4; }
+        rig.bumped = 1;
+        rig.onCrash?.(power, P.clone(), c);
+      }
+    }
     // ground + rooftops: skid along them
     let floor = groundH(Sp.x, Sp.z) + 0.15;
     for (const c of colliders) if ((Sp.x - c.x) ** 2 + (Sp.z - c.z) ** 2 < c.r * c.r) floor = Math.max(floor, c.top);
     if (Sp.y < floor) {
       if (SV.y < -4) rig.bumped = Math.min(1, -SV.y / 15);
+      if (SV.y < -9 && (rig.crashCd || 0) <= 0) { rig.crashCd = 0.6; rig.onCrash?.(Math.min(1, -SV.y / 20), Sp.clone(), null); }
       Sp.y = floor; if (SV.y < 0) SV.y *= -0.25;
       SV.x *= Math.exp(-1.5 * dt); SV.z *= Math.exp(-1.5 * dt);
     }

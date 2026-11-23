@@ -34,7 +34,7 @@ const CSS = `
   width: 44px; height: 44px; border-radius: 50%; background: #0007; border: 2px solid #fff9; color: #fff; display: none;
   place-items: center; font: 900 16px/1 system-ui; pointer-events: auto; user-select: none; -webkit-user-select: none; }
 body.play #pauseBtn { display: grid; }
-body:not(.play) #stick, body:not(.play) #boost, body:not(.play) #fire, body:not(.play) #stats, body:not(.play) #hint { display: none !important; }
+body:not(.play) #stick, body:not(.play) #boost, body:not(.play) #fire, body:not(.play) #hopBtn, body:not(.play) #jumpBtn, body:not(.play) #weaponBtn, body:not(.play) #stats, body:not(.play) #hint { display: none !important; }
 #dbgHud { position: fixed; z-index: 7; left: calc(env(safe-area-inset-left) + 8px); top: calc(env(safe-area-inset-top) + 24px);
   font: 600 11px/1.35 ui-monospace, monospace; color: #9ff; background: #0007; border-radius: 8px; padding: 4px 7px; display: none; white-space: pre; pointer-events: none; }
 `;

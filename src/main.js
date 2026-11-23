@@ -7,6 +7,7 @@ import { buildRig, FLY } from './sleigh.js';
 import { input, pollInput, showReticle } from './input.js';
 import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
+import { makeOnFoot } from './onfoot.js';
 import { applyLook, addInk, LOOK, initialLook } from './look.js';
 import { makeMenus } from './menu.js';
 import { WEAPONS, ORDER, makeShots, loadGuns, heldGun } from './weapons.js';
@@ -16,7 +17,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 19;
+export const BUILD = 20;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -41,6 +42,16 @@ addEventListener('resize', () => {
 
 const world = buildWorld(scene, camera, { mode: MODE });
 const rig = buildRig(scene, world.colliders);
+rig.colliders = world.colliders;
+// SANTA ON FOOT: hop out, walk the deck while it flies itself, jump / get thrown off, CALL it back (src/onfoot.js)
+const foot = makeOnFoot({ scene, rig, input, camera, sfx: (n, o) => sfx(n, o),
+  onSplat: (p, v) => { shake = Math.max(shake, 0.5); shots?.puff?.(p, '#ffffff', 14, 5, 0.9); } });
+rig.onCrash = (power, at) => {
+  shake = Math.max(shake, 0.4 + power * 0.8);
+  sfx('debris', { vol: 0.6 + power * 0.4, rate: 0.7 }); if (power > 0.5) sfx('explosion', { vol: 0.5 * power, rate: 1.3 });
+  shots?.puff?.(at, '#ffffff', 12 + Math.round(power * 16), 6, 1.0);
+  foot.eject(power, at);
+};
 // the look: LIT (shaded) or FLAT (self-lit textures + ink outlines) -- his switch (OPTIONS / DEBUG), remembered
 const setLook = m => { applyLook(scene, m); try { localStorage.setItem('look', m); } catch (e) {} };
 
@@ -170,7 +181,8 @@ const AIM = { rest: new THREE.Vector3(), reach: 0.42, sx: 0, sy: 0, target: new 
 const _ndc = new THREE.Vector2();
 function updateAim(dt) {
   // rest: where the gun points with the stick centred -- ahead of the team, a little down
-  AIM.rest.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.rest.y -= 8;
+  if (foot.active) foot.aimRest(AIM.rest);
+  else { AIM.rest.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.rest.y -= 8; }
   const rp = AIM.rest.clone().project(camera);
   let px, py;
   const W = innerWidth, H = innerHeight, reach = AIM.reach * Math.min(W, H);
@@ -196,12 +208,12 @@ const shots = makeShots(scene, groundH, {
 });
 let shake = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
 const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
-wBtn.style.cssText = 'width:auto;height:auto;border-radius:16px;padding:9px 12px;z-index:7;font-size:12px;right:calc(env(safe-area-inset-right) + 12px);bottom:calc(env(safe-area-inset-bottom) + 316px);background:linear-gradient(#5a5f7a,#3a3e56)';
+wBtn.style.cssText = 'width:auto;height:auto;border-radius:16px;padding:9px 12px;z-index:7;font-size:12px;left:calc(50% + 6px);top:calc(env(safe-area-inset-top) + 8px);background:linear-gradient(#5a5f7a,#3a3e56)';
 document.getElementById('hud').appendChild(wBtn);
 function setWeapon(key, announce = true) {
   weapon = key; try { localStorage.setItem('weapon', key); } catch (e) {}
   wBtn.textContent = '⟳ ' + WEAPONS[key].name;
-  rig.crew?.setWeapon(key); MENU.crew?.santa.setWeapon(key);
+  rig.crew?.setWeapon(key); MENU.crew?.santa.setWeapon(key); foot.santa?.setWeapon(key);
   if (announce) sfx('cookie_pickup', { rate: 0.75 });
 }
 const nextWeapon = d => setWeapon(ORDER[(ORDER.indexOf(weapon) + d + ORDER.length) % ORDER.length]);
@@ -232,6 +244,12 @@ function updatePickups(dt, t) {
   }
 }
 
+// the on-foot Santa wearing the crew's interface (setFiring / aim / update / muzzle / kick / eject / def / rate)
+const footShooter = {
+  setFiring: on => foot.setFiring(on), aim: p => foot.santa?.aimAt(p), update: (dt, t) => foot.santa?.update(dt, t),
+  get muzzle() { return foot.santa?.muzzle; }, get eject() { return foot.santa?.eject; }, kick: () => foot.santa?.kick(),
+  get def() { return foot.santa?.def; }, get rate() { return foot.santa?.rate ?? 0.08; },
+};
 let wasFiring = false;
 function updateGun(dt, t) {
   const firing = STATE === 'play' && input.fire;
@@ -239,11 +257,15 @@ function updateGun(dt, t) {
   if (scr) showReticle(scr.px, scr.py, firing);
   else { AIM.target.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.target.y -= 8; }
   if (firing !== wasFiring) { sfx(firing ? 'gun_spinup' : 'gun_spindown', { vol: 0.5 }); wasFiring = firing; }
-  const crew = rig.crew;
+  rig.aimTarget = AIM.target;
+  const out = foot.active;
+  const crew = out ? footShooter : rig.crew;
   // aim ahead of the team, a little down toward the ground
   _p.copy(AIM.target);
   let muzzle, ready = true;
-  if (crew) { crew.setFiring(firing); crew.aim(_p); crew.update(dt, t); muzzle = crew.muzzle; }
+  if (out) { rig.crew?.setFiring(false); rig.crew?.update(dt, t); }
+  if (crew && crew.muzzle) { crew.setFiring(firing); crew.aim(_p); crew.update(dt, t); muzzle = crew.muzzle; }
+  else if (out) { muzzle = null; ready = false; }
   else {   // stand-in rail minigun until his models load
     spin += ((firing ? 28 : 0) - spin) * (1 - Math.exp(-(firing ? 4 : 1.5) * dt));
     rig.sleigh.barrels.rotation.z += spin * dt;
@@ -257,6 +279,7 @@ function updateGun(dt, t) {
     fireCd = crew ? crew.rate : 0.05;
     if (crew) { crew.kick(); if (W.shot === 'tracer' || W.shot === 'slug') casing(crew.eject); }
     sfx(W.snd, { vol: W.vol, rate: W.sndRate || 1 }); if (W.shot === 'tracer' && Math.random() < 0.3) sfx('casing', { vol: 0.25 });
+    if (!muzzle) return;
     const from = muzzle.getWorldPosition(new THREE.Vector3());
     _d.subVectors(AIM.target, from).normalize();   // straight at the reticle's point (the gun swings after it)
     _d.x += (Math.random() - 0.5) * W.spread; _d.y += (Math.random() - 0.5) * W.spread; _d.normalize();
@@ -342,6 +365,7 @@ function updateCamera(dt) {
     return;
   }
   const camMode = camOverride || CAM0;
+  if (foot.active && STATE === 'play' && !camOverride) { foot.cameraUpdate(dt); if (shake > 0.001) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; shake *= Math.exp(-6 * dt); } return; }
   if (camMode === 'crew') {   // ?cam=crew : a close look at the crew from the front-left of the sleigh
     const g = rig.sleigh.g; g.updateMatrixWorld();
     camera.position.copy(g.localToWorld(new THREE.Vector3(6.5, 5.2, 3.0)));
@@ -379,14 +403,15 @@ function frame(now) {
   const dt = STATE === 'pause' ? 0 : real * slow; t += dt;
   pollInput();
   if (STATE === 'play') {
-    input.boost = input.boost && milk > 0;
+    input.boost = input.boost && milk > 0 && !foot.active;
     if (input.boost && !wasBoost) sfx('milk_gulp'); wasBoost = input.boost;
     milk = Math.max(0, Math.min(100, milk + (input.boost ? -14 : 3) * dt));
     turnCd -= dt; if (Math.abs(input.steer) > 0.75 && turnCd <= 0) { sfx('whoosh', { vol: 0.5 }); turnCd = 1.4; }
   }
   if (dt > 0) {
     AUTO.climb = THREE.MathUtils.clamp((55 - rig.lead.y) / 20, -1, 1);
-    rig.update(dt, STATE === 'play' ? input : AUTO, t);
+    rig.update(dt, STATE === 'play' ? (foot.sleighInput() || input) : AUTO, t);
+    if (STATE === 'play') foot.update(dt, t);
     updateGun(dt, t);
     updatePickups(dt, t); pollWeaponPad();
     if (STATE === 'menu' && MENU.crew) updateMenuCrew(dt, t);
@@ -452,4 +477,4 @@ function updateSound(dt) {
   let near = 1e9; for (const f of world.fireList) near = Math.min(near, f.p.distanceTo(camera.position));
   L.fire.setVolume(Math.max(0, 1 - near / 28) * 0.8, 0.3);
 }
-window.__game = { rig, scene, camera, FLY, renderer, post, menus, MENU, get state() { return STATE; } };
+window.__game = { rig, scene, camera, FLY, renderer, post, menus, MENU, foot, get state() { return STATE; } };
