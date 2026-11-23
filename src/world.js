@@ -2,32 +2,14 @@
 // chimney smoke, a big lit Christmas tree in the square, a frozen pond, pine forest, mountain ring, snowfall.
 import * as THREE from 'three';
 
-// ---- deterministic random ------------------------------------------------------------
-let seed = 1337;
-export const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-const rr = (a, b) => a + rand() * (b - a);
-
-// ---- terrain height ------------------------------------------------------------------
-export const WORLD = 700;            // metres across
-const VILLAGE_R = 70;                // flattened village circle
-const POND = { x: -95, z: 60, r: 26 };
-export function groundH(x, z) {
-  let h = 6 * Math.sin(x * 0.012 + 1.3) * Math.cos(z * 0.010 - 0.4)
-        + 3 * Math.sin(x * 0.031 - z * 0.022)
-        + 1.2 * Math.sin(x * 0.08 + z * 0.06);
-  const d = Math.hypot(x, z);
-  h += Math.max(0, d - 220) * 0.18;  // rises toward the rim
-  const village = THREE.MathUtils.smoothstep(d, VILLAGE_R, VILLAGE_R + 40);
-  h = h * village;
-  const pd = Math.hypot(x - POND.x, z - POND.z);
-  const pond = 1 - THREE.MathUtils.smoothstep(pd, POND.r, POND.r + 18);
-  h = THREE.MathUtils.lerp(h, -1.2, pond);
-  return h;
-}
+import { WORLD, VILLAGE_R, POND, groundH } from './terrain.js';
+import { rand, rr, softDot } from './util.js';
+import { buildVillage } from './village.js';
+export { groundH, softDot, WORLD };
 
 export function buildWorld(scene) {
-  const world = { update: () => {}, chimneys: [], colliders: [] };
   const upd = [];
+  const world = { update: upd, chimneys: [], colliders: [] };
 
   // ---- sky --------------------------------------------------------------------------
   const skyMat = new THREE.ShaderMaterial({
@@ -54,7 +36,7 @@ export function buildWorld(scene) {
   scene.add(moon);
 
   // ---- lights -----------------------------------------------------------------------
-  scene.add(new THREE.HemisphereLight('#8ea2ff', '#6f6a9a', 0.85));
+  scene.add(new THREE.HemisphereLight('#a3b0ff', '#b08a9a', 1.15));
   const moonLight = new THREE.DirectionalLight('#c9d6ff', 1.25);
   moonLight.position.set(-120, 200, -140);
   moonLight.castShadow = true;
@@ -69,17 +51,12 @@ export function buildWorld(scene) {
   const tg = new THREE.PlaneGeometry(WORLD * 1.6, WORLD * 1.6, seg, seg);
   tg.rotateX(-Math.PI / 2);
   const pos = tg.attributes.position, col = [];
-  const cA = new THREE.Color('#e9eeff'), cB = new THREE.Color('#b4c0ec'), cPath = new THREE.Color('#d8c9c0'), tmp = new THREE.Color();
+  const cA = new THREE.Color('#e9eeff'), cB = new THREE.Color('#b4c0ec'), tmp = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     pos.setY(i, groundH(x, z));
     const n = 0.5 + 0.5 * Math.sin(x * 0.13 + Math.sin(z * 0.09) * 2) * Math.cos(z * 0.11);
     tmp.copy(cA).lerp(cB, n * 0.55);
-    // trodden paths: a ring road + four spokes through the village
-    const d = Math.hypot(x, z), a = Math.atan2(z, x);
-    const ring = Math.abs(d - 42) < 3.2 ? 1 : 0;
-    const spoke = d < 120 && Math.abs(Math.sin(a * 2)) * d < 2.6 ? 1 : 0;
-    if (ring || spoke) tmp.lerp(cPath, 0.55);
     col.push(tmp.r, tmp.g, tmp.b);
   }
   tg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
@@ -108,60 +85,7 @@ export function buildWorld(scene) {
     rock: new THREE.MeshStandardMaterial({ color: '#6c7192', roughness: 1, flatShading: true }),
   };
 
-  // ---- houses -----------------------------------------------------------------------
-  const roofShape = (w, h) => { const s = new THREE.Shape(); s.moveTo(-w / 2, 0); s.lineTo(0, h); s.lineTo(w / 2, 0); s.lineTo(-w / 2, 0); return s; };
-  function house(x, z, rot, scale) {
-    const g = new THREE.Group();
-    const w = rr(6, 9), d = rr(6, 8), h = rr(4, 6.5);
-    const wallMat = [M.wallA, M.wallB, M.wallC][Math.floor(rand() * 3)];
-    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    body.position.y = h / 2; g.add(body);
-    // snow-capped roof: an extruded gable with a bevel, and a fatter white cap on top
-    const rh = w * 0.5;
-    const roofG = new THREE.ExtrudeGeometry(roofShape(w + 1.2, rh), { depth: d + 1.2, bevelEnabled: true, bevelSize: 0.25, bevelThickness: 0.25, bevelSegments: 2 });
-    roofG.translate(0, 0, -(d + 1.2) / 2);
-    const roof = new THREE.Mesh(roofG, M.wood); roof.position.y = h; g.add(roof);
-    const capG = new THREE.ExtrudeGeometry(roofShape(w + 1.6, rh + 0.35), { depth: d + 1.5, bevelEnabled: true, bevelSize: 0.45, bevelThickness: 0.4, bevelSegments: 3 });
-    capG.translate(0, 0, -(d + 1.5) / 2);
-    const cap = new THREE.Mesh(capG, M.snow); cap.position.y = h + 0.25; cap.scale.set(1, 1, 1); g.add(cap);
-    // chimney
-    const cx = w * 0.22, cz = rr(-d * 0.25, d * 0.25);
-    const ch = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3.2, 1.1), M.brick);
-    ch.position.set(cx, h + rh * 0.55 + 1.2, cz); g.add(ch);
-    const chCap = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.8, 0.35, 10), M.snow);
-    chCap.position.set(cx, h + rh * 0.55 + 2.9, cz); g.add(chCap);
-    // glowing windows + door
-    for (const side of [-1, 1]) for (let k = 0; k < 2; k++) {
-      const win = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.3), M.window);
-      win.position.set(side * (w / 2 + 0.02), h * 0.55, (k - 0.5) * d * 0.45);
-      win.rotation.y = side * Math.PI / 2; g.add(win);
-    }
-    const door = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 2.4), M.wood);
-    door.position.set(0, 1.2, d / 2 + 0.02); g.add(door);
-    const doorWin = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), M.window);
-    doorWin.position.set(w * 0.3, h * 0.55, d / 2 + 0.02); g.add(doorWin);
-    g.traverse(o => { if (o.isMesh) { o.castShadow = o.material !== M.window; o.receiveShadow = true; } });
-    g.position.set(x, groundH(x, z), z); g.rotation.y = rot; g.scale.setScalar(scale);
-    scene.add(g);
-    g.updateMatrixWorld();
-    const top = new THREE.Vector3(cx, h + rh * 0.55 + 3.1, cz).applyMatrix4(g.matrixWorld);
-    world.chimneys.push(top);
-    world.colliders.push({ x, z, r: Math.max(w, d) * 0.6 * scale, top: g.position.y + (h + rh + 1) * scale });
-  }
-  const houseCount = 14;
-  for (let i = 0; i < houseCount; i++) {
-    const a = (i / houseCount) * Math.PI * 2 + rr(-0.12, 0.12);
-    const r = i % 2 ? rr(26, 32) : rr(52, 62);
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    house(x, z, -a + Math.PI / 2 + Math.PI, rr(0.9, 1.15));
-  }
-  // a few farmhouses out in the hills
-  for (let i = 0; i < 8; i++) {
-    const a = rr(0, Math.PI * 2), r = rr(130, 210);
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (Math.hypot(x - POND.x, z - POND.z) < POND.r + 20) continue;
-    house(x, z, rr(0, Math.PI * 2), rr(0.9, 1.2));
-  }
+  buildVillage(scene, world);
 
   // ---- big Christmas tree in the square (the focal point) ----------------------------
   {
@@ -194,17 +118,6 @@ export function buildWorld(scene) {
     upd.push(t => { star.rotation.y = t * 0.8; star.scale.setScalar(1 + Math.sin(t * 3) * 0.08); });
   }
 
-  // ---- lamp posts round the ring road ------------------------------------------------
-  const lampN = 16;
-  const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.16, 4, 6), new THREE.MeshStandardMaterial({ color: '#2b2b38' }), lampN);
-  const lamps = new THREE.InstancedMesh(new THREE.SphereGeometry(0.45, 10, 8), new THREE.MeshStandardMaterial({ color: '#ffe0a0', emissive: '#ffbb55', emissiveIntensity: 3 }), lampN);
-  for (let i = 0; i < lampN; i++) {
-    const a = (i / lampN) * Math.PI * 2 + 0.2, x = Math.cos(a) * 46, z = Math.sin(a) * 46, y = groundH(x, z);
-    posts.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, y + 2, z));
-    lamps.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, y + 4.2, z));
-  }
-  scene.add(posts, lamps);
-
   // ---- pine forest (instanced, snow-tipped) -------------------------------------------
   {
     const N = 900;
@@ -220,7 +133,7 @@ export function buildWorld(scene) {
     for (let tries = 0; n < N && tries < N * 6; tries++) {
       const x = rr(-WORLD * 0.75, WORLD * 0.75), z = rr(-WORLD * 0.75, WORLD * 0.75);
       const d = Math.hypot(x, z);
-      if (d < VILLAGE_R + 8) continue;
+      if (d < VILLAGE_R + 14) continue;
       if (Math.hypot(x - POND.x, z - POND.z) < POND.r + 8) continue;
       // clumps: density from a cheap noise
       if (Math.sin(x * 0.03) * Math.cos(z * 0.027) + Math.sin((x + z) * 0.011) < rr(-0.6, 0.9)) continue;
@@ -287,22 +200,11 @@ export function buildWorld(scene) {
     };
   }
 
-  world.update = (t, dt) => { for (const f of upd) f(t, dt); };
+  world.tick = (t, dt) => { for (const f of upd) f(t, dt); };
   return world;
 }
 
 const wrap = (v, c, B) => (v - c > B ? v - 2 * B : v - c < -B ? v + 2 * B : v);
-
-let dotTex = null;
-export function softDot() {
-  if (dotTex) return dotTex;
-  const c = document.createElement('canvas'); c.width = c.height = 32;
-  const x = c.getContext('2d'), gr = x.createRadialGradient(16, 16, 0, 16, 16, 16);
-  gr.addColorStop(0, '#fff'); gr.addColorStop(0.5, '#ffffffaa'); gr.addColorStop(1, '#fff0');
-  x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
-  dotTex = new THREE.CanvasTexture(c); dotTex.colorSpace = THREE.SRGBColorSpace;
-  return dotTex;
-}
 
 export function mergeGeos(geos) {
   // tiny non-indexed merge (avoids pulling BufferGeometryUtils for the trees)

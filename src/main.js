@@ -5,7 +5,7 @@ import { buildWorld, groundH, softDot } from './world.js';
 import { buildRig, FLY } from './sleigh.js';
 import { input, pollInput } from './input.js';
 
-export const BUILD = 1;
+export const BUILD = 2;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -111,13 +111,17 @@ function updateGun(dt) {
 }
 
 // ---- chase camera ---------------------------------------------------------------------------
-const camPos = new THREE.Vector3(0, 50, -160), camLook = new THREE.Vector3();
+const camPos = new THREE.Vector3(0, 46, -150), camLook = new THREE.Vector3();
+// ?cam=diorama : a fixed high three-quarter view of the village (the reference framing)
+const DIORAMA = { pos: new THREE.Vector3(-58, 62, 92), look: new THREE.Vector3(8, 0, 8), fov: 40 };
+const camMode = new URLSearchParams(location.search).get('cam');
 function updateCamera(dt) {
+  if (camMode === 'diorama') { camera.position.copy(DIORAMA.pos); camera.lookAt(DIORAMA.look); if (camera.fov !== DIORAMA.fov) { camera.fov = DIORAMA.fov; camera.updateProjectionMatrix(); } return; }
   const yawF = _d.set(Math.sin(rig.yaw), 0, Math.cos(rig.yaw));
-  const want = _p.copy(rig.S).addScaledVector(yawF, -13).add(new THREE.Vector3(0, 5.5 - rig.pitch * 6, 0));
+  const want = _p.copy(rig.S).addScaledVector(yawF, -15).add(new THREE.Vector3(0, 6 - rig.pitch * 6, 0));
   const gy = groundH(want.x, want.z) + 2; if (want.y < gy) want.y = gy;
   camPos.lerp(want, 1 - Math.exp(-4 * dt));
-  const look = new THREE.Vector3().addVectors(rig.S, rig.lead).multiplyScalar(0.5).addScaledVector(rig.fwd, 6);
+  const look = new THREE.Vector3().copy(rig.S).lerp(rig.lead, 0.4).addScaledVector(rig.fwd, 4); look.y += 1;
   camLook.lerp(look, 1 - Math.exp(-8 * dt));
   camera.position.copy(camPos);
   camera.lookAt(camLook);
@@ -142,12 +146,13 @@ function frame(now) {
     }
   }
   $cookies.textContent = cookieCount; $milk.textContent = Math.round(milk);
-  world.update(t, dt);
+  world.tick(t, dt);
   updateCamera(dt);
   world.snowUpdate(camera.position, t, dt);
   // keep the shadow camera centred on the sleigh
-  world.moonLight.target.position.copy(rig.S);
-  world.moonLight.position.copy(rig.S).add(new THREE.Vector3(-120, 200, -140));
+  const sc = camMode === 'diorama' ? DIORAMA.look : rig.S;
+  world.moonLight.target.position.copy(sc);
+  world.moonLight.position.copy(sc).add(new THREE.Vector3(-120, 200, -140));
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
