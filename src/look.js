@@ -3,7 +3,7 @@
 // materials. A taste switch: `?look=flat|lit`, the FLAT/LIT chip, remembered on the phone.
 import * as THREE from 'three';
 
-export const LOOK = { mode: 'lit', ink: '#3a2420', inkWidth: 0.014 };
+export const LOOK = { mode: 'lit', ink: '#3a2420', inkWidth: 0.014, flatCap: 0.88 };
 
 const flatCache = new WeakMap();
 function flatOf(m) {
@@ -16,6 +16,15 @@ function flatOf(m) {
   });
   // keep anything that glows glowing
   if (m.emissive && (m.emissiveIntensity || 0) > 0 && m.emissive.getHex() !== 0) f.color.copy(m.emissive).multiplyScalar(Math.max(1, m.emissiveIntensity));
+  // FLAT shows colours at full strength with no shading, so near-white surfaces (icing, snow) would sit at ~1.0 and trip the
+  // bloom threshold -- the whole picture blew out on his phone. Cap ordinary surfaces just under it; real glows (emissive
+  // materials, which become a colour > 1 above) are left alone so they still bloom.
+  const glows = !!(m.emissive && (m.emissiveIntensity || 0) > 0 && m.emissive.getHex() !== 0);
+  if (!glows) {
+    f.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <alphamap_fragment>', '#include <alphamap_fragment>\n  diffuseColor.rgb = min(diffuseColor.rgb, vec3(LOOK_CAP));'); };
+    f.defines = { LOOK_CAP: LOOK.flatCap.toFixed(3) };
+    f.customProgramCacheKey = () => 'flatcap' + LOOK.flatCap;
+  }
   f.name = (m.name || '') + ':flat';
   flatCache.set(m, f);
   return f;
