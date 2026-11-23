@@ -15,7 +15,7 @@ export const FOOT = {
 
 export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
   const st = { mode: 'seat', santa: null, local: new THREE.Vector3(0, FOOT.deckY, -0.3), pos: new THREE.Vector3(), vel: new THREE.Vector3(),
-    face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false };
+    face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false, zoom: 1, kick: 0 };
   loadModels().then(M => {
     st.santa = makeSanta(M.santa, { role: 'idle' });
     try { st.santa.setWeapon(localStorage.getItem('weapon') || 'gatling'); } catch (e) { st.santa.setWeapon('gatling'); }
@@ -60,7 +60,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     sleighWorld(st.mode === 'seat' ? new THREE.Vector3(0, 1.4, -0.3) : st.local, st.pos);
     st.vel.copy(rig.SV).multiplyScalar(0.9);
     st.vel.y = Math.max(st.vel.y, 0) + 6 + power * 6; st.vel.x += (Math.random() - 0.5) * 6; st.vel.z += (Math.random() - 0.5) * 6;
-    st.tumble = 1.2; st.face = rig.yaw; st.camYaw = rig.yaw; st.calling = false;
+    st.tumble = 1.2; st.face = rig.yaw; st.camYaw = rig.yaw; st.calling = false; st.kick = 0.8;
     setMode('air'); sfx('whoosh', { vol: 0.9, rate: 0.7 });
   }
 
@@ -154,17 +154,24 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     S.holder.quaternion.slerp(baseQ, st.tumble > 0 || st.stun > 0 ? 1 : 1 - Math.exp(-14 * dt));
     const moving = (st.mode === 'deck' ? mag : Math.hypot(st.vel.x, st.vel.z) / FOOT.run) > 0.15;
     S.setIdle(st.mode === 'air' ? 'jump' : moving ? (mag > 0.85 ? 'run' : 'walk') : 'tipsy');
-    // the camera: behind him, turning slowly with where he faces
-    let dy = st.face - st.camYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-    st.camYaw += dy * (1 - Math.exp(-(mag > 0.15 ? 1.6 : 0.5) * dt));
+    S.setFiring(st.firing && !moving && st.mode !== 'air');   // shooting on the move keeps his legs walking (hands stay on the gun)
+    // the camera (his note: it went crazy): level, never spins round when he backs up; it follows him only while he
+    // moves forward / sideways, and turns when the aim is pushed hard to one side
+    if (mag > 0.15 && my > -0.3 && st.mode !== 'air') {
+      let dy = st.face - st.camYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      st.camYaw += dy * (1 - Math.exp(-1.2 * dt));
+    }
+    if (Math.abs(input.aimX) > 0.7) st.camYaw -= Math.sign(input.aimX) * (Math.abs(input.aimX) - 0.7) * 3.5 * dt;
+    st.zoom += ((st.mode === 'air' || st.stun > 0 ? 1.5 : 1) + st.kick - st.zoom) * (1 - Math.exp(-2.5 * dt));
+    st.kick *= Math.exp(-1.2 * dt);
   }
 
   function cameraUpdate(dt) {
     const back = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw));
-    const want = st.pos.clone().addScaledVector(back, -6.5); want.y = st.pos.y + 3.2;
+    const want = st.pos.clone().addScaledVector(back, -6.5 * st.zoom); want.y = st.pos.y + 3.2 * st.zoom;
     want.y = Math.max(want.y, groundH(want.x, want.z) + 1.2);
-    if (st.camPos.lengthSq() === 0) st.camPos.copy(want);
-    st.camPos.lerp(want, 1 - Math.exp(-6 * dt));
+    if (st.camPos.lengthSq() === 0 || st.camPos.distanceTo(want) > 60) st.camPos.copy(want);
+    st.camPos.lerp(want, 1 - Math.exp(-(st.mode === 'air' ? 3 : 5) * dt));
     camera.position.copy(st.camPos);
     camera.lookAt(st.pos.x + back.x * 3, st.pos.y + 1.6, st.pos.z + back.z * 3);
     if (camera.fov !== 60) { camera.fov = 60; camera.updateProjectionMatrix(); }
@@ -176,6 +183,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     get santa() { return st.santa; },
     /** where the reticle rests when he's on foot: ahead of the camera, at about his height */
     aimRest(out) { const b = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); return out.copy(st.pos).addScaledVector(b, 22).setY(st.pos.y + 1.0); },
-    setFiring(on) { st.firing = on; st.santa?.setFiring(on); },
+    setFiring(on) { st.firing = on; },
+    crashZoom(k) { st.kick = Math.max(st.kick, k); },
   };
 }

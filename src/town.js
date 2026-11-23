@@ -169,7 +169,6 @@ export function makeTown(scene) {
   function raycast(from, dir, maxD = 250) {
     let best = null;
     for (const hs of houses) {
-      if (hs.dead) continue;
       // cheap reject: the house's bounding circle vs the ray (2D) + height
       const ox = from.x - hs.x, oz = from.z - hs.z, R = Math.max(hs.W, hs.D) * 0.8 + 1;
       const t0 = -(ox * dir.x + oz * dir.z) / Math.max(1e-6, dir.x * dir.x + dir.z * dir.z);
@@ -193,7 +192,7 @@ export function makeTown(scene) {
   /** is a world point inside a live brick? (rockets / snowballs) */
   function solidAt(p) {
     for (const hs of houses) {
-      if (hs.dead || (p.x - hs.x) ** 2 + (p.z - hs.z) ** 2 > (Math.max(hs.W, hs.D) + 2) ** 2) continue;
+      if ((p.x - hs.x) ** 2 + (p.z - hs.z) ** 2 > (Math.max(hs.W, hs.D) + 2) ** 2) continue;
       for (const id of hs.ids) {
         const b = bricks[id]; if (!b.alive) continue;
         _p.copy(p).applyMatrix4(b.inv);
@@ -206,7 +205,7 @@ export function makeTown(scene) {
   function blast(p, radius, power = 99, push = null) {
     let n = 0;
     for (const hs of houses) {
-      if (hs.dead || (p.x - hs.x) ** 2 + (p.z - hs.z) ** 2 > (Math.max(hs.W, hs.D) + radius + 1) ** 2) continue;
+      if ((p.x - hs.x) ** 2 + (p.z - hs.z) ** 2 > (Math.max(hs.W, hs.D) + radius + 1) ** 2) continue;
       const kill = [];
       for (const id of hs.ids) {
         const b = bricks[id]; if (!b.alive) continue;
@@ -244,12 +243,25 @@ export function makeTown(scene) {
           const cp = new THREE.Vector3().setFromMatrixPosition(c.local);
           if (Math.abs(cp.y - (bp.y - B.y)) < 0.05 && Math.hypot(cp.x - bp.x, cp.z - bp.z) < B.x * 0.8) { held = true; break; }
         }
+        // a one-brick-wide column with no neighbours in its course is too thin to stand (above the bottom two courses)
+        if (held && b.row >= 2 && b.kind === 'wall') {
+          let side = false;
+          for (const jd of hs.ids) {
+            if (jd === id) continue; const c = bricks[jd];
+            if (!c.alive || gone.has(jd) || c.row !== b.row) continue;
+            const cp = new THREE.Vector3().setFromMatrixPosition(c.local);
+            if (Math.hypot(cp.x - bp.x, cp.z - bp.z) < B.x * 1.15) { side = true; break; }
+          }
+          if (!side) held = false;
+        }
         if (!held) { gone.add(id); changed = true; }
       }
       // the roof drops when the wall tops under it are mostly gone
       const topAlive = hs.top.filter(i => bricks[i].alive && !gone.has(i)).length;
       if (hs.top.length && topAlive < hs.top.length * 0.4) for (const r of hs.roof) if (bricks[r].alive && !gone.has(r)) { gone.add(r); changed = true; }
     }
+    // a house that's mostly gone caves in: everything above the bottom two courses comes down -> a low ruin
+    if ((hs.alive - gone.size) / hs.total < 0.35) for (const id of hs.ids) { const b = bricks[id]; if (b.alive && (b.row >= 2 || b.kind === 'roof')) gone.add(id); }
     for (const id of gone) {
       const b = bricks[id]; b.alive = false; hs.alive--;
       mesh.setMatrixAt(id, ZERO);

@@ -17,7 +17,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 22;
+export const BUILD = 23;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -47,7 +47,7 @@ rig.colliders = world.colliders;
 const foot = makeOnFoot({ scene, rig, input, camera, sfx: (n, o) => sfx(n, o),
   onSplat: (p, v) => { shake = Math.max(shake, 0.5); shots?.puff?.(p, '#ffffff', 14, 5, 0.9); } });
 rig.onCrash = (power, at) => {
-  shake = Math.max(shake, 0.4 + power * 0.8);
+  shake = Math.max(shake, 0.4 + power * 0.8); crashZoom = Math.max(crashZoom, 0.4 + power * 0.6);
   sfx('debris', { vol: 0.6 + power * 0.4, rate: 0.7 }); if (power > 0.5) sfx('explosion', { vol: 0.5 * power, rate: 1.3 });
   shots?.puff?.(at, '#ffffff', 12 + Math.round(power * 16), 6, 1.0);
   // the sleigh as a wrecking ball: a crash into a house knocks a hole in it the size of the hit
@@ -199,7 +199,10 @@ function updateAim(dt) {
   // what's under the reticle: march the camera ray down to the terrain, else a point far along it
   _ndc.set(px / W * 2 - 1, -(py / H) * 2 + 1); AIM.ray.setFromCamera(_ndc, camera);
   const o = AIM.ray.ray.origin, d = AIM.ray.ray.direction; let hit = false;
-  for (let s = 2; s < 400; s *= 1.08) { const x = o.x + d.x * s, y = o.y + d.y * s, z = o.z + d.z * s; if (y < groundH(x, z)) { AIM.target.set(x, y, z); hit = true; break; } }
+  // the first brick under the reticle wins (his note: bullets missed the wall he was aiming at -- they flew at the ground behind it)
+  const th = world.town?.raycast(o, d, 400);
+  for (let s = 2; s < (th ? th.dist : 400); s *= 1.08) { const x = o.x + d.x * s, y = o.y + d.y * s, z = o.z + d.z * s; if (y < groundH(x, z)) { AIM.target.set(x, y, z); hit = true; break; } }
+  if (!hit && th) { AIM.target.copy(th.point); hit = true; }
   if (!hit) AIM.target.copy(o).addScaledVector(d, 250);
   return { px, py };
 }
@@ -210,7 +213,7 @@ const shots = makeShots(scene, groundH, {
   onHit: (p, kind) => { if (kind === 'snowball') world.town?.blast(p, 1.0, 1); },
   solid: p => !!world.town?.solidAt(p),
 });
-let shake = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
+let shake = 0, crashZoom = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
 const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
 wBtn.style.cssText = 'width:auto;height:auto;border-radius:16px;padding:9px 12px;z-index:7;font-size:12px;left:calc(50% + 6px);top:calc(env(safe-area-inset-top) + 8px);background:linear-gradient(#5a5f7a,#3a3e56)';
 document.getElementById('hud').appendChild(wBtn);
@@ -394,7 +397,8 @@ function updateCamera(dt) {
   }
   if (camMode === 'diorama') { camera.position.copy(DIORAMA.pos); camera.lookAt(DIORAMA.look); if (camera.fov !== DIORAMA.fov) { camera.fov = DIORAMA.fov; camera.updateProjectionMatrix(); } return; }
   const yawF = _d.set(Math.sin(rig.yaw), 0, Math.cos(rig.yaw));
-  const want = _p.copy(rig.S).addScaledVector(yawF, -14).add(new THREE.Vector3(0, 7.5 - rig.pitch * 6, 0));
+  crashZoom *= Math.exp(-0.9 * dt);   // a crash pulls the camera back so the whole wreck is in frame
+  const want = _p.copy(rig.S).addScaledVector(yawF, -14 * (1 + crashZoom)).add(new THREE.Vector3(0, (7.5 - rig.pitch * 6) * (1 + crashZoom * 0.8), 0));
   const gy = groundH(want.x, want.z) + 2; if (want.y < gy) want.y = gy;
   camPos.lerp(want, 1 - Math.exp(-4 * dt));
   const look = new THREE.Vector3().copy(rig.S).lerp(rig.lead, 0.4).addScaledVector(rig.fwd, 4); look.y += 1;
