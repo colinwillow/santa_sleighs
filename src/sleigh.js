@@ -22,6 +22,7 @@ const M = {
   white: mat('#ffffff', { roughness: 0.95 }), skin: mat('#ffc9a8'), black: mat('#1b1b22', { roughness: 0.4 }),
   fur: mat('#8a5a3a'), furLight: mat('#d9b48f'), hoof: mat('#2a1d16'), antler: mat('#e6d3b0'),
   sack: mat('#3f7a4a'), gun: mat('#3c4150', { metalness: 0.8, roughness: 0.35 }), green: mat('#2f8f4a'),
+  cigar: mat('#5a3420', { roughness: 0.9 }), ember: new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff6a20').multiplyScalar(3), toneMapped: false }),
   nose: mat('#ff2a2a', { emissive: '#ff1010', emissiveIntensity: 2.5 }),
 };
 const mesh = (geo, m, x = 0, y = 0, z = 0, parent) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; parent?.add(o); return o; };
@@ -76,6 +77,12 @@ function buildSanta() {
   const beard = mesh(S(0.45), M.white, 0, -0.25, 0.16, head); beard.scale.set(1, 1.15, 0.8);
   mesh(S(0.1, 8, 6), M.skin, 0, 0.02, 0.42, head);                       // nose
   mesh(new THREE.BoxGeometry(0.62, 0.12, 0.06), M.black, 0, 0.13, 0.38, head); // shades
+  // the fat cigar, out of the side of his mouth, with a glowing tip (smoke comes off `cigarTip`)
+  const cigar = new THREE.Group(); cigar.position.set(0.14, -0.12, 0.42); cigar.rotation.set(0.25, 0.5, 0); head.add(cigar);
+  mesh(C(0.055, 0.06, 0.5, 8), M.cigar, 0, 0, 0.22, cigar).rotation.x = Math.PI / 2;
+  mesh(C(0.062, 0.062, 0.06, 8), M.gold, 0, 0, 0.12, cigar).rotation.x = Math.PI / 2;
+  mesh(S(0.058, 8, 6), M.ember, 0, 0, 0.48, cigar);
+  const cigarTip = new THREE.Object3D(); cigarTip.position.z = 0.52; cigar.add(cigarTip);
   mesh(new THREE.TorusGeometry(0.4, 0.11, 8, 18), M.white, 0, 0.22, 0, head).rotation.x = Math.PI / 2;
   const hat = mesh(new THREE.ConeGeometry(0.38, 0.8, 14), M.red, 0, 0.6, -0.08, head); hat.rotation.x = -0.5;
   mesh(S(0.13), M.white, 0, 0.92, -0.42, head);
@@ -84,7 +91,7 @@ function buildSanta() {
     const arm = mesh(C(0.16, 0.2, 0.8), M.red, side * 0.7, 1.05, 0.4, g); arm.rotation.x = -1.1; arm.rotation.z = side * -0.2;
     mesh(S(0.17), M.white, side * 0.62, 0.95, 0.82, g);
   }
-  return { g, head };
+  return { g, head, cigarTip };
 }
 
 function buildDeer(redNose) {

@@ -5,11 +5,14 @@ import * as THREE from 'three';
 import { WORLD, VILLAGE_R, POND, groundH } from './terrain.js';
 import { rand, rr, softDot } from './util.js';
 import { buildVillage } from './village.js';
+import { buildKitShow } from './kitshow.js';
+import { snowShader } from './ground.js';
+import { fires, smoke } from './fx.js';
 export { groundH, softDot, WORLD };
 
-export function buildWorld(scene) {
+export function buildWorld(scene, camera, { mode = 'village' } = {}) {
   const upd = [];
-  const world = { update: upd, chimneys: [], colliders: [] };
+  const world = { update: upd, chimneys: [], colliders: [], fireList: [], avoid: [] };
 
   // ---- sky --------------------------------------------------------------------------
   const skyMat = new THREE.ShaderMaterial({
@@ -28,7 +31,7 @@ export function buildWorld(scene) {
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1500, 32, 16), skyMat);
   sky.renderOrder = -1;
   scene.add(sky);
-  scene.fog = new THREE.Fog('#7a7fb0', 160, 900);
+  scene.fog = new THREE.FogExp2('#8a84b8', 0.0026);   // the haze: lavender, thick enough to soften the far village
 
   // moon
   const moon = new THREE.Mesh(new THREE.SphereGeometry(28, 24, 12), new THREE.MeshBasicMaterial({ color: '#fff6dc', fog: false }));
@@ -36,7 +39,7 @@ export function buildWorld(scene) {
   scene.add(moon);
 
   // ---- lights -----------------------------------------------------------------------
-  scene.add(new THREE.HemisphereLight('#a3b0ff', '#b08a9a', 1.15));
+  scene.add(new THREE.HemisphereLight('#9aa6ff', '#a07a92', 0.95));
   const moonLight = new THREE.DirectionalLight('#c9d6ff', 1.25);
   moonLight.position.set(-120, 200, -140);
   moonLight.castShadow = true;
@@ -61,7 +64,7 @@ export function buildWorld(scene) {
   }
   tg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   tg.computeVertexNormals();
-  const ground = new THREE.Mesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+  const ground = new THREE.Mesh(tg, snowShader(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })));
   ground.receiveShadow = true;
   scene.add(ground);
 
@@ -85,7 +88,7 @@ export function buildWorld(scene) {
     rock: new THREE.MeshStandardMaterial({ color: '#6c7192', roughness: 1, flatShading: true }),
   };
 
-  buildVillage(scene, world);
+  if (mode === 'kit') buildKitShow(scene, world); else buildVillage(scene, world);
 
   // ---- big Christmas tree in the square (the focal point) ----------------------------
   {
@@ -134,6 +137,7 @@ export function buildWorld(scene) {
       const x = rr(-WORLD * 0.75, WORLD * 0.75), z = rr(-WORLD * 0.75, WORLD * 0.75);
       const d = Math.hypot(x, z);
       if (d < VILLAGE_R + 14) continue;
+      if (world.avoid.some(f => f(x, z))) continue;
       if (Math.hypot(x - POND.x, z - POND.z) < POND.r + 8) continue;
       // clumps: density from a cheap noise
       if (Math.sin(x * 0.03) * Math.cos(z * 0.027) + Math.sin((x + z) * 0.011) < rr(-0.6, 0.9)) continue;
@@ -160,26 +164,9 @@ export function buildWorld(scene) {
     scene.add(mtn, cap);
   }
 
-  // ---- chimney smoke (one Points cloud) ------------------------------------------------
-  {
-    const per = 14, N = world.chimneys.length * per;
-    const g = new THREE.BufferGeometry();
-    const P = new Float32Array(N * 3), life = new Float32Array(N);
-    for (let i = 0; i < N; i++) life[i] = rand();
-    g.setAttribute('position', new THREE.BufferAttribute(P, 3));
-    const smoke = new THREE.Points(g, new THREE.PointsMaterial({ color: '#c8c8d8', size: 2.6, map: softDot(), transparent: true, opacity: 0.45, depthWrite: false }));
-    smoke.frustumCulled = false; scene.add(smoke);
-    upd.push((t, dt) => {
-      for (let i = 0; i < N; i++) {
-        life[i] += dt * 0.18; if (life[i] > 1) life[i] -= 1;
-        const c = world.chimneys[(i / per) | 0], L = life[i];
-        P[i * 3] = c.x + Math.sin(L * 6 + i) * 0.6 * L + L * 5;
-        P[i * 3 + 1] = c.y + L * 12;
-        P[i * 3 + 2] = c.z + Math.cos(L * 5 + i) * 0.6 * L;
-      }
-      g.attributes.position.needsUpdate = true;
-    });
-  }
+  // ---- chimney + fire-pit smoke, fires ----------------------------------------------------
+  upd.push(smoke(scene, world.chimneys));
+  upd.push(fires(scene, world.fireList, camera));
 
   // ---- snowfall around the camera -------------------------------------------------------
   {

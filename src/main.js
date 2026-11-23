@@ -4,27 +4,32 @@ import * as THREE from 'three';
 import { buildWorld, groundH, softDot } from './world.js';
 import { buildRig, FLY } from './sleigh.js';
 import { input, pollInput } from './input.js';
+import { makePost } from './post.js';
 
-export const BUILD = 2;
+export const BUILD = 3;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 0.92;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.3, 3000);
+const params = new URLSearchParams(location.search);
+const MODE = params.get('scene') === 'kit' ? 'kit' : 'village';
+const post = makePost(renderer, scene, camera);
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  post.resize();
 });
 
-const world = buildWorld(scene);
+const world = buildWorld(scene, camera, { mode: MODE });
 const rig = buildRig(scene, world.colliders);
 
 // ---- cookies to fly through (refill milk) -- placeholder pickups ------------------------
@@ -110,12 +115,49 @@ function updateGun(dt) {
   puffG.attributes.position.needsUpdate = true;
 }
 
+// ---- Santa's cigar smoke: puffs left behind in world space as he flies ------------------------------
+const CIG = 70, cigP = new Float32Array(CIG * 3).fill(-999), cigV = Array.from({ length: CIG }, () => new THREE.Vector3()), cigL = new Float32Array(CIG);
+const cigG = new THREE.BufferGeometry(); cigG.setAttribute('position', new THREE.BufferAttribute(cigP, 3));
+const cigPts = new THREE.Points(cigG, new THREE.PointsMaterial({ color: '#d8d6e0', size: 0.7, map: softDot(), transparent: true, opacity: 0.55, depthWrite: false }));
+cigPts.frustumCulled = false; scene.add(cigPts);
+let cigI = 0, cigT = 0;
+const _tip = new THREE.Vector3();
+function updateCigar(dt) {
+  cigT -= dt;
+  if (cigT <= 0) {
+    cigT = 0.06;
+    rig.santa.cigarTip.getWorldPosition(_tip);
+    const i = cigI++ % CIG;
+    cigP[i * 3] = _tip.x; cigP[i * 3 + 1] = _tip.y; cigP[i * 3 + 2] = _tip.z;
+    cigV[i].copy(rig.SV).multiplyScalar(0.15).add(new THREE.Vector3(Math.random() - 0.5, 1.2, Math.random() - 0.5)); cigL[i] = 2.2;
+  }
+  for (let i = 0; i < CIG; i++) {
+    if (cigL[i] <= 0) continue;
+    cigL[i] -= dt; cigV[i].multiplyScalar(Math.exp(-1.5 * dt));
+    cigP[i * 3] += cigV[i].x * dt; cigP[i * 3 + 1] += cigV[i].y * dt; cigP[i * 3 + 2] += cigV[i].z * dt;
+    if (cigL[i] <= 0) cigP[i * 3 + 1] = -999;
+  }
+  cigG.attributes.position.needsUpdate = true;
+}
+
 // ---- chase camera ---------------------------------------------------------------------------
 const camPos = new THREE.Vector3(0, 46, -150), camLook = new THREE.Vector3();
 // ?cam=diorama : a fixed high three-quarter view of the village (the reference framing)
 const DIORAMA = { pos: new THREE.Vector3(-58, 62, 92), look: new THREE.Vector3(8, 0, 8), fov: 40 };
-const camMode = new URLSearchParams(location.search).get('cam');
+const camMode = MODE === 'kit' ? 'orbit' : params.get('cam');
+// kit showroom: a slow orbit round the lot; drag anywhere to turn it / tilt it
+const ORB = { a: 0.6, h: 22, r: 58, drag: null };
+addEventListener('pointerdown', e => { if (camMode === 'orbit') ORB.drag = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointermove', e => { if (!ORB.drag) return; ORB.a -= (e.clientX - ORB.drag.x) * 0.006; ORB.h = Math.max(3, Math.min(70, ORB.h + (e.clientY - ORB.drag.y) * 0.1)); ORB.drag = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerup', () => ORB.drag = null);
 function updateCamera(dt) {
+  if (camMode === 'orbit') {
+    if (!ORB.drag) ORB.a += dt * 0.07;
+    camera.position.set(Math.cos(ORB.a) * ORB.r, ORB.h, Math.sin(ORB.a) * ORB.r);
+    camera.lookAt(0, 4, 0);
+    if (camera.fov !== 50) { camera.fov = 50; camera.updateProjectionMatrix(); }
+    return;
+  }
   if (camMode === 'diorama') { camera.position.copy(DIORAMA.pos); camera.lookAt(DIORAMA.look); if (camera.fov !== DIORAMA.fov) { camera.fov = DIORAMA.fov; camera.updateProjectionMatrix(); } return; }
   const yawF = _d.set(Math.sin(rig.yaw), 0, Math.cos(rig.yaw));
   const want = _p.copy(rig.S).addScaledVector(yawF, -15).add(new THREE.Vector3(0, 6 - rig.pitch * 6, 0));
@@ -150,11 +192,12 @@ function frame(now) {
   updateCamera(dt);
   world.snowUpdate(camera.position, t, dt);
   // keep the shadow camera centred on the sleigh
-  const sc = camMode === 'diorama' ? DIORAMA.look : rig.S;
+  const sc = camMode === 'diorama' ? DIORAMA.look : camMode === 'orbit' ? new THREE.Vector3() : rig.S;
   world.moonLight.target.position.copy(sc);
   world.moonLight.position.copy(sc).add(new THREE.Vector3(-120, 200, -140));
-  renderer.render(scene, camera);
+  updateCigar(dt);
+  post.render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__game = { rig, scene, camera, FLY };
+window.__game = { rig, scene, camera, FLY, renderer, post };

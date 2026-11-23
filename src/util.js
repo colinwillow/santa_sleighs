@@ -47,6 +47,7 @@ export const BOX = new THREE.BoxGeometry(1, 1, 1);
 export const BLOB = new THREE.IcosahedronGeometry(1, 1);      // 80 tris, soft snow lumps
 export const BALL = new THREE.IcosahedronGeometry(1, 0);      // 20 tris, bulbs
 export const CYL = new THREE.CylinderGeometry(1, 1, 1, 10);
+export const CYL6 = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);   // open, 12 tris: canes, stripes, posts
 
 /** a box with bevelled edges, centred (w,h,d), bevel r */
 export function bevBox(w, h, d, r = 0.08, segs = 2) {

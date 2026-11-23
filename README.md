@@ -24,6 +24,6 @@ Fly through the floating cookies to refill milk.
 - `src/rope.js` - verlet ropes drawn as tubes
 - `models/` - put real GLB models here (see `models/README.md`)
 
-![build 2 vs reference](images/build2_vs_ref.jpg)
+![build 3](images/build3_village.png)
 
-`?cam=diorama` = a fixed high view of the village (the reference framing).
+`?cam=diorama` = a fixed high view of the village (the reference framing). `?scene=kit` = the kit showroom (drag to orbit). `?bloom=0` = no bloom.
