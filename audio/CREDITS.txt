@@ -1,0 +1,55 @@
+SANTA SLAYS -- sound credits. EVERY FILE HERE IS CC0 (public domain) -- no attribution is legally required; listed so we know where
+each came from. No CC-BY, no non-commercial. All files: mono 44.1 kHz MP3 unless noted, trimmed, faded, loudness-levelled
+(one-shots: loudest 100 ms window at about -14 dBFS RMS, soft UI / tinkles -18, peaks <= -1 dBFS; loops: whole-file RMS
+about -20 to -24 dBFS). Loops are seamless (equal-power crossfade of the tail into the head, or rendered circularly).
+Built by a scratch prep script (not shipped). Runtime: src/audio.js (MANIFEST at the top).
+
+GUN
+gun_shot_1..4     -- "The Free Firearm Sound Library" (Prepared SFX Library, AK-47 / C_28P.wav: near, single shots), by the Free Firearm
+                     Sound Library team (freefirearmsfx.com), CC0. https://opengameart.org/content/the-free-firearm-sound-library
+                     Each of the 4 single shots cut to 0.13 s (fast exponential fade), +low end below 180 Hz, -10 dBFS RMS.
+gun_spinup        -- Kenney "Sci-fi Sounds" (engineCircular_002), CC0. https://kenney.nl/assets/sci-fi-sounds
+                     Varispeed ramp x0.3 -> x1.2 over 0.8 s + a synthesized barrel-click train (6 -> 60 Hz) + a faint rising whine (ours).
+gun_spindown      -- same source, ramp x1.2 -> x0.25 over 1.3 s, clicks 60 -> 5 Hz, fading.
+gun_spin_loop     -- same source at x1.2, 2.0 s seamless loop + 60 Hz clicks (an EXTRA: a bed while the barrels turn; optional).
+casing_1..3       -- Kenney "Impact Sounds" (impactMetal_light_004 / 001 / 002), CC0. https://kenney.nl/assets/impact-sounds
+                     Pitched up x1.9-2.3 (brass-shell size) and bounced 2-4 times (decaying copies 35-90 ms apart), highpassed 1.5 kHz.
+
+FLIGHT
+wind_loop         -- "Winter Wind" by wipics, CC0 (public domain). https://opengameart.org/content/winter-wind
+                     STEREO, 18 s window (20-39.5 s) made a seamless loop with a 1.5 s crossfade.
+whoosh_1..3       -- "Air Whoosh" (whoosh2.wav) by pyranostudios, CC0. https://opengameart.org/content/air-whoosh
+                     The three middle passes, cut at the troughs (0.85-1.9 / 1.95-2.98 / 3.02-4.05 s), x1.15 / x1.0 / x0.9.
+sleigh_bells_loop -- SYNTHESIZED for this game (CC0): jingle-bell "crotals" (5 inharmonic partials + pellet click), 12-bell shakes on a
+                     trotting harness rhythm (2.5 steps/s, hit + rebound + settle) over a loose-bell bed. STEREO, 6.0 s, rendered
+                     circularly so it loops seamlessly.
+hoof_1..3         -- reused from korajin audio/hooves (muffled_1..3): "SFX - Horse - Trot.wav" by MrFizzywig,
+                     https://freesound.org/people/MrFizzywig/sounds/581834/ (CC0), sliced per hit. Re-levelled softer.
+
+HITS
+crunch_1          -- "Crunch sounds (burnt toast)" crunch_8 by cogitollc, CC0. https://opengameart.org/content/crunch-sounds-burnt-toast
+crunch_2          -- same pack, crunch_10, CC0.
+crunch_3          -- "7 Eating Crunches" crunch.4 by StarNinjas, CC0. https://opengameart.org/content/7-eating-crunches
+crunch_4          -- "5 break, crunch impacts" impactcrunch03 by qubodup, CC0. https://opengameart.org/content/5-break-crunch-impacts
+                     All pitched up x1.08-1.25 (crisper biscuit), highpassed 180 Hz, cut to <= 0.55 s.
+debris_1, debris_2 -- reused from korajin audio/stone (gravel_a / gravel_b): "75 CC0 breaking / falling / hit sfx" by rubberduck, CC0.
+                     https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx  -- pitched up x1.15 / x1.1 (lighter chunks).
+debris_3          -- reused from korajin audio/stone (chip_a): "80 CC0 RPG SFX" (stones_01) by rubberduck, CC0.
+                     https://opengameart.org/content/80-cc0-rpg-sfx  -- pitched up x1.2.
+explosion_1       -- Kenney "Sci-fi Sounds" explosionCrunch_001 + lowFrequency_explosion_000 layered, CC0. https://kenney.nl/assets/sci-fi-sounds
+explosion_2       -- Kenney "Sci-fi Sounds" explosionCrunch_004 + lowFrequency_explosion_001 layered, CC0. Both cut to 1.8 s.
+snow_puff_1, _2   -- Kenney "Impact Sounds" (footstep_snow_000 / 003), CC0, pitched up x1.35 / x1.5, highpassed 400 Hz, <= 0.22 s.
+
+PICKUPS / UI
+cookie_pickup     -- SYNTHESIZED (CC0): a bell arpeggio E6-G6-C7-E7 + a sprinkle of tiny high bells.
+milk_gulp_1, _2   -- "Liquid Bottle Drink Set" (swallow-01 / swallow-03) by qubodup, CC0. https://opengameart.org/content/liquid-bottle-drink-set
+ui_tap            -- Kenney "Interface Sounds" (select_001), CC0. https://kenney.nl/assets/interface-sounds
+ui_back           -- Kenney "Interface Sounds" (back_002), CC0.
+ui_start          -- SYNTHESIZED (CC0): a music-box C-major arpeggio + held chord with a sleigh-bell shake (same voice as music_menu).
+
+AMBIENCE / MUSIC
+fire_crackle_loop -- "Fireplace Sound loop" (fire.wav) by pagdev, CC0. https://opengameart.org/content/fireplace-sound-loop
+                     13 s window (6-19 s), 1 s crossfade -> 12 s seamless loop, 80 kbps.
+music_menu        -- SYNTHESIZED (CC0): "Jingle Bells" (James Lord Pierpont, 1857 -- public domain melody), verse + chorus, 168 bpm,
+                     music-box voice (decaying sine partials + a tine ping) with bass / chord accompaniment and a soft room;
+                     45.7 s, rendered circularly so it loops seamlessly, 64 kbps.

@@ -14,7 +14,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 8;
+export const BUILD = 9;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -160,8 +160,10 @@ function updateCasings(dt) {
   casG.attributes.position.needsUpdate = true;
 }
 
+let wasFiring = false;
 function updateGun(dt, t) {
   const firing = STATE === 'play' && (input.fire || input.fireKey);
+  if (firing !== wasFiring) { sfx(firing ? 'gun_spinup' : 'gun_spindown', { vol: 0.5 }); wasFiring = firing; }
   const crew = rig.crew;
   // aim ahead of the team, a little down toward the ground
   _p.copy(rig.lead).addScaledVector(rig.fwd, 30); _p.y -= 8;
