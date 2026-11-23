@@ -53,6 +53,11 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   RT/A boost, RB fire.
 - **Home-screen icon** (b11): `icons/*-vN.png` + root `apple-touch-icon.png`, `manifest.webmanifest`. Version in the FILENAME, never `?v=`
   (iOS keeps an icon per URL forever). Source art `images/reference/icon_source.png`; white corners flood-filled with the frame gold.
+- **Tough Santa** (b17, his `models/santa_tough.glb`, original untouched): `models/santa_tough_rig.glb` = + HAND MOUNTS (his
+  `blender-addons/pipeline/mounts.py`: `weapon_root_right/left`, `weapon_tip(_2)`, `gun_tip_right/left`, children of the hands) + a HAT
+  CHAIN (`tools/blender/hat_chain_rig.py`: `hat_01..03` + `hat_tip` along the curl to the pompom, brim stays on the Head). The game
+  springs the chain (`HAT` in characters.js, high-passed head accel + idle wobble). OPTIONS > SANTA: TOUGH (default) / CLASSIC (reloads).
+  EVERY new humanoid gets mounts.py; the gun still IKs both fists to its grips (mount bones are there for held props).
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by
   `tools/blender/` (this Blender can't read Draco: undraco -> rig -> pack). The game springs them in `makeJiggle` (`CREW.jiggle`);
   input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.

@@ -24,7 +24,10 @@ const loader = new GLTFLoader();
 const draco = new DRACOLoader(); draco.setDecoderPath('./vendor/draco/'); loader.setDRACOLoader(draco);
 const load = url => new Promise((res, rej) => loader.load(url, res, undefined, rej));
 let modelsP = null;
-export const loadModels = () => modelsP || (modelsP = Promise.all([load('./models/santa.glb'), load('./models/elf_girl_jiggle.glb')]).then(([santa, elf]) => ({ santa, elf })));
+// which Santa: TOUGH (his Nov 23 model: goggles, milk-bottle belt; rigged here with hand mounts + a hat chain) or CLASSIC
+export const SANTAS = { tough: './models/santa_tough_rig.glb', classic: './models/santa.glb' };
+export function santaChoice() { try { const v = localStorage.getItem('santa'); if (SANTAS[v]) return v; } catch (e) {} return 'tough'; }
+export const loadModels = () => modelsP || (modelsP = Promise.all([load(SANTAS[santaChoice()]), load('./models/elf_girl_jiggle.glb')]).then(([santa, elf]) => ({ santa, elf })));
 
 // ---- bone helpers --------------------------------------------------------------------------------
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
@@ -182,6 +185,42 @@ function makeJiggle(E) {
 
 const V = () => new THREE.Vector3(), Q = () => new THREE.Quaternion();
 
+/** HAT DYNAMICS: the hat_01..hat_tip chain (tools/blender/hat_chain_rig.py) swings on a spring driven by the head's
+ *  changes in motion (high-passed, like the jiggle), each bone further out bending a little more, plus a lazy idle wobble. */
+export const HAT = { k: 45, damp: 5, inertia: 0.16, max: 0.7, share: [0.35, 0.65, 1.0, 0.45], wobble: 0.07 };
+function makeHatSway(B) {
+  const chain = ['hat_01', 'hat_02', 'hat_03', 'hat_tip'].map(n => B[n]).filter(Boolean);
+  if (!chain.length) return () => {};
+  for (const b of chain) b.userData.hatBind = b.quaternion.clone();
+  const anchor = B.Head, prev = new THREE.Vector3(), vel = new THREE.Vector3(), accS = new THREE.Vector3(), accAvg = new THREE.Vector3();
+  const off = new THREE.Vector3(), offV = new THREE.Vector3(), p = new THREE.Vector3(), tmp = new THREE.Vector3(), axis = new THREE.Vector3();
+  const pq = new THREE.Quaternion(), q = new THREE.Quaternion();
+  let warm = 0, t = 0;
+  return dt => {
+    if (dt <= 0) return; t += dt;
+    for (const b of chain) b.quaternion.copy(b.userData.hatBind);
+    anchor.getWorldPosition(p);
+    if (warm++ < 3) { prev.copy(p); return; }
+    const v = tmp.copy(p).sub(prev).divideScalar(dt); prev.copy(p);
+    const acc = v.clone().sub(vel).divideScalar(dt); vel.copy(v);
+    if (acc.lengthSq() > 4e4) acc.setLength(200);
+    accS.lerp(acc, 1 - Math.exp(-25 * dt)); accAvg.lerp(accS, 1 - Math.exp(-0.8 * dt));
+    acc.subVectors(accS, accAvg);
+    // off = the hat's lean (world space, ~radians): it lags the head, then springs back
+    offV.addScaledVector(off, -HAT.k * dt).addScaledVector(offV, -HAT.damp * dt).addScaledVector(acc, -HAT.inertia * dt);
+    off.addScaledVector(offV, dt);
+    if (off.length() > HAT.max) off.setLength(HAT.max);
+    chain.forEach((b, i) => {
+      const lean = tmp.set(Math.sin(t * 1.3 + i) * HAT.wobble, 0, Math.cos(t * 1.1 + i) * HAT.wobble).add(off);
+      const ang = lean.length() * HAT.share[i]; if (ang < 1e-4) return;
+      axis.set(0, 1, 0).cross(lean).normalize();             // tip the bone toward the lean direction
+      b.parent.getWorldQuaternion(pq);
+      axis.applyQuaternion(pq.invert());
+      b.quaternion.premultiply(q.setFromAxisAngle(axis, ang));
+    });
+  };
+}
+
 // ---- SANTA: his model + a clip + the gun on his Spine with both fists IK'd onto its grips -------------------------
 export function makeSanta(gltf, { role = 'idle' } = {}) {
   const inst = skClone(gltf.scene);
@@ -210,6 +249,7 @@ export function makeSanta(gltf, { role = 'idle' } = {}) {
   gun.g.scale.setScalar(CREW.gunScale); pivot.add(gun.g);
 
   const anim = animator('santa', gltf.scene, inst);
+  const hat = makeHatSway(B);
   anim.play(role);
   let idleRole = role, firing = false, kick = 0, flashT = 0, aimWorld = null;
   const aimQ = Q(), wantQ = Q(), tmp = V(), hq = Q(), sq = Q();
@@ -240,6 +280,7 @@ export function makeSanta(gltf, { role = 'idle' } = {}) {
       pivot.updateMatrixWorld(true);
       ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), local(-1.2, 0.2, -0.6));
       ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, gun.grips.left.getWorldPosition(V()), local(1.0, -0.6, 0.2));
+      hat(dt);
     },
   };
   return self;
