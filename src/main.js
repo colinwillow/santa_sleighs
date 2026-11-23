@@ -5,8 +5,9 @@ import { buildWorld, groundH, softDot } from './world.js';
 import { buildRig, FLY } from './sleigh.js';
 import { input, pollInput } from './input.js';
 import { makePost } from './post.js';
+import { loadCrew } from './crew.js';
 
-export const BUILD = 3;
+export const BUILD = 4;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -31,6 +32,7 @@ addEventListener('resize', () => {
 
 const world = buildWorld(scene, camera, { mode: MODE });
 const rig = buildRig(scene, world.colliders);
+loadCrew(rig, scene).then(c => { rig.crew = c; }).catch(e => { document.getElementById('build').textContent += ' crew: ' + e.message; });
 
 // ---- cookies to fly through (refill milk) -- placeholder pickups ------------------------
 const cookieMat = new THREE.MeshStandardMaterial({ color: '#c98a4a', emissive: '#7a4010', emissiveIntensity: 0.6, roughness: 0.8 });
@@ -51,7 +53,7 @@ const $cookies = document.getElementById('cookies'), $milk = document.getElement
 
 // ---- minigun tracers -----------------------------------------------------------------------
 const TR = 80;
-const tracerMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 0.08, 2.2), new THREE.MeshBasicMaterial({ color: '#ffe48a' }), TR);
+const tracerMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 0.08, 2.2), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffe48a').multiplyScalar(3), toneMapped: false }), TR);
 tracerMesh.frustumCulled = false; scene.add(tracerMesh);
 const tracers = Array.from({ length: TR }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), life: 0 }));
 let trI = 0, fireCd = 0, spin = 0;
@@ -74,27 +76,56 @@ function puff(at) {
   }
 }
 
-function updateGun(dt) {
+// brass casings flying out of the gun
+const CAS = 60, casP = new Float32Array(CAS * 3).fill(-999), casV = Array.from({ length: CAS }, () => new THREE.Vector3()), casL = new Float32Array(CAS);
+const casG = new THREE.BufferGeometry(); casG.setAttribute('position', new THREE.BufferAttribute(casP, 3));
+const casPts = new THREE.Points(casG, new THREE.PointsMaterial({ color: '#ffc94a', size: 0.12 }));
+casPts.frustumCulled = false; scene.add(casPts);
+let casI = 0;
+const _right = new THREE.Vector3();
+function casing(from) {
+  const i = casI++ % CAS;
+  from.getWorldPosition(_p); casP[i * 3] = _p.x; casP[i * 3 + 1] = _p.y; casP[i * 3 + 2] = _p.z;
+  _right.set(-1, 0, 0).applyQuaternion(rig.sleigh.g.quaternion);
+  casV[i].copy(rig.SV).addScaledVector(_right, 3 + Math.random() * 2); casV[i].y += 3 + Math.random() * 2; casL[i] = 1.2;
+}
+function updateCasings(dt) {
+  for (let i = 0; i < CAS; i++) {
+    if (casL[i] <= 0) continue;
+    casL[i] -= dt; casV[i].y -= 18 * dt;
+    casP[i * 3] += casV[i].x * dt; casP[i * 3 + 1] += casV[i].y * dt; casP[i * 3 + 2] += casV[i].z * dt;
+    if (casL[i] <= 0) casP[i * 3 + 1] = -999;
+  }
+  casG.attributes.position.needsUpdate = true;
+}
+
+function updateGun(dt, t) {
   const firing = input.fire || input.fireKey;
-  spin += ((firing ? 28 : 0) - spin) * (1 - Math.exp(-(firing ? 4 : 1.5) * dt));
-  rig.sleigh.barrels.rotation.z += spin * dt;
-  // aim the gun ahead of the team, a little down toward the ground
-  const gun = rig.sleigh.gun;
-  rig.sleigh.mount.updateMatrixWorld();
+  const crew = rig.crew;
+  // aim ahead of the team, a little down toward the ground
   _p.copy(rig.lead).addScaledVector(rig.fwd, 30); _p.y -= 8;
-  gun.lookAt(_p);
+  let muzzle, ready = true;
+  if (crew) { crew.aim(_p); crew.update(dt, t); muzzle = crew.muzzle; }
+  else {   // stand-in rail minigun until his models load
+    spin += ((firing ? 28 : 0) - spin) * (1 - Math.exp(-(firing ? 4 : 1.5) * dt));
+    rig.sleigh.barrels.rotation.z += spin * dt;
+    rig.sleigh.mount.updateMatrixWorld(); rig.sleigh.gun.lookAt(_p);
+    muzzle = rig.sleigh.muzzle; ready = spin > 18;
+  }
   fireCd -= dt;
   flash.intensity *= Math.exp(-30 * dt);
-  if (firing && spin > 18 && fireCd <= 0) {
-    fireCd = 0.05;
+  if (firing && ready && fireCd <= 0) {
+    fireCd = crew ? crew.rate : 0.05;
+    if (crew) { crew.kick(); casing(crew.eject); }
     const tr = tracers[trI++ % TR];
-    rig.sleigh.muzzle.getWorldPosition(tr.p);
-    rig.sleigh.muzzle.getWorldQuaternion(_q);
+    muzzle.getWorldPosition(tr.p);
+    muzzle.getWorldQuaternion(_q);
     _d.copy(Z).applyQuaternion(_q);
     _d.x += (Math.random() - 0.5) * 0.03; _d.y += (Math.random() - 0.5) * 0.03; _d.normalize();
     tr.v.copy(_d).multiplyScalar(140).add(rig.SV); tr.life = 1.2;
     flash.position.copy(tr.p); flash.intensity = 25;
   }
+  updateCasings(dt);
   for (let i = 0; i < TR; i++) {
     const tr = tracers[i];
     if (tr.life > 0) {
@@ -126,7 +157,7 @@ function updateCigar(dt) {
   cigT -= dt;
   if (cigT <= 0) {
     cigT = 0.06;
-    rig.santa.cigarTip.getWorldPosition(_tip);
+    (rig.crew?.cigarTip || rig.santa.cigarTip).getWorldPosition(_tip);
     const i = cigI++ % CIG;
     cigP[i * 3] = _tip.x; cigP[i * 3 + 1] = _tip.y; cigP[i * 3 + 2] = _tip.z;
     cigV[i].copy(rig.SV).multiplyScalar(0.15).add(new THREE.Vector3(Math.random() - 0.5, 1.2, Math.random() - 0.5)); cigL[i] = 2.2;
@@ -151,6 +182,13 @@ addEventListener('pointerdown', e => { if (camMode === 'orbit') ORB.drag = { x: 
 addEventListener('pointermove', e => { if (!ORB.drag) return; ORB.a -= (e.clientX - ORB.drag.x) * 0.006; ORB.h = Math.max(3, Math.min(70, ORB.h + (e.clientY - ORB.drag.y) * 0.1)); ORB.drag = { x: e.clientX, y: e.clientY }; });
 addEventListener('pointerup', () => ORB.drag = null);
 function updateCamera(dt) {
+  if (camMode === 'crew') {   // ?cam=crew : a close look at the crew from the front-left of the sleigh
+    const g = rig.sleigh.g; g.updateMatrixWorld();
+    camera.position.copy(g.localToWorld(new THREE.Vector3(6.5, 5.2, 3.0)));
+    camera.lookAt(g.localToWorld(new THREE.Vector3(0, 1.6, 0)));
+    if (camera.fov !== 45) { camera.fov = 45; camera.updateProjectionMatrix(); }
+    return;
+  }
   if (camMode === 'orbit') {
     if (!ORB.drag) ORB.a += dt * 0.07;
     camera.position.set(Math.cos(ORB.a) * ORB.r, ORB.h, Math.sin(ORB.a) * ORB.r);
@@ -160,7 +198,7 @@ function updateCamera(dt) {
   }
   if (camMode === 'diorama') { camera.position.copy(DIORAMA.pos); camera.lookAt(DIORAMA.look); if (camera.fov !== DIORAMA.fov) { camera.fov = DIORAMA.fov; camera.updateProjectionMatrix(); } return; }
   const yawF = _d.set(Math.sin(rig.yaw), 0, Math.cos(rig.yaw));
-  const want = _p.copy(rig.S).addScaledVector(yawF, -15).add(new THREE.Vector3(0, 6 - rig.pitch * 6, 0));
+  const want = _p.copy(rig.S).addScaledVector(yawF, -14).add(new THREE.Vector3(0, 7.5 - rig.pitch * 6, 0));
   const gy = groundH(want.x, want.z) + 2; if (want.y < gy) want.y = gy;
   camPos.lerp(want, 1 - Math.exp(-4 * dt));
   const look = new THREE.Vector3().copy(rig.S).lerp(rig.lead, 0.4).addScaledVector(rig.fwd, 4); look.y += 1;
@@ -179,7 +217,7 @@ function frame(now) {
   input.boost = (document.getElementById('boost').classList.contains('on') || input.boostKey) && milk > 0;
   milk = Math.max(0, Math.min(100, milk + (input.boost ? -14 : 3) * dt));
   rig.update(dt, input, t);
-  updateGun(dt);
+  updateGun(dt, t);
   for (const c of cookies) {
     c.o.rotation.y += dt * 1.5;
     if (!c.alive) { c.t += dt; c.o.scale.setScalar(Math.max(0.001, 1 - c.t * 4)); if (c.t > 8) { c.alive = true; c.t = 0; c.o.scale.setScalar(1); } continue; }

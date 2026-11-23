@@ -1,4 +1,7 @@
-# Santa Sleighs -- design notes (his words first)
+# SANTA SLAYS -- design notes (his words first)
+
+**IT IS A SHOOTER (his, Nov 23):** "it's called Santa Slays" -- highly exaggerated Santa with a massive, Rambo-size machine gun
+and a fat cigar; it's all about slaying. Cozy-cute world, over-the-top action.
 
 - Cartoon Santa, a grungy / raunchy play on Santa, but a COZY, CUTE game -- suggestive, never explicit.
 - Santa: smokes a fat cigar (smoke), drinks LOTS of milk (milk is the big thing), eats + collects cookies; milk + cookies = health.

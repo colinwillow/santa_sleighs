@@ -38,7 +38,7 @@ function buildSleigh() {
   sh.bezierCurveTo(2.5, 0, 2.6, 0.9, 2.2, 1.6);     // front curls up
   sh.bezierCurveTo(1.9, 2.0, 1.5, 1.5, 1.7, 1.1);
   sh.lineTo(0.2, 0.95); sh.lineTo(-1.3, 1.0);
-  sh.bezierCurveTo(-1.5, 2.2, -2.3, 2.3, -2.4, 1.6); // high seat back
+  sh.bezierCurveTo(-1.5, 1.45, -2.3, 1.5, -2.4, 1.25); // low seat back (so the chase cam sees Santa)
   sh.lineTo(-2.1, 0);
   const bodyG = new THREE.ExtrudeGeometry(sh, { depth: 2.0, bevelEnabled: true, bevelSize: 0.12, bevelThickness: 0.12, bevelSegments: 3, curveSegments: 16 });
   bodyG.translate(0, 0, -1.0); bodyG.rotateY(-Math.PI / 2);       // profile x -> world z

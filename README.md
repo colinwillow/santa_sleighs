@@ -1,4 +1,4 @@
-# Santa Sleighs
+# Santa Slays
 
 A cozy, slightly raunchy flying game: a chunky cartoon Santa in a decked-out sleigh, pulled on ropes by a team of
 buff reindeer, with a minigun on the rail, flying over a snow-globe village. Milk and cookies are his fuel.
@@ -12,7 +12,7 @@ Three.js r180 (vendored in `vendor/`), native ES modules, **no build step**. Mob
 |---|---|---|
 | steer / climb / dive | left thumb anywhere on the left half (floating stick) | WASD / arrows |
 | boost (drinks milk) | BOOST | Shift |
-| minigun | FIRE (hold, it spins up) | Space |
+| machine gun | FIRE (hold) | Space |
 
 Fly through the floating cookies to refill milk.
 
@@ -26,4 +26,4 @@ Fly through the floating cookies to refill milk.
 
 ![build 3](images/build3_village.png)
 
-`?cam=diorama` = a fixed high view of the village (the reference framing). `?scene=kit` = the kit showroom (drag to orbit). `?bloom=0` = no bloom.
+`?cam=diorama` = a fixed high view of the village (the reference framing). `?scene=kit` = the kit showroom (drag to orbit). `?bloom=0` = no bloom. `?cam=crew` = close look at Santa + the elves.

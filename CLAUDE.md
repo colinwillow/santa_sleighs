@@ -1,4 +1,4 @@
-# SANTA SLEIGHS -- working rules
+# SANTA SLAYS -- working rules (repo: santa_sleighs)
 
 Cozy snow-diorama flying game (Santa, buff reindeer on ropes, minigun, milk + cookies as health/fuel). Three.js r180 vendored,
 native ES modules, import map, **no build step**. Mobile first (portrait + landscape), page zoom locked; iOS later via Capacitor.
@@ -16,4 +16,7 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   (`village.js`, `kitshow.js`) only decide placement. New piece = a builder in kit.js + a spot in the showroom (`?scene=kit`).
 - Look: bloom (`src/post.js`, `?bloom=0` = raw A/B) + lavender FogExp2 haze; glowing things use the `L` batch (past 1.0 so they bloom).
 - Budget: report tris/draws when they move (b3: village solid batch ~260k tris, ~70 draws). Small details use `BALL` / `CYL6`, not `BLOB` / `CYL`.
-- Design notes: `DESIGN.md`.
+- Design notes: `DESIGN.md`. **It is a SHOOTER** ("Santa Slays"): Rambo-size gun + cigar.
+- **The crew** (`src/crew.js`): his GLBs posed in code, no clips yet. Santa's hands are two-bone IK'd onto the gun's grip sockets
+  (never a world-position guess); the cigar hangs off the Head bone. Elves = one model cloned (`SkeletonUtils.clone`).
+  Tuning in `CREW`. `?cam=crew` = the close-up for checking poses.
