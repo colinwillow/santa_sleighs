@@ -8,14 +8,14 @@ import { loadModels, makeSanta } from './characters.js';
 
 export const FOOT = {
   deckY: 0.72, deckX: 1.0, deckZ0: -2.0, deckZ1: 2.1,      // the sleigh's floor (sleigh-local metres)
-  walk: 4.2, run: 7.5, jump: 7.5, gravity: 22,
+  walk: 4.2, run: 7.5, jump: 10.5, jump2: 9.5, flipT: 0.55, gravity: 22,   // jump ~2.5 m; the 2nd jump (in the air) is a front flip, ~+2 m
   splat: 13,                                              // landing faster than this knocks him flat
   catchR: 2.6,                                            // how close the deck must pass to grab it from the ground / air
 };
 
 export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
   const st = { mode: 'seat', santa: null, local: new THREE.Vector3(0, FOOT.deckY, -0.3), pos: new THREE.Vector3(), vel: new THREE.Vector3(),
-    face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false, zoom: 1, kick: 0 };
+    face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false, zoom: 1, kick: 0, jumps: 0, flip: 0 };
   loadModels().then(M => {
     st.santa = makeSanta(M.santa, { role: 'idle' });
     try { st.santa.setWeapon(localStorage.getItem('weapon') || 'gatling'); } catch (e) { st.santa.setWeapon('gatling'); }
@@ -106,9 +106,9 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
       const inv = rig.sleigh.g.quaternion.clone().invert();
       const lv = want.clone().applyQuaternion(inv); lv.y = 0;
       st.local.addScaledVector(lv, spd * dt);
-      if (doJump) { st.mode = 'air'; sleighWorld(st.local, st.pos); st.vel.copy(rig.SV).add(want.clone().multiplyScalar(spd)); st.vel.y += FOOT.jump; sfx('whoosh', { vol: 0.4, rate: 1.5 }); setMode('air'); }
+      if (doJump) { st.mode = 'air'; st.jumps = 1; sleighWorld(st.local, st.pos); st.vel.copy(rig.SV).add(want.clone().multiplyScalar(spd)); st.vel.y += FOOT.jump; sfx('whoosh', { vol: 0.4, rate: 1.5 }); setMode('air'); }
       else if (Math.abs(st.local.x) > FOOT.deckX + 0.15 || st.local.z < FOOT.deckZ0 - 0.2 || st.local.z > FOOT.deckZ1 + 0.2) {
-        sleighWorld(st.local, st.pos); st.vel.copy(rig.SV).add(want.clone().multiplyScalar(spd)); setMode('air');   // walked off the edge
+        sleighWorld(st.local, st.pos); st.vel.copy(rig.SV).add(want.clone().multiplyScalar(spd)); st.jumps = 1; setMode('air');   // walked off the edge
       } else sleighWorld(st.local, st.pos);
     } else {
       // air + ground: real world physics
@@ -116,8 +116,14 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
       if (onGround) {
         const k = 1 - Math.exp(-12 * dt);
         st.vel.x += (want.x * spd - st.vel.x) * k; st.vel.z += (want.z * spd - st.vel.z) * k;
-        if (doJump) { st.vel.y = FOOT.jump; st.mode = 'air'; setMode('air'); sfx('whoosh', { vol: 0.3, rate: 1.6 }); }
-      } else { st.vel.x += want.x * 3 * dt; st.vel.z += want.z * 3 * dt; st.vel.x *= Math.exp(-0.3 * dt); st.vel.z *= Math.exp(-0.3 * dt); }
+        if (doJump) { st.vel.y = FOOT.jump; st.jumps = 1; st.mode = 'air'; setMode('air'); sfx('whoosh', { vol: 0.3, rate: 1.6 }); }
+      } else {
+        // DOUBLE JUMP: a second press in the air = a front flip (one per jump; not while knocked out / cartwheeling)
+        if (doJump && st.jumps < 2 && st.tumble <= 0) {
+          st.jumps = 2; st.vel.y = Math.max(st.vel.y, 0) * 0.3 + FOOT.jump2; st.flip = FOOT.flipT;
+          if (mag > 0.15) { st.vel.x += (want.x * spd - st.vel.x) * 0.6; st.vel.z += (want.z * spd - st.vel.z) * 0.6; }
+          sfx('whoosh', { vol: 0.5, rate: 1.2 });
+        } st.vel.x += want.x * 3 * dt; st.vel.z += want.z * 3 * dt; st.vel.x *= Math.exp(-0.3 * dt); st.vel.z *= Math.exp(-0.3 * dt); }
       st.vel.y -= FOOT.gravity * dt;
       st.pos.addScaledVector(st.vel, dt);
       // house walls push him out (below the roof)
@@ -130,17 +136,17 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
         const impact = -st.vel.y;
         st.pos.y = floor; st.vel.y = 0;
         if (st.mode === 'air') {
-          st.mode = 'ground'; setMode('ground'); st.tumble = 0;
+          st.mode = 'ground'; setMode('ground'); st.tumble = 0; st.jumps = 0; st.flip = 0;
           if (impact > FOOT.splat) { st.stun = 1.4; onSplat?.(st.pos.clone(), impact); sfx('debris', { vol: 1, rate: 0.6 }); }
           else sfx('snow_puff', { vol: 0.7 });
         }
-      } else if (st.mode === 'ground' && st.pos.y > floor + 0.4) { st.mode = 'air'; setMode('air'); }
+      } else if (st.mode === 'ground' && st.pos.y > floor + 0.4) { st.mode = 'air'; st.jumps = 1; setMode('air'); }
       // catch the sleigh: its deck passes close -> he's on it
       sleighWorld(new THREE.Vector3(0, FOOT.deckY, 0), deckW);
       if (st.stun <= 0 && st.pos.distanceTo(deckW) < FOOT.catchR) {
         toSleighLocal(st.pos, st.local); st.local.y = FOOT.deckY;
         st.local.x = THREE.MathUtils.clamp(st.local.x, -FOOT.deckX, FOOT.deckX); st.local.z = THREE.MathUtils.clamp(st.local.z, FOOT.deckZ0, FOOT.deckZ1);
-        st.calling = false; setMode('deck'); sfx('debris', { vol: 0.5, rate: 1.4 });
+        st.calling = false; st.jumps = 0; st.flip = 0; setMode('deck'); sfx('debris', { vol: 0.5, rate: 1.4 });
       }
     }
     st.stun = Math.max(0, st.stun - dt);
@@ -152,6 +158,15 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     if (st.stun > 0) baseQ.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2 * Math.min(1, st.stun * 3)));   // flat on his back
     if (st.tumble > 0) baseQ.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), t * 9));                                // cartwheeling out
     S.holder.quaternion.slerp(baseQ, st.tumble > 0 || st.stun > 0 ? 1 : 1 - Math.exp(-14 * dt));
+    // the double-jump FRONT FLIP: one full turn round his waist (eased), so he doesn't pivot on his boots
+    if (st.flip > 0) {
+      st.flip = Math.max(0, st.flip - dt);
+      const u = 1 - st.flip / FOOT.flipT, a = Math.PI * 2 * (u * u * (3 - 2 * u));
+      const fq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), a);
+      S.holder.quaternion.copy(baseQ).multiply(fq);
+      const waist = new THREE.Vector3(0, 1.0, 0);
+      S.holder.position.add(waist.clone().sub(waist.clone().applyQuaternion(fq).applyQuaternion(baseQ)).add(new THREE.Vector3(0, 0, 0)));
+    }
     const moving = (st.mode === 'deck' ? mag : Math.hypot(st.vel.x, st.vel.z) / FOOT.run) > 0.15;
     S.setIdle(st.mode === 'air' ? 'jump' : moving ? (mag > 0.85 ? 'run' : 'walk') : 'tipsy');
     S.setFiring(st.firing && !moving && st.mode !== 'air');   // shooting on the move keeps his legs walking (hands stay on the gun)
@@ -173,7 +188,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     if (st.camPos.lengthSq() === 0 || st.camPos.distanceTo(want) > 60) st.camPos.copy(want);
     st.camPos.lerp(want, 1 - Math.exp(-(st.mode === 'air' ? 3 : 5) * dt));
     camera.position.copy(st.camPos);
-    camera.lookAt(st.pos.x + back.x * 3, st.pos.y + 1.6, st.pos.z + back.z * 3);
+    camera.lookAt(st.pos.x + back.x * 3, st.pos.y + 2.3, st.pos.z + back.z * 3);   // he sits a little lower in frame; the crosshair has room above him
     if (camera.fov !== 60) { camera.fov = 60; camera.updateProjectionMatrix(); }
   }
 
@@ -182,7 +197,9 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     get active() { return st.ready && st.mode !== 'seat'; },
     get santa() { return st.santa; },
     /** where the reticle rests when he's on foot: ahead of the camera, at about his height */
-    aimRest(out) { const b = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); return out.copy(st.pos).addScaledVector(b, 22).setY(st.pos.y + 1.0); },
+    aimRest(out) { const b = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); return out.copy(st.pos).addScaledVector(b, 22).setY(st.pos.y + 2.4); },
+    /** his screen box: feet + head points (for keeping the crosshair off him) */
+    body(feet, head) { feet.copy(st.pos); head.copy(st.pos).setY(st.pos.y + 2.1); },
     setFiring(on) { st.firing = on; },
     crashZoom(k) { st.kick = Math.max(st.kick, k); },
   };

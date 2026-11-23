@@ -17,7 +17,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 23;
+export const BUILD = 24;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -180,7 +180,7 @@ function updateCasings(dt) {
 
 // ---- AIM: the right stick moves a reticle round a rest point ahead of the sleigh; the gun shoots at what's under it --------
 const AIM = { rest: new THREE.Vector3(), reach: 0.42, sx: 0, sy: 0, target: new THREE.Vector3(), ray: new THREE.Raycaster() };
-const _ndc = new THREE.Vector2();
+const _ndc = new THREE.Vector2(), _bf = new THREE.Vector3(), _bh = new THREE.Vector3();
 function updateAim(dt) {
   // rest: where the gun points with the stick centred -- ahead of the team, a little down
   if (foot.active) foot.aimRest(AIM.rest);
@@ -196,6 +196,13 @@ function updateAim(dt) {
     px = (rp.x * 0.5 + 0.5) * W + AIM.sx; py = (-rp.y * 0.5 + 0.5) * H + AIM.sy;
   }
   px = THREE.MathUtils.clamp(px, 20, W - 20); py = THREE.MathUtils.clamp(py, 20, H - 20);
+  // on foot the crosshair never sits ON Santa (his note: drawn over him it reads as behind him) -- inside his screen box it is
+  // lifted to just above his head, out in front of him
+  if (foot.active) {
+    foot.body(_bf, _bh); _bf.project(camera); _bh.project(camera);
+    const fy = (-_bf.y * 0.5 + 0.5) * H, hy = (-_bh.y * 0.5 + 0.5) * H, cx = (_bh.x * 0.5 + 0.5) * W, half = (fy - hy) * 0.35 + 26;
+    if (_bh.z < 1 && Math.abs(px - cx) < half && py > hy - 26) py = hy - 26;
+  }
   // what's under the reticle: march the camera ray down to the terrain, else a point far along it
   _ndc.set(px / W * 2 - 1, -(py / H) * 2 + 1); AIM.ray.setFromCamera(_ndc, camera);
   const o = AIM.ray.ray.origin, d = AIM.ray.ray.direction; let hit = false;
