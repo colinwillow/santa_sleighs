@@ -40,7 +40,9 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   layout, dormer, colours). Walls = SOLID slabs cut into flush jittered chunks (no gaps); hits dent, dead chunks leave as cookie
   debris showing the slab thickness; contact graph: anything cut off from the ground falls. `DESTRUCT` registry (`hitAt(p, r, power)`,
   `raycast`, `update`; bullet `(p, .32, 1)`, blast `(p, 3.2, 30)`), tuning `GB`. 1 solid + 1 glow mesh a house; ~42-61k tris a house
-  (over budget: a village needs a far version). Test page `?scene=destruct`, `?kit=1` lays out every module.
+  (still over the 40k target). FAR version: `buildFarHouse` (~3.5k, 1 draw); `placeHouse(scene, o)` shows far and builds the breakable
+  one within 40 m or on a hit (`DESTRUCT.update(dt, camera)`). Test page `?scene=destruct` (warm light, bedroom gag in the hero house,
+  NAUGHTY chip), `?kit=1` lays out every module. The game village does not use placeHouse yet.
 - **Gingerfolk + gags**: `src/gingerfolk.js` = the civilians (cookie-cutter gingerbread people, pivot limbs, expressions happy /
   shock / embarrassed, poses idle / run / flail / cover). `src/gag.js` = hidden moments; `caughtInTheAct(scene, at)` (bed, quilt rhythm,
   hearts; `trigger()` -> freeze, stare, "!", blush, flee). **`CONTENT.level` gates every naughty gag**: off | cheeky (default) | censored | spicy (OPTIONS > NAUGHTY, `?naughty=`;
@@ -51,6 +53,12 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   point ahead of the sleigh (`AIM` in main.js, `reach` = fraction of the short screen side); the camera ray under it marches to the
   terrain and tracers fly straight at that point (Santa's gun swings after it). Mouse = reticle + left button; gamepad: L fly, R aim/fire,
   RT/A boost, RB fire.
+- **WEAPONS** (b18): his `models/weapons/guns_01.glb` (4 solid guns) -> `guns_rigged.glb` by `tools/blender/gun_rig.py` (split by
+  loose parts + 3D k-means, each recentred on its main grip, muzzle = +Z, sockets `grip_r grip_l muzzle eject` as empties, the
+  Gatling's `barrels` its own spinning node). Pack with `tools/blender/pack.mjs` (prune keepLeaves, or the sockets vanish).
+  `src/weapons.js`: `WEAPONS` table (gatling / rifle / rocket / snowball: rate, shot, speed, spread, kick, sound, len), `heldGun`, and
+  `makeShots` (slugs, rockets with smoke + blast, lobbed snowballs). Switch: WEAPON button / 1-4 / Q / pad Y; pickups float over the
+  village on gold rings. Support hand slides back along the gun to what his arm can reach.
 - **Home-screen icon** (b11): `icons/*-vN.png` + root `apple-touch-icon.png`, `manifest.webmanifest`. Version in the FILENAME, never `?v=`
   (iOS keeps an icon per URL forever). Source art `images/reference/icon_source.png`; white corners flood-filled with the frame gold.
 - **Tough Santa** (b17, his `models/santa_tough.glb`, original untouched): `models/santa_tough_rig.glb` = + HAND MOUNTS (his

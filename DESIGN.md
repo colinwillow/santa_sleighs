@@ -67,3 +67,9 @@ houses and monsters. That swagger is the game's attitude.
 OFF (iOS locked) / CHEEKY (quilt; default, streamer-safe) / CENSORED (the act behind a flickering pixel mosaic + a bouncing CENSORED
 sticker that falls off when they're caught) / SPICY (the act, clothed cookies, cartoonish, nothing anatomical -- later a free Steam add-on).
 Line we hold: comedic and implied/clothed, never graphic or anatomical; every sexual character clearly adult.
+
+## Multiplayer vision (his, Nov 23) -- not building yet
+Friend-slop co-op / battle game: one player drives the sleigh, others run around ON it and shoot off the sides (or everyone
+shoots and the sleigh flies on its own). Nobody driving = it keeps going straight, can CRASH -- into gingerbread houses, wrecking
+them and throwing everyone off. Destruction battle-royale energy. Guns lie in the level; swap weapons, each with its own ammo
+(rockets, machine guns, snowball cannons...). The sleigh may grow big enough to walk around on. He's making enemies.

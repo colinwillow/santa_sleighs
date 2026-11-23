@@ -7,6 +7,7 @@ import { DRACOLoader } from 'three/addons/DRACOLoader.js';
 import { clone as skClone } from 'three/addons/SkeletonUtils.js';
 import { Batch, T, BOX, CYL, BALL, bevBox } from './util.js';
 import { animator } from './anim.js';
+import { loadGuns, heldGun, WEAPONS } from './weapons.js';
 
 export const CREW = {
   santaH: 2.0, elfH: 1.8,           // elves: just a little shorter than him (his, Nov 23)           // metres, standing
@@ -241,10 +242,10 @@ export function makeSanta(gltf, { role = 'idle' } = {}) {
   }
 
   // the gun rides on the Spine bone (so the body's motion carries it); its aim is set in HIS frame each update
-  const gun = buildGun(), pivot = new THREE.Group();
+  let gun = buildGun(); const pivot = new THREE.Group();
   const hipL = H.worldToLocal(wpos(B.RightUpLeg)), chestL = H.worldToLocal(wpos(B.Spine2));
   B.Spine.add(pivot);
-  pivot.position.copy(B.Spine.worldToLocal(local(hipL.x - 0.12, hipL.y + (chestL.y - hipL.y) * 0.55, hipL.z + 0.3)));
+  pivot.position.copy(B.Spine.worldToLocal(local(hipL.x * 0.55, hipL.y + (chestL.y - hipL.y) * 0.55, hipL.z + 0.3)));   // across the belly
   pivot.scale.setScalar(1 / B.Spine.getWorldScale(V()).x);
   gun.g.scale.setScalar(CREW.gunScale); pivot.add(gun.g);
 
@@ -254,10 +255,20 @@ export function makeSanta(gltf, { role = 'idle' } = {}) {
   let idleRole = role, firing = false, kick = 0, flashT = 0, aimWorld = null;
   const aimQ = Q(), wantQ = Q(), tmp = V(), hq = Q(), sq = Q();
   const self = {
-    holder: H, B, gun, anim, muzzle: gun.muzzle, eject: gun.eject, cigarTip: cig.tip, rate: 0.075,
+    holder: H, B, anim, cigarTip: cig.tip, weapon: null,
+    get gun() { return gun; }, get muzzle() { return gun.muzzle; }, get eject() { return gun.eject; },
+    get def() { return gun.def || WEAPONS.gatling; }, get rate() { return (gun.def || WEAPONS.gatling).rate; },
+    /** swap to one of his rigged guns (WEAPONS key); the procedural gun stays until they load */
+    async setWeapon(key) {
+      self.weapon = key;
+      const scene = await loadGuns();
+      if (self.weapon !== key) return;
+      const next = heldGun(scene, key);
+      pivot.remove(gun.g); gun = next; pivot.add(gun.g);
+    },
     setIdle(r) { idleRole = r; if (!firing) anim.play(r); },
     setFiring(on) { if (on === firing) return; firing = on; anim.play(on ? 'fire' : idleRole, 0.15); },
-    kick() { kick = CREW.recoil; flashT = 0.045; gun.flash.rotation.z = Math.random() * 3; },
+    kick() { kick = gun.def?.kick ?? CREW.recoil; flashT = 0.045; gun.flash.rotation.z = Math.random() * 3; },
     aimAt(world) { aimWorld = world ? (aimWorld || V()).copy(world) : null; },
     update(dt, t) {
       anim.update(dt);
@@ -275,11 +286,17 @@ export function makeSanta(gltf, { role = 'idle' } = {}) {
       kick *= Math.exp(-18 * dt);
       gun.g.position.set(0, 0, -kick); gun.g.rotation.x = -kick * 1.4;
       flashT -= dt; gun.flash.visible = flashT > 0;
-      gun.updBelt(t);
+      gun.firing = firing; gun.updBelt(t, dt);
       cig.ember.scale.setScalar(1 + Math.sin(t * 3) * 0.15);
       pivot.updateMatrixWorld(true);
       ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), local(-1.2, 0.2, -0.6));
-      ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, gun.grips.left.getWorldPosition(V()), local(1.0, -0.6, 0.2));
+      // support hand: the gun's front grip if he can reach it, else slide back along the gun to the farthest point he can
+      {
+        const sh = B.LeftArm.getWorldPosition(V()), reach = (wpos(B.LeftForeArm).distanceTo(sh) + wpos(B.LeftHand).distanceTo(wpos(B.LeftForeArm))) * 0.97;
+        const gl = gun.grips.left.getWorldPosition(V()), gr = gun.grips.right.getWorldPosition(V()), tgt = gl.clone();
+        if (tgt.distanceTo(sh) > reach) { let lo = 0, hi = 1; for (let k = 0; k < 12; k++) { const m = (lo + hi) / 2; tgt.lerpVectors(gr, gl, m); if (tgt.distanceTo(sh) > reach) hi = m; else lo = m; } tgt.lerpVectors(gr, gl, lo); }
+        ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, local(1.0, -0.6, 0.2));
+      }
       hat(dt);
     },
   };

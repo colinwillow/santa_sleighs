@@ -23,7 +23,10 @@ export const GB = {
   shingle: '#b66a34', stone: '#a65c2a', choc: '#4a2a1c', door: '#c22e28', icing: '#fff8f0', red: '#e3283a', green: '#2f8f44',
   gold: '#f2b742', mullion: '#7a3e1c', candy: ['#e3283a', '#2f9a4a', '#ffd23a', '#ff7ab8'], warm: ['#ffcf86', '#ffc474', '#ffd9a0'],
   // the module grid + proportions
-  mod: 2.4, storey: 2.8, base: 0.5, wallT: 0.36, pitch: 1.12, overhang: 0.38, overhangZ: 0.42, roofT: 0.24,
+  // squat cottage (his ref): low walls, a big steep overhanging roof that dominates, chunky posts + plinth
+  mod: 2.4, storey: 2.55, base: 0.62, wallT: 0.36, pitch: 1.3, overhang: 0.42, overhangZ: 0.6, roofT: 0.28,
+  postR: 0.36, ropeR: 0.17, plinthPad: 0.6, chimneyHW: 0.62, doorH: 2.05, winY: [0.5, 1.32],
+  lodNear: 40, lodFar: 52,                     // build the breakable version inside lodNear, drop it (if untouched) past lodFar
   cell: 0.72, jit: 0.22, bulge: 0.03,
   hp: { chunk: 3, roof: 3, rope: 5, frame: 4, door: 5, decor: 2, dormer: 6, chimney: 10 },
   glow: 1.9,                                   // window glow multiplier (past the bloom threshold)
@@ -52,7 +55,16 @@ float spkH(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.97, 0.93), sg * step(0.72, h2) * smoothstep(0.34, 0.2, dd) * 0.85 * fw);
     diffuseColor.a = 1.0;
   }
-#endif`);
+#endif
+  float iceM = 0.0, glwM = 0.0;
+#ifdef USE_COLOR_ALPHA
+  iceM = step(0.1, vColor.a) * (1.0 - step(0.25, vColor.a));   // mask .15 = icing: glossy, warm see-through
+  glwM = step(0.02, vColor.a) * (1.0 - step(0.08, vColor.a));  // mask .05 = baked glow (far windows)
+#endif`)
+    .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+  roughnessFactor = mix(roughnessFactor, 0.3, iceM);`)
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  totalEmissiveRadiance += diffuseColor.rgb * (vec3(1.0, 0.8, 0.62) * 0.09 * iceM + 1.9 * glwM);`);
 };
 solidMat.customProgramCacheKey = () => 'gb-speckle';
 const MAT = {
@@ -79,7 +91,8 @@ function noise3(x, y, z) {
   const c = (i, j, k) => hash3(xi + i, yi + j, zi + k);
   return L(L(L(c(0, 0, 0), c(1, 0, 0), u), L(c(0, 1, 0), c(1, 1, 0), u), v), L(L(c(0, 0, 1), c(1, 0, 1), u), L(c(0, 1, 1), c(1, 1, 1), u), v), w);
 }
-const _rgb = new Map([[GB.icing, [1.16, 1.12, 1.07]]]);        // icing a touch past white so it reads bright under ACES
+const _rgb = new Map([[GB.icing, [1.12, 1.08, 1.05]]]);        // icing: a warm cream a touch past white (reads bright under ACES)
+const ICE = 0.15, GLOWM = 0.05;                                 // mask values: icing (gloss) / baked glow
 function rgbOf(hex) {
   let v = _rgb.get(hex); if (v) return v;
   const c = new THREE.Color(hex); v = [c.r, c.g, c.b]; _rgb.set(hex, v); return v;
@@ -132,9 +145,13 @@ function discGeo(n) {
   }
   return { p: new Float32Array(P), n: new Float32Array(N), sh: new Float32Array(SH), count: P.length / 3 };
 }
+function boxGeo() {        // a plain unit box (12 tris, flat normals): the far version's blocks
+  const g = new THREE.BoxGeometry(1, 1, 1).toNonIndexed(), P = g.attributes.position.array, N = g.attributes.normal.array;
+  const out = { p: P, n: N, sh: new Float32Array(P.length / 3), count: P.length / 3 }; g.dispose(); return out;
+}
 const GEO = {
-  pil: pillowGeo(2, 0.3), lump: pillowGeo(2, 0.45), brick: pillowGeo(1, 0.22), ball: ballGeo(1), dot: ballGeo(0), disc: discGeo(8),
-  drip: latheGeo([[0.001, 0.06], [0.5, 0.0], [0.38, -0.55], [0.46, -0.82], [0.28, -0.97], [0.001, -1]], 6),
+  box: boxGeo(), pil: pillowGeo(2, 0.3), lump: pillowGeo(2, 0.45), brick: pillowGeo(1, 0.22), ball: ballGeo(1), dot: ballGeo(0), disc: discGeo(7),
+  drip: latheGeo([[0.001, 0.06], [0.5, 0.0], [0.38, -0.55], [0.46, -0.82], [0.28, -0.97], [0.001, -1]], 5),
   gum: latheGeo([[0.001, 0], [0.5, 0], [0.5, 0.12], [0.45, 0.48], [0.34, 0.78], [0.18, 0.96], [0.001, 1]], 9),
 };
 
@@ -158,7 +175,7 @@ class Buf {
   /** a unit shape through matrix M, tinted (baked edges darker, tops lighter, painterly tone) */
   add(G, color, M, op = {}) {
     const e = M.elements, nm = new THREE.Matrix3().getNormalMatrix(M).elements, base = rgbOf(color);
-    const bake = op.bake ?? 0.15, k0 = op.k ?? 1, mask = op.mask ?? 0, flat = !!op.flat;
+    const bake = op.bake ?? 0.15, k0 = op.k ?? 1, mask = op.mask ?? (color === GB.icing ? ICE : 0), flat = !!op.flat;
     const vs = [null, null, null];
     for (let i = 0; i < G.count; i++) {
       const x = G.p[i * 3], y = G.p[i * 3 + 1], z = G.p[i * 3 + 2];
@@ -203,7 +220,8 @@ function MF(F, u, y, v, sx, sy, sz, rot = 0) {
 // o: {r, rh, up (V3 | fn), sides, col | colFn(s, th) (crisp per-quad stripes), mask, caps, rAt(p, i, s), twist, twistF}
 function tube(B, pts, o) {
   const n = pts.length; if (n < 2) return;
-  const sides = o.sides ?? (o.r < 0.08 ? 5 : 7), r0 = o.r, rh0 = o.rh ?? o.r, up0 = o.up ?? YA, mask = o.mask ?? 0, base = rgbOf(o.col ?? GB.icing);
+  const sides = o.sides ?? (o.r < 0.08 ? 5 : 7), r0 = o.r, rh0 = o.rh ?? o.r, up0 = o.up ?? YA, base = rgbOf(o.col ?? GB.icing);
+  const mask = o.mask ?? ((o.col ?? GB.icing) === GB.icing && !o.vcol && !o.jcol && !o.colFn ? ICE : 0);
   const rings = []; let s = 0;
   for (let i = 0; i < n; i++) {
     if (i) s += pts[i].distanceTo(pts[i - 1]);
@@ -378,6 +396,134 @@ const add = (p, geo, color, Mx, op = {}) => p.ops.push((S, G) => (op.glow ? G : 
 const addTube = (p, pts, o) => p.ops.push((S, G) => tube(o.glow ? G : S, pts, o));
 const drip = (p, pos, len, wid, col = GB.icing) => add(p, GEO.drip, col, M(pos.x, pos.y, pos.z, wid, len, wid), { jit: 0, bake: 0 });
 
+// ---- ICING DRAPE --------------------------------------------------------------------------------------------
+// Thick, soft, glossy royal icing swept along an edge (his ref): a pillowy layer on the top surface with a wavy inner rim, a
+// round lip rolling over the edge, and a hanging curtain with a scalloped bottom; long finger drips with round ends hang off
+// it. The sweep is ONE continuous sheet: its rows are split per host piece (each run rides the chunk under it and dies with
+// it) but neighbouring runs share their boundary row, so it flows on across module joints with no seams or caps.
+// ctrl: [{p (edge point on the top surface), U (surface normal), O (outward, off the edge along the surface), q?, host?}]
+// o: {w inner width, th thickness, hang curtain, drip scallop depth, finger drip length, lobes (inner-rim lobes), dw width k,
+//     space, fingerSpace, step, closed, taper, lite (8-point profile), hostAt(row), host}
+//            in    up    out  down    hint: U     O     D
+const PROF = [[1, -0.25, 0, 0, 1, -0.6, 0], [0.8, 0.55, 0, 0, 1, -0.3, 0], [0.45, 0.92, 0, 0, 1, 0, 0], [0.12, 1, 0, 0, 1, 0.1, 0],
+  [0, 0.82, 0.5, 0, 0.8, 0.6, 0], [0, 0.3, 0.95, 0, 0.2, 1, 0], [0, 0, 1, 0.45, 0, 1, 0.2], [0, 0, 0.85, 0.85, 0, 0.8, 0.6],
+  [0, 0, 0.45, 1, 0, 0.1, 1], [0, 0, 0.06, 0.8, 0, -1, 0.3], [0, -0.4, 0.03, 0.06, -0.3, -1, 0]];
+const PROF_LITE = [0, 2, 4, 5, 7, 8, 9, 10].map(j => PROF[j]);
+const smooth01 = x => x >= 1 ? 1 : x <= 0 ? 0 : x * x * (3 - 2 * x);
+function iceDrape(K, ctrl, o = {}) {
+  const step = o.step ?? 0.1, closed = !!o.closed, n = ctrl.length;
+  const R = rng((K.seed ?? 1) * 131 + (K.iceN = (K.iceN || 0) + 1) * 17);
+  const lerpRow = (A, B, f) => ({ p: A.p.clone().lerp(B.p, f), U: A.U.clone().lerp(B.U, f).normalize(), O: A.O.clone().lerp(B.O, f).normalize(),
+    q: A.q ? A.q.map((v, i) => v + (B.q[i] - v) * f) : null, host: f < 0.5 ? A.host : B.host });
+  const rows = [];
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const A = ctrl[i], B = ctrl[(i + 1) % n], m = Math.max(1, Math.ceil(A.p.distanceTo(B.p) / step));
+    for (let k = 0; k < m; k++) rows.push(lerpRow(A, B, k / m));
+  }
+  if (!closed) rows.push(lerpRow(ctrl[n - 1], ctrl[n - 1], 0));
+  const N = rows.length; if (N < 2) return null;
+  let S = 0;
+  for (let i = 0; i < N; i++) { if (i) S += rows[i].p.distanceTo(rows[i - 1].p); rows[i].s = S; }
+  const total = closed ? S + rows[N - 1].p.distanceTo(rows[0].p) : S;
+  if (o.hostAt) for (const r of rows) r.host = o.hostAt(r) ?? r.host;
+  let hh = o.host ?? rows.find(r => r.host)?.host ?? null;
+  for (const r of rows) { if (r.host) hh = r.host; else r.host = hh; }
+  const sd = (a, b) => { let d = Math.abs(a - b); if (closed) d = Math.min(d, total - d); return d; };
+  const scal = [];
+  if ((o.drip ?? 0) > 0 || o.lobes) for (let s = R.r(0, 0.25); s < total; s += R.r(0.18, 0.38) * (o.space ?? 1)) scal.push([s, R.r(0.07, 0.15) * (o.dw ?? 1), R.r(0.25, 1)]);
+  const bump = s => { let b = 0; for (const [c, hw, L] of scal) { const x = sd(s, c) / hw; if (x < 1) b = Math.max(b, L * Math.sqrt(1 - x * x)); } return b; };
+  const off = R.r(0, 50), nz = (s, f) => noise3(s * f + off, off * 0.3, 1.7) * 2 - 1;
+  const D = new V3(0, -1, 0), prof = o.lite ? PROF_LITE : PROF, np = prof.length;
+  const P = [], H = [];
+  for (const r of rows) {
+    const f = closed ? 1 : smooth01(Math.min(r.s, total - r.s) / (o.taper ?? 0.3));
+    const th = (o.th ?? 0.18) * (1 + 0.18 * nz(r.s, 1.3)) * f;
+    const w = ((o.w ?? 0.4) * (1 + 0.3 * nz(r.s, 0.9)) + (o.lobes ? o.lobes * bump(r.s) : 0)) * f;
+    const hang = ((o.hang ?? 0.2) * (1 + 0.35 * nz(r.s + 9, 1.7)) + (o.drip ?? 0) * bump(r.s)) * f;
+    r.th = th; r.hang = hang;
+    const ring = [], hint = [];
+    for (const [ai, au, ao, ad, hu, ho, hd] of prof) {
+      ring.push(r.p.clone().addScaledVector(r.O, -ai * w + ao * th).addScaledVector(r.U, au * th).addScaledVector(D, ad * hang));
+      hint.push(new V3().addScaledVector(r.U, hu).addScaledVector(r.O, ho).addScaledVector(D, hd).normalize());
+    }
+    P.push(ring); H.push(hint);
+  }
+  const base = rgbOf(GB.icing), V = [], ta = new V3(), tb = new V3(), nn = new V3();
+  for (let i = 0; i < N; i++) {
+    const ip = closed ? (i + 1) % N : Math.min(N - 1, i + 1), im = closed ? (i - 1 + N) % N : Math.max(0, i - 1), row = [];
+    for (let j = 0; j < np; j++) {
+      ta.subVectors(P[ip][j], P[im][j]); tb.subVectors(P[i][(j + 1) % np], P[i][(j - 1 + np) % np]);
+      nn.crossVectors(ta, tb); const h = H[i][j];
+      if (nn.lengthSq() < 1e-12) nn.copy(h); else { nn.normalize(); if (nn.dot(h) < 0) nn.negate(); nn.addScaledVector(h, 0.2).normalize(); }
+      const q = P[i][j], tip = prof[j][3], c = toneRGB(base, q.x, q.y, q.z, 1.03 - 0.05 * tip + 0.04 * Math.max(0, nn.y));
+      row.push([q.x, q.y, q.z, nn.x, nn.y, nn.z, c[0], c[1] * (1 - 0.04 * tip), c[2] * (1 - 0.11 * tip), ICE]);
+    }
+    V.push(row);
+  }
+  const quads = (B, i0, i1) => {
+    for (let i = i0; i < i1; i++) { const a = V[i], b = V[(i + 1) % N]; for (let j = 0; j < np; j++) { const j1 = (j + 1) % np; B.tri(a[j], b[j], b[j1]); B.tri(a[j], b[j1], a[j1]); } }
+  };
+  const last = closed ? N : N - 1;
+  for (let st = 0, i = 1; i <= last; i++) {
+    if (i < last && rows[i].host === rows[st].host) continue;
+    const h = rows[st].host, a = st, b = i; if (h) h.ops.push(B => quads(B, a, b)); st = i;
+  }
+  // finger drips: long, round-ended, hanging from the curtain
+  if (o.finger) for (let s = R.r(0.1, 0.5), i = 0; s < total; s += R.r(0.38, 0.8) * (o.fingerSpace ?? 1)) {
+    while (i < N - 1 && rows[i + 1].s <= s) i++;
+    const r = rows[i]; if (!r.host || r.hang < 0.04) continue;
+    const len = o.finger * R.r(0.45, 1.5), wid = R.r(0.11, 0.16) * (o.dw ?? 1);
+    drip(r.host, r.p.clone().addScaledVector(r.O, r.th * 0.55).addScaledVector(D, r.hang * 0.72), len, wid);
+  }
+  return { rows, total };
+}
+/** a tube across several hosts: split into runs per host (shared tangents, no inner caps), so it flows on unbroken */
+function pipeAcross(pts, hosts, o) {
+  for (let st = 0, k = 1; k <= pts.length; k++) {
+    if (k < pts.length && hosts[k] === hosts[st]) continue;
+    const e = Math.min(k + 1, pts.length), run = pts.slice(st, e);
+    if (hosts[st] && run.length >= 2) addTube(hosts[st], run, { ...o, tA: pts[st - 1], tB: pts[e], capA: st === 0, capB: e === pts.length });
+    st = k;
+  }
+}
+/** rounded-rectangle path (closed) at height y: [{p, U, O}]; starts at the front-right (+x +z) corner, the front edge (+z) is the wrap */
+function rrPath(X0, X1, Z0, Z1, rc, y, nArc = 3) {
+  const out = [], cs = [[X1 - rc, Z1 - rc, Math.PI / 2], [X1 - rc, Z0 + rc, 0], [X0 + rc, Z0 + rc, -Math.PI / 2], [X0 + rc, Z1 - rc, -Math.PI]];
+  for (const [cx, cz, a0] of cs) for (let k = 0; k <= nArc; k++) {
+    const a = a0 - k / nArc * Math.PI / 2, ox = Math.cos(a), oz = Math.sin(a);
+    out.push({ p: new V3(cx + ox * rc, y, cz + oz * rc), U: YA.clone(), O: new V3(ox, 0, oz) });
+  }
+  return out;
+}
+/** ROOF ICING for one slope (one or more sections sharing a frame): eave + both rakes as ONE drape (round corners), a lobed
+ *  ridge cap, the ridge roll (o.ridge), candy dots on the lip. o: {rake0, rake1, ridge, far} */
+function roofIce(K, secs, s, zA, zB, Ls, o = {}) {
+  const F = secs[0].F, rt = GB.roofT, R = K.R, far = !!o.far;
+  const secAt = u => secs.find(q => u >= q.u0 - 1e-6 && u <= q.u1 + 1e-6) ?? (u < secs[0].u0 ? secs[0] : secs[secs.length - 1]);
+  const hostOf = (u, l) => secAt(u).find(clamp(u, zA + 0.02, zB - 0.02), clamp(l, 0.05, Ls - 0.05));
+  const hostAt = r => hostOf(r.q[0], r.q[1]);
+  const pt = (u, l, ou, ol) => ({ p: FP(F, u, l, rt), U: F.n.clone(), O: F.a.clone().multiplyScalar(ou).addScaledVector(F.b, ol).normalize(), q: [u, l] });
+  const rc = 0.32, l0 = 0.22, C = [], arc = (cu, cl, a0, a1) => { for (let k = 0; k <= 4; k++) { const a = a0 + (a1 - a0) * k / 4; C.push(pt(cu + Math.cos(a) * rc, cl + Math.sin(a) * rc, Math.cos(a), Math.sin(a))); } };
+  if (o.rake0) { C.push(pt(zA, l0, -1, 0)); arc(zA + rc, Ls - rc, Math.PI, Math.PI / 2); } else C.push(pt(zA, Ls, 0, 1));
+  if (o.rake1) { arc(zB - rc, Ls - rc, Math.PI / 2, 0); C.push(pt(zB, l0, 1, 0)); } else C.push(pt(zB, Ls, 0, 1));
+  const ed = iceDrape(K, C, far ? { hostAt, w: 0.6, th: 0.22, hang: 0.4, drip: 0, step: 0.3, lite: true, taper: 0.35 }
+    : { hostAt, w: 0.62, th: 0.23, hang: 0.3, drip: 0.36, finger: 0.5, fingerSpace: 1.45, taper: 0.35, step: 0.12, lite: true });
+  // ridge cap: icing poured over the ridge, lobes running down the shingles
+  iceDrape(K, [pt(zA + 0.02, 0, 0, -1), pt(zB - 0.02, 0, 0, -1)], { hostAt, w: 0.38, lobes: 0.6, th: 0.17, hang: 0, taper: 0.22, space: 1.3, dw: 1.7, step: far ? 0.4 : 0.12, lite: true });
+  const ridgeTop = u => new V3(F.o.x, F.o.y + rt / Math.cos(Math.atan(GB.pitch)) + 0.02, F.o.z).addScaledVector(F.a, u);
+  if (o.ridge) {
+    const pts = [], hs = [];
+    for (let u = zA - 0.06; u <= zB + 0.06 + 1e-6; u += far ? 0.6 : 0.2) { const uu = Math.min(u, zB + 0.06); pts.push(ridgeTop(uu)); hs.push(hostOf(uu, 0.1)); }
+    pipeAcross(pts, hs, { r: 0.3, rh: 0.24, sides: far ? 6 : 9, up: YA, rAt: lumpy(0.18) });
+    if (!far) for (let z = zA + 0.5; z < zB - 0.3; z += 1.0) add(hostOf(z, 0.1), GEO.ball, GB.red, M(...ridgeTop(z).add(new V3(0, 0.3, 0)).toArray(), 0.22, 0.22, 0.22), { bake: 0 });
+  }
+  if (far) return ed;
+  // candy dots sitting in the icing on the lip
+  for (let z = zA + 0.7; z < zB - 0.4; z += 1.45) add(hostOf(z, Ls - 0.2), GEO.ball, GB.red, MB(FP(F, z, Ls - 0.22, rt + 0.27), F.a, F.b, F.n, 0.2, 0.2, 0.2), { bake: 0 });
+  for (const [on, zr] of [[o.rake0, zA + 0.22], [o.rake1, zB - 0.22]]) if (on) for (let l = 1.0; l < Ls - 0.5; l += 1.4) add(hostOf(zr, l), GEO.ball, GB.red, MB(FP(F, zr, l, rt + 0.28), F.a, F.b, F.n, 0.21, 0.21, 0.21), { bake: 0 });
+  return ed;
+}
+
 /** a chunked slab on frame F: a jittered grid whose cells share seams exactly; openings are grid holes; clips trim (gables) */
 function chunkSlab(K, c) {
   const F = c.F, cell = c.cell ?? GB.cell, opens = c.opens ?? [], clips = c.clips ?? [], v0 = c.v0, v1 = c.v1, L = c.L ?? 2;
@@ -428,7 +574,7 @@ function chunkSlab(K, c) {
     for (const q of [grid[i + 1]?.[j], grid[i][j + 1]]) if (q) { p.adj.push(q); q.adj.push(p); }
   }
   const surf = {
-    F, v0, v1, disp, cells, id: surfId, inside,
+    F, v0, v1, disp, cells, id: surfId, inside, u0: c.u0, u1: c.u1,
     find(u, y) {
       for (const p of cells) if (inConvex(p.poly, u, y, 1e-4)) return p;
       let best = null, bd = Infinity;
@@ -490,7 +636,7 @@ function kRope(K, F, u, ya, yb, r, o = {}) {
   const segs = Math.max(1, Math.round((yb - ya) / (o.segLen ?? 1.0))), out = [], v = o.v ?? 0;
   for (let k = 0; k < segs; k++) {
     const y0 = ya + (yb - ya) * k / segs, y1 = ya + (yb - ya) * (k + 1) / segs, pts = [];
-    const n = Math.max(2, Math.round((y1 - y0) / 0.12));
+    const n = Math.max(2, Math.round((y1 - y0) / 0.16));
     for (let m = 0; m <= n; m++) pts.push(FP(F, u, y0 + (y1 - y0) * m / n, v));
     const c = FP(F, u, (y0 + y1) / 2, v);
     const p = piece(K, 'rope', { hp: GB.hp.rope, struct: true, grounded: !!o.grounded && k === 0, col: GB.cookieLt,
@@ -499,8 +645,9 @@ function kRope(K, F, u, ya, yb, r, o = {}) {
     addTube(p, pts, { r, sides: 8, twist: 0.17, helix: 2.4 * 0.14 / r, s0: y0 - ya, vcol: j => j % 4 === 2 ? GB.icing : (o.col ?? GB.cookieLt), caps: true });
     if (k === segs - 1 && o.cap !== false) {
       const top = FP(F, u, yb, v);
-      add(p, GEO.lump, GB.icing, MB(top.clone().add(new V3(0, 0.06, 0)), F.a, YA, F.n, r * 2.5, r * 1.1, r * 2.5), { bake: 0.05 });
-      for (let d = 0; d < 3; d++) { const a = d * 2.1 + 0.4; drip(p, top.clone().add(new V3(Math.cos(a) * r * 1.05, 0, Math.sin(a) * r * 1.05)), 0.12 + 0.1 * (d % 2), 0.11); }
+      const ring = []; for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2, O = new V3(Math.cos(a), 0, Math.sin(a)); ring.push({ p: top.clone().addScaledVector(O, r * 1.02), U: YA.clone(), O }); }
+      iceDrape(K, ring, { host: p, closed: true, w: r * 1.05, th: r * 0.6, hang: r * 0.45, drip: r * 0.9, finger: r > 0.25 ? 0.3 : 0, fingerSpace: 1.3, dw: 0.9, step: r * 0.55, lite: true });
+      add(p, GEO.ball, GB.icing, M(top.x, top.y + r * 0.45, top.z, r * 1.5, r * 0.7, r * 1.5), { bake: 0 });
     }
     out.push(p);
   }
@@ -508,7 +655,7 @@ function kRope(K, F, u, ya, yb, r, o = {}) {
 }
 /** corner post: a thick twisted pillar with a snow cap */
 function kPost(K, x, z, ya, yb, o = {}) {
-  return kRope(K, frame(new V3(x, 0, z), XA.clone(), YA.clone(), ZA.clone()), 0, ya, yb, o.r ?? 0.27, { grounded: o.grounded ?? true, segLen: 0.9, col: GB.cookie });
+  return kRope(K, frame(new V3(x, 0, z), XA.clone(), YA.clone(), ZA.clone()), 0, ya, yb, o.r ?? GB.postR, { grounded: o.grounded ?? true, segLen: 0.9, col: GB.cookie });
 }
 
 /** WALL PANEL: one square module of solid chunked cookie slab + its decoration. variant: plain | flake | swirl | window |
@@ -516,8 +663,8 @@ function kPost(K, x, z, ya, yb, o = {}) {
 function kWall(K, F, u0, y0, W, H, variant = 'plain', o = {}) {
   const t = GB.wallT, uc = u0 + W / 2, opens = [];
   const win = variant === 'window' || variant === 'lattice' || variant === 'dark';
-  if (win) opens.push({ u0: uc - 0.62, u1: uc + 0.62, y0: y0 + 0.78, y1: y0 + 1.78 });
-  if (variant === 'door' || variant === 'arch') opens.push({ u0: uc - 0.62, u1: uc + 0.62, y0, y1: y0 + 2.2 });
+  if (win) opens.push({ u0: uc - 0.62, u1: uc + 0.62, y0: y0 + GB.winY[0], y1: y0 + GB.winY[1] });
+  if (variant === 'door' || variant === 'arch') opens.push({ u0: uc - 0.62, u1: uc + 0.62, y0, y1: y0 + GB.doorH });
   const surf = chunkSlab(K, { F, u0, u1: u0 + W, y0, y1: y0 + H, opens, v0: -t / 2, v1: t / 2, L: 1, grounded: o.grounded, color: o.color ?? GB.cookie });
   const ym = y0 + H * 0.52;
   if (variant === 'flake') kFlake(surf, uc, ym, 0.42);
@@ -533,8 +680,8 @@ function kWall(K, F, u0, y0, W, H, variant = 'plain', o = {}) {
     for (let u = u0 + 0.15; u < u0 + W - 0.1; u += K.R.r(0.22, 0.4)) surf.drip(u, y0 + H - 0.12, K.R.r(0.12, 0.38), K.R.r(0.12, 0.17), t / 2 + 0.12);
   }
   if (o.foot) { const pts = []; for (let u = u0 + 0.05; u <= u0 + W - 0.05 + 1e-6; u += 0.22) pts.push([Math.min(u, u0 + W - 0.05), y0 + 0.06]); surf.pipe(pts, { r: 0.1, rh: 0.13, v: t / 2 + 0.02, rAt: lumpy(0.3) }); }
-  if (o.ropeL) kRope(K, F, u0 + 0.02, y0, y0 + H, 0.14, { v: t / 2 + 0.05, grounded: o.grounded });
-  if (o.ropeR) kRope(K, F, u0 + W - 0.02, y0, y0 + H, 0.14, { v: t / 2 + 0.05, grounded: o.grounded });
+  if (o.ropeL) kRope(K, F, u0 + 0.02, y0, y0 + H, GB.ropeR, { v: t / 2 + 0.07, grounded: o.grounded });
+  if (o.ropeR) kRope(K, F, u0 + W - 0.02, y0, y0 + H, GB.ropeR, { v: t / 2 + 0.07, grounded: o.grounded });
   return surf;
 }
 function kFlake(surf, u, y, R) {
@@ -563,8 +710,9 @@ function kLattice(K, surf, op, o = {}) {
     for (const a of [ang, -ang]) add(p, GEO.brick, GB.mullion, MF(F, pu, yc, mv - 0.01, len, 0.055, 0.05, a), { bake: 0.2 });
   }
   // icing on the sill + drips
-  add(p, GEO.lump, GB.icing, MF(F, uc, op.y0 - fw * 0.3 + 0.09, fv + 0.04, uw + 0.4, 0.1, 0.24), { bake: 0.05 });
-  for (let k = 0; k < 3; k++) drip(p, FP(F, op.u0 - 0.1 + (uw + 0.2) * (k + 0.5) / 3 + K.R.r(-0.05, 0.05), op.y0 - 0.05, fv + 0.12), K.R.r(0.1, 0.26), 0.12);
+  const sy = op.y0 - fw * 0.3 + fw / 2, sv = fv + 0.12;
+  iceDrape(K, [op.u0 - 0.23, op.u1 + 0.23].map(u => ({ p: FP(F, u, sy, sv), U: F.b.clone(), O: F.n.clone() })),
+    { host: p, w: 0.17, th: 0.09, hang: 0.08, drip: 0.14, finger: 0.24, fingerSpace: 1.3, taper: 0.12, step: 0.1, dw: 0.9, lite: true });
   if (o.awning) kAwning(K, F, uc, op.y1 + 0.2, uw + 0.5, o.awning, host, t / 2);
   return p;
 }
@@ -606,9 +754,9 @@ function kDoor(K, surf, op, o = {}) {
   }
   const R1 = hw + 0.14, arc = circlePts(F, dc, yA + 0.1, cv - 0.02, R1, 16, Math.PI, 0);
   addTube(fr, arc, { r: 0.14, sides: 7, col: GB.cookieLt, mask: 1 });
-  const hood = circlePts(F, dc, yA + 0.1, cv + 0.02, R1 + 0.13, 18, Math.PI + 0.1, -0.1);
-  addTube(fr, hood, { r: 0.12, rh: 0.15, sides: 7, rAt: lumpy(0.25, 3) });
-  for (let k = 2; k < hood.length - 2; k += 2) drip(fr, hood[k].clone().addScaledVector(F.n, 0.12).add(new V3(0, -0.06, 0)), K.R.r(0.1, 0.3), 0.12);
+  const hood = []; for (let k = 0; k <= 14; k++) { const a = Math.PI + 0.12 - (Math.PI + 0.24) * k / 14, U = F.a.clone().multiplyScalar(Math.cos(a)).addScaledVector(F.b, Math.sin(a));
+    hood.push({ p: FP(F, dc + Math.cos(a) * (R1 + 0.1), yA + 0.1 + Math.sin(a) * (R1 + 0.1), cv + 0.1), U, O: F.n.clone() }); }
+  iceDrape(K, hood, { host: fr, w: 0.2, th: 0.15, hang: 0.13, drip: 0.22, finger: 0.3, fingerSpace: 0.9, taper: 0.28, step: 0.08 });
   add(fr, GEO.ball, GB.red, MB(FP(F, dc, yA + 0.1 + R1 + 0.3, cv + 0.05), F.a, F.b, F.n, 0.2, 0.2, 0.2), { bake: 0 });
   if (o.open) return fr;
   // planks + glow cross + knob + wreath
@@ -618,12 +766,12 @@ function kDoor(K, surf, op, o = {}) {
     const u = dc - hw + 0.02 + pw * (k + 0.5), top = Math.max(arch(u - pw / 2), arch(u + pw / 2)) - 0.02;
     add(d, GEO.pil, o.col ?? GB.door, MF(F, u, (y0 + top) / 2, -0.02, pw - 0.025, top - y0, 0.12), { bake: 0.35, k: K.R.r(0.88, 1.06) });
   }
-  const gy = y0 + 1.5;
+  const gy = y0 + GB.doorH * 0.68;
   add(d, GEO.pil, '#ffd27a', MF(F, dc, gy, 0.05, 0.36, 0.12, 0.05), { glow: true, bake: 0 });
   add(d, GEO.pil, '#ffd27a', MF(F, dc, gy, 0.05, 0.12, 0.36, 0.05), { glow: true, bake: 0 });
   addTube(d, circlePts(F, dc, gy, 0.07, 0.24, 16), { r: 0.035, sides: 5, col: GB.gold });
-  add(d, GEO.ball, GB.gold, MF(F, dc + hw * 0.7, y0 + 1.0, 0.08, 0.12, 0.12, 0.1), { bake: 0 });
-  const wy = y0 + 1.0;
+  add(d, GEO.ball, GB.gold, MF(F, dc + hw * 0.7, y0 + GB.doorH * 0.45, 0.08, 0.12, 0.12, 0.1), { bake: 0 });
+  const wy = y0 + GB.doorH * 0.45;
   addTube(d, circlePts(F, dc, wy, 0.11, 0.24, 18), { r: 0.085, sides: 6, colFn: (s, th) => (Math.floor(s * 9 + th) % 2 ? GB.green : '#3fa456') });
   for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2 + 0.3; add(d, GEO.dot, GB.red, MF(F, dc + Math.cos(a) * 0.24, wy + Math.sin(a) * 0.24, 0.19, 0.07, 0.07, 0.07), { bake: 0 }); }
   for (const sd of [-1, 1]) add(d, GEO.ball, GB.red, MF(F, dc + sd * 0.08, wy + 0.25, 0.17, 0.14, 0.1, 0.07, sd * 0.4), { bake: 0 });
@@ -681,40 +829,19 @@ function kRoof(K, s, z0, z1, xr, yRidge, tanA, Ls, o = {}) {
   const A = Math.atan(tanA), cA = Math.cos(A), sA = Math.sin(A), rt = GB.roofT, R = K.R;
   const F = frame(new V3(xr, yRidge, 0), ZA.clone(), new V3(s * cA, -sA, 0), new V3(s * sA, cA, 0));
   const surf = chunkSlab(K, { F, u0: z0, u1: z1, y0: 0, y1: Ls, v0: 0, v1: rt, L: 1, cell: 0.85, kind: 'roof', hp: GB.hp.roof, color: GB.roofSlab, padN: 0.32, amp: 0.008, grounded: o.grounded });
-  // shingles: rows of round cookies from the eave up, every other row offset; lower edges lifted (they overlap downhill)
+  // shingles: rows of big round cookies from the eave up, every other row offset; lower edges lifted (they overlap downhill)
   const tilt = 0.2, Yd = F.n.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(F.b, -Math.sin(tilt)), Zd = F.b.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(F.n, Math.sin(tilt));
   let row = 0;
-  for (let l = Ls - 0.42; l > 0.32; l -= 0.47, row++) {
-    const off = (row % 2) * 0.34 + (hash3(row, 3, K.seed) - 0.5) * 0.1;
-    for (let z = z0 + 0.1 + off; z < z1 - 0.12; z += 0.68) {
+  for (let l = Ls - 0.5; l > 0.36; l -= 0.56, row++) {
+    const off = (row % 2) * 0.42 + (hash3(row, 3, K.seed) - 0.5) * 0.12;
+    for (let z = z0 + 0.12 + off; z < z1 - 0.14; z += 0.84) {
       const host = surf.find(z, l); if (!host) continue;
-      const zz = z + R.r(-0.04, 0.04), ll = l + R.r(-0.03, 0.03);
-      add(host, GEO.disc, GB.shingle, MB(FP(F, zz, ll, rt + 0.1), F.a, Yd, Zd, R.r(0.74, 0.82), 0.13, R.r(0.6, 0.68)), { bake: 0.55, mask: 0.75, k: R.r(0.9, 1.1) });
+      const zz = z + R.r(-0.05, 0.05), ll = l + R.r(-0.03, 0.03);
+      add(host, GEO.disc, GB.shingle, MB(FP(F, zz, ll, rt + 0.1), F.a, Yd, Zd, R.r(0.9, 1.0), 0.15, R.r(0.72, 0.8)), { bake: 0.55, mask: 0.75, k: R.r(0.9, 1.1) });
     }
   }
-  // eave: a thick pillowy roll with long drips + candy dots
-  const ep = []; for (let z = z0 + 0.03; z <= z1 - 0.03 + 1e-6; z += 0.27) ep.push([Math.min(z, z1 - 0.03), Ls - 0.12]);
-  surf.pipe(ep, { r: 0.34, rh: 0.3, sides: 9, v: rt + 0.06, rAt: lumpy(0.25) });
-  for (let z = z0 + 0.1; z < z1 - 0.05; z += R.r(0.2, 0.32)) surf.drip(z, Ls - 0.02, R.r(0.2, 0.6), R.r(0.2, 0.28), rt + 0.08);
-  for (let z = z0 + 0.5; z < z1 - 0.3; z += 1.15) { const h = surf.find(z, Ls - 0.15); if (h) add(h, GEO.ball, GB.red, MB(FP(F, z, Ls - 0.14, rt + 0.3), F.a, F.b, F.n, 0.2, 0.2, 0.2), { bake: 0 }); }
-  // rakes
-  for (const [on, zr, ze] of [[o.rake0, z0 + 0.1, z0 + 0.02], [o.rake1, z1 - 0.1, z1 - 0.02]]) {
-    if (!on) continue;
-    const rp = []; for (let l = 0.15; l <= Ls - 0.08 + 1e-6; l += 0.27) rp.push([zr, Math.min(l, Ls - 0.08)]);
-    surf.pipe(rp, { r: 0.33, rh: 0.3, sides: 9, v: rt + 0.06, rAt: lumpy(0.28) });
-    for (let l = 0.4; l < Ls - 0.2; l += R.r(0.24, 0.36)) surf.drip(ze, l, R.r(0.18, 0.55), R.r(0.19, 0.26), rt * 0.5);
-    for (let l = 0.6; l < Ls - 0.3; l += 1.0) { const h = surf.find(zr, l); if (h) add(h, GEO.ball, GB.red, MB(FP(F, zr, l, rt + 0.32), F.a, F.b, F.n, 0.21, 0.21, 0.21), { bake: 0 }); }
-  }
-  // ridge: lobes of icing hanging down this slope (+ the roll itself on one side)
-  for (let z = z0 + 0.2; z < z1 - 0.1; z += R.r(0.36, 0.5)) {
-    const l = R.r(0.25, 0.5), h = surf.find(z, l); if (!h) continue;
-    add(h, GEO.lump, GB.icing, MB(FP(F, z, l, rt + 0.08), F.a, F.n, F.b, R.r(0.42, 0.6), 0.15, R.r(0.5, 0.75)), { bake: 0.04 });
-  }
-  if (o.ridge) {
-    const rp = []; for (let z = z0 + 0.02; z <= z1 - 0.02 + 1e-6; z += 0.22) rp.push([Math.min(z, z1 - 0.02), 0.08]);
-    surf.pipe(rp, { r: 0.34, rh: 0.27, sides: 8, up: YA, p3: (u) => new V3(xr, yRidge + rt * 0.75, u), rAt: lumpy(0.18) });
-    for (let z = z0 + 0.5; z < z1 - 0.3; z += 1.0) { const h = surf.find(z, 0.1); if (h) add(h, GEO.ball, GB.red, M(xr, yRidge + rt * 0.75 + 0.3, z, 0.22, 0.22, 0.22), { bake: 0 }); }
-  }
+  // icing: one continuous drape over the eave + rakes, ridge cap + roll (a house does it once per slope across its sections)
+  if (o.ice !== false) roofIce(K, [surf], s, z0, z1, Ls, o);
   surf.F = F; surf.Ls = Ls; surf.s = s;
   return surf;
 }
@@ -750,12 +877,12 @@ function kDormer(K, s, xf, zc, roofY, host, o = {}) {
     const mid = apex.clone().addScaledVector(D, dl / 2); mid.x = xm;
     add(rf, GEO.pil, GB.roofSlab, MB(mid, XA, Nn, D, lx, 0.16, dl), { bake: 0.3, mask: 1 });
     add(rf, GEO.lump, GB.icing, MB(mid.clone().addScaledVector(Nn, 0.16), XA, Nn, D, lx + 0.1, 0.3, dl + 0.14), { bake: 0.05 });
-    const ep = []; for (let k = 0; k <= 8; k++) ep.push(new V3(x0 + (xb - x0) * k / 8, eave.y + 0.04, eave.z + sd * 0.02));
-    addTube(rf, ep, { r: 0.13, rh: 0.15, rAt: lumpy(0.25) });
-    for (let k = 0; k < 4; k++) drip(rf, new V3(x0 + (xb - x0) * (k + 0.3) / 4, eave.y - 0.02, eave.z + sd * 0.05), R.r(0.12, 0.35), 0.12);
-    const rk = []; for (let k = 0; k <= 8; k++) rk.push(new V3(x0 - s * 0.05, 0, 0).add(apex.clone().lerp(eave, k / 8).setX(0)).add(new V3(0, 0.1, 0)));
-    addTube(rf, rk, { r: 0.13, rh: 0.13, up: new V3(s, 0, 0), rAt: lumpy(0.25) });
-    for (let k = 1; k < 8; k += 2) { const q = rk[k]; drip(rf, new V3(q.x - s * 0.04, q.y - 0.1, q.z), R.r(0.1, 0.28), 0.11); }
+    // the front rake then round the corner along the eave: one soft drape
+    const top = mid.clone().addScaledVector(Nn, 0.08), xF = xm + s * lx / 2, xB = xm - s * lx / 2, Dn = D.clone(), Ox = new V3(s, 0, 0);
+    const at = (x, f) => top.clone().addScaledVector(Dn, (f - 0.5) * dl).setX(x);
+    const C = [{ p: at(xF, 0.04), U: Nn.clone(), O: Ox.clone() }, { p: at(xF, 0.86), U: Nn.clone(), O: Ox.clone() },
+      { p: at(xF - s * 0.06, 0.97), U: Nn.clone(), O: Ox.clone().add(Dn).normalize() }, { p: at(xF - s * 0.16, 1), U: Nn.clone(), O: Dn.clone() }, { p: at(xB, 1), U: Nn.clone(), O: Dn.clone() }];
+    iceDrape(K, C, { host: rf, w: 0.28, th: 0.15, hang: 0.2, drip: 0.26, finger: 0.32, fingerSpace: 0.9, taper: 0.2, step: 0.08 });
   }
   addTube(rf, [new V3(x0, apex.y + 0.1, zc), new V3(xb, apex.y + 0.1, zc)], { r: 0.17, rh: 0.15, sides: 7 });
   add(rf, GEO.ball, GB.red, M(x0 - s * 0.05, apex.y + 0.32, zc, 0.22, 0.22, 0.22), { bake: 0 });
@@ -782,12 +909,9 @@ function kChimney(K, x, z, yb, yt, host, o = {}) {
   const band = []; for (let k = 0; k <= 28; k++) { const a = k / 28 * Math.PI * 2; band.push(new V3(x + Math.cos(a) * hw * 1.08, yBand, z + Math.sin(a) * hw * 1.08)); }
   addTube(p, band, { r: 0.2, rh: 0.2, sides: 8, helix: 1.6, jcol: j => (j >> 1) % 2 ? '#fff6ee' : GB.red, caps: false });
   add(p, GEO.pil, GB.cookieLt, M(x, yt + 0.08, z, hw * 2 + 0.24, 0.26, hw * 2 + 0.24), { bake: 0.45, mask: 1 });
-  add(p, GEO.lump, GB.icing, M(x, yt + 0.28, z, hw * 2 + 0.36, 0.26, hw * 2 + 0.36), { bake: 0.04 });
-  add(p, GEO.ball, GB.icing, M(x + 0.05, yt + 0.42, z - 0.04, hw * 1.7, 0.42, hw * 1.6), { bake: 0 });
-  for (let f = 0; f < 4; f++) for (let m = 0; m < 3; m++) {
-    const a = f * Math.PI / 2, nx = Math.sin(a), nz = Math.cos(a), tx = Math.cos(a), tz = -Math.sin(a), cc = (m - 1) * hw * 0.62 + R.r(-0.06, 0.06);
-    drip(p, new V3(x + nx * (hw + 0.17) + tx * cc, yt + 0.2, z + nz * (hw + 0.17) + tz * cc), R.r(0.15, 0.4), 0.14);
-  }
+  const ca = hw + 0.12;
+  iceDrape(K, rrPath(x - ca, x + ca, z - ca, z + ca, 0.16, yt + 0.21), { host: p, closed: true, w: hw * 0.85, th: 0.2, hang: 0.2, drip: 0.32, finger: 0.4, step: 0.12 });
+  add(p, GEO.ball, GB.icing, M(x + 0.05, yt + 0.36, z - 0.04, hw * 1.7, 0.36, hw * 1.6), { bake: 0 });
   for (let k = 0; k < 4; k++) { const a = k * 1.7; add(p, GEO.ball, GB.red, M(x + Math.cos(a) * 0.3, yt + 0.6 + (k % 2) * 0.06, z + Math.sin(a) * 0.3, 0.17, 0.17, 0.17), { bake: 0 }); }
   p.obb = { c: new V3(x, (yb + yt) / 2 + 0.3, z), ax: [XA.clone(), YA.clone(), ZA.clone()], he: [hw + 0.1, (yt - yb) / 2 + 0.4, hw + 0.1] };
   return p;
@@ -845,9 +969,10 @@ function kSnow(K, p, at, sz = 1) {
   const R = K.R;
   for (let k = 0; k < 3; k++) add(p, GEO.lump, GB.icing, M(at.x + R.r(-0.25, 0.25) * sz, at.y + 0.04, at.z + R.r(-0.18, 0.18) * sz, R.r(0.35, 0.6) * sz, R.r(0.12, 0.2) * sz, R.r(0.3, 0.45) * sz, 0, R.r(0, 3), 0), { bake: 0 });
 }
-/** PLINTH: a ring of chunky cookie stones with icing snow on top; optional floor tiles; gaps = [[xa, xb]] on the front edge */
+/** PLINTH: a ring of chunky cookie stones under one continuous soft snow-icing drape; optional floor tiles; gaps = [[xa, xb]]
+ *  on the front edge (the drape opens there) */
 function kPlinth(K, x0, x1, z0, z1, top, o = {}) {
-  const p = piece(K, 'static'), R = K.R, gaps = o.gaps ?? [];
+  const p = piece(K, 'static'), R = K.R, gaps = o.gaps ?? [], dep = 0.74, hh = top + 0.12, snowRuns = [];
   add(p, GEO.pil, GB.stone, M((x0 + x1) / 2, top / 2 - 0.02, (z0 + z1) / 2, x1 - x0 - 0.5, top, z1 - z0 - 0.5), { bake: 0.3, mask: 1 });
   if (o.tiles) {
     const nx = Math.max(1, Math.round((x1 - x0 - 1.1) / 0.75)), nz = Math.max(1, Math.round((z1 - z0 - 1.1) / 0.75)), tw = (x1 - x0 - 1.1) / nx, td = (z1 - z0 - 1.1) / nz;
@@ -857,19 +982,26 @@ function kPlinth(K, x0, x1, z0, z1, top, o = {}) {
   for (const [[ax, az], [bx, bz], front] of edges) {
     const L = Math.hypot(bx - ax, bz - az), dx = (bx - ax) / L, dz = (bz - az) / L, nX = dz, nZ = -dx;
     const inGap = s => front && gaps.some(([ga, gb]) => { const x = ax + dx * s; return x > ga && x < gb; });
-    let s = 0, run = [];
-    const flush = () => { if (run.length > 1) addTube(p, run, { r: 0.22, rh: 0.11, sides: 7, up: YA, rAt: lumpy(0.45, 2.2) }); run = []; };
+    let s = 0, run = null;
+    const flush = () => { if (run && run.length > 1) snowRuns.push(run); run = null; };
     while (s < L - 0.05) {
-      const len = Math.min(R.r(0.7, 1.0), L - s), mid = s + len / 2;
+      const len = Math.min(R.r(0.75, 1.05), L - s), mid = s + len / 2;
+      if (inGap(mid) || R() < 0.14) flush();
+      else {
+        const O = new V3(-nX, 0, -nZ), at = u => ({ p: new V3(ax + dx * u - nX * (dep - 0.12), hh, az + dz * u - nZ * (dep - 0.12)), U: YA.clone(), O: O.clone() });
+        if (!run) run = [at(s + 0.08)];
+        run.push(at(s + len - (s + len > L - 0.06 ? 0.1 : 0)));
+      }
       if (!inGap(mid)) {
-        const hh = top + 0.08 + R.r(-0.05, 0.06), cx = ax + dx * mid - nX * 0.28, cz = az + dz * mid - nZ * 0.28;
-        add(p, GEO.pil, R.pick([GB.stone, GB.cookie, '#9a5226']), MB(new V3(cx, hh / 2, cz), new V3(dx, 0, dz), YA, new V3(nX, 0, nZ), len - 0.05, hh, 0.62), { bake: 0.35, mask: 1 });
-        if (R() < 0.8) add(p, GEO.lump, GB.icing, MB(new V3(cx + R.r(-0.1, 0.1), hh + 0.02, cz), new V3(dx, 0, dz), YA, new V3(nX, 0, nZ), (len - 0.1) * R.r(0.6, 1.0), R.r(0.1, 0.17), R.r(0.4, 0.62)), { bake: 0 });
+        const h = hh + R.r(-0.03, 0.02), cx = ax + dx * mid - nX * (dep / 2 - 0.05), cz = az + dz * mid - nZ * (dep / 2 - 0.05);
+        add(p, GEO.pil, R.pick([GB.stone, GB.cookie, '#9a5226']), MB(new V3(cx, h / 2, cz), new V3(dx, 0, dz), YA, new V3(nX, 0, nZ), len - 0.05, h, dep), { bake: 0.35, mask: 1 });
       }
       s += len;
     }
     flush();
   }
+  // the snow: soft drifts poured over the stones' outer edges -- long runs over several stones, a bare stone between some
+  for (const run of snowRuns) iceDrape(K, run, { host: p, w: R.r(0.38, 0.55), th: 0.12, hang: 0.08, drip: 0.13, finger: 0.2, fingerSpace: 2.5, taper: 0.22, step: 0.2, lite: true, space: 1.3 });
   return p;
 }
 function kSteps(K, x, z0, top, w) {
@@ -918,12 +1050,17 @@ function wallsOf(nx, nz, o, floor) {
 
 /** o: {nx, nz (modules), floors, front/left/right/back (+2 for the upper floor): variant lists, dormer, chimney (-1 | 1 | 0),
  *  lantern, fence, awning, door, seed} -- the door faces local +z, the left side (awning) is -x */
-function assembleHouse(K, o) {
+/** the numbers a house's near AND far versions share */
+function houseDims(o) {
   const Gm = GB.mod, nx = o.nx ?? Math.max(2, Math.round((o.w ?? 4.8) / Gm)), nz = o.nz ?? Math.max(2, Math.round((o.d ?? 4.8) / Gm));
-  const floors = clamp(o.floors ?? 1, 1, 2), t = GB.wallT, base = GB.base, H = GB.storey, R = K.R;
+  const floors = clamp(o.floors ?? 1, 1, 2), t = GB.wallT, base = GB.base, H = GB.storey;
   const Wt = nx * Gm, Dt = nz * Gm, h = base + floors * H, tanA = GB.pitch, A = Math.atan(tanA), rise = Wt / 2 * tanA, yRidge = h + rise;
   const ov = GB.overhang, ovz = GB.overhangZ, Ls = (Wt / 2 + ov) / Math.cos(A);
-  const roofY = x => yRidge - tanA * Math.abs(x);
+  return { Gm, nx, nz, floors, t, base, H, Wt, Dt, h, tanA, A, rise, yRidge, ov, ovz, Ls, roofY: x => yRidge - tanA * Math.abs(x),
+    radius: Math.hypot(Wt, Dt) / 2 + rise + 2, cy: yRidge / 2 };
+}
+function assembleHouse(K, o) {
+  const { Gm, nx, nz, floors, t, base, H, Wt, Dt, h, tanA, A, rise, yRidge, ovz, Ls, roofY } = houseDims(o), R = K.R;
   const F = {
     front: frame(new V3(0, 0, Dt / 2 - t / 2), XA.clone(), YA.clone(), ZA.clone()),
     back: frame(new V3(0, 0, -(Dt / 2 - t / 2)), XA.clone().negate(), YA.clone(), ZA.clone().negate()),
@@ -938,9 +1075,9 @@ function assembleHouse(K, o) {
       const [L, n] = span[side], W = L / n;
       V[side].forEach((variant, i) => {
         const u0 = -L / 2 + i * W;
-        kWall(K, F[side], u0, y0, W, H, variant, { grounded: f === 0, cap: (side === 'left' || side === 'right') && f === floors - 1, awning: o.awning, door: o.door });
+        kWall(K, F[side], u0, y0, W, H, variant, { grounded: f === 0, awning: o.awning, door: o.door });
         if (side === 'front' && (variant === 'door' || variant === 'arch')) doorX = u0 + W / 2;
-        if (i > 0) kRope(K, F[side], u0, y0, y0 + H, 0.13, { v: t / 2 + 0.05, grounded: f === 0, cap: false });
+        if (i > 0) kRope(K, F[side], u0, y0, y0 + H, GB.ropeR, { v: t / 2 + 0.07, grounded: f === 0, cap: false });
       });
     }
   }
@@ -951,42 +1088,48 @@ function assembleHouse(K, o) {
   const roofs = { 1: [], '-1': [] };
   for (const s of [1, -1]) for (let k = 0; k < nz; k++) {
     let z0 = -Dt / 2 + k * Gm, z1 = z0 + Gm; if (k === 0) z0 -= ovz; if (k === nz - 1) z1 += ovz;
-    roofs[s].push(kRoof(K, s, z0, z1, 0, yRidge, tanA, Ls, { rake0: k === 0, rake1: k === nz - 1, ridge: s === -1 }));
+    roofs[s].push(kRoof(K, s, z0, z1, 0, yRidge, tanA, Ls, { ice: false }));
   }
+  for (const s of [1, -1]) roofIce(K, roofs[s], s, -Dt / 2 - ovz, Dt / 2 + ovz, Ls, { rake0: true, rake1: true, ridge: s === -1 });
   const atRoof = (s, x, z) => { const sec = roofs[s][clamp(Math.floor((z + Dt / 2) / Gm), 0, nz - 1)]; return sec.find(z, Math.abs(x) / Math.cos(A)); };
   if (o.dormer ?? true) {
     const ds = o.dormerSide ?? -1, zc = Dt / 2 - Gm / 2, xf = ds * (Wt / 2 - 0.5);
-    kDormer(K, ds, xf, zc, roofY, atRoof(ds, xf + ds * -0.6, zc));
+    kDormer(K, ds, xf, zc, roofY, atRoof(ds, xf + ds * -0.6, zc), { w: 1.7 });
   }
   if (o.chimney !== 0 && o.chimney !== false) {
-    const cs = o.chimney ?? -1, z = -Dt / 2 + Gm * 0.45, x = cs * Wt * 0.24;
-    kChimney(K, x, z, roofY(Math.abs(x) + 0.55) - 0.25, yRidge + 0.75, atRoof(cs, x, z));
+    const cs = o.chimney ?? -1, z = -Dt / 2 + Gm * 0.5, x = cs * Wt * 0.22;
+    kChimney(K, x, z, roofY(Math.abs(x) + GB.chimneyHW) - 0.25, yRidge + 0.85, atRoof(cs, x, z), { hw: GB.chimneyHW });
   }
   const top = roofs[-1][nz - 1];
   kPeppermint(K, new V3(0, yRidge + 0.62, Dt / 2 + ovz - 0.02), XA.clone(), ZA.clone(), 0.46, top.find(Dt / 2 + ovz - 0.1, 0.1));
-  if (o.lantern !== false) { const pr = posts['1,1']; kLantern(K, new V3(Wt / 2 + 0.2, h - 0.5, Dt / 2 - 0.05), XA.clone(), pr[pr.length - 1]); }
+  if (o.lantern !== false) { const pr = posts['1,1']; kLantern(K, new V3(Wt / 2 - 0.05, h - 1.1, Dt / 2 + 0.25), ZA.clone(), pr[pr.length - 1]); }
   // base: plinth, steps, canes, gumdrops, fence, snow
-  const px = 0.5, gaps = doorX !== null ? [[doorX - 1.05, doorX + 1.05]] : [];
+  const px = GB.plinthPad, gaps = doorX !== null ? [[doorX - 1.05, doorX + 1.05]] : [];
   kPlinth(K, -Wt / 2 - px, Wt / 2 + px, -Dt / 2 - px, Dt / 2 + px, base, { gaps });
   if (doorX !== null) {
     kSteps(K, doorX, Dt / 2 + px - 0.32, base, 1.9);
-    kCane(K, new V3(doorX - 1.3, base * 0.6, Dt / 2 + 0.75), 0.95, 0.3);
-    if (doorX + 1.45 < Wt / 2 + px) kCane(K, new V3(doorX + 1.35, base * 0.6, Dt / 2 + 0.8), 0.75, Math.PI - 0.4);
+    kCane(K, new V3(doorX - 1.3, base, Dt / 2 + 0.42), 0.95, 0.3);
+    if (doorX + 1.45 < Wt / 2 + px) kCane(K, new V3(doorX + 1.35, base, Dt / 2 + 0.45), 0.75, Math.PI - 0.4);
     kGumdrop(K, new V3(doorX + 0.95, base, Dt / 2 + 0.3), GB.green, 0.4);
     kGumdrop(K, new V3(doorX + 1.3, base, Dt / 2 + 0.1), GB.red, 0.34);
   }
   kGumdrop(K, new V3(-Wt / 2 + 0.55, base, Dt / 2 + 0.38), GB.green, 0.48);
   kGumdrop(K, new V3(-Wt / 2 + 1.1, base, Dt / 2 + 0.42), GB.red, 0.52);
-  if (o.fence !== false) kFence(K, new V3(-Wt / 2 - 0.4, base, Dt / 2 + 0.25), new V3(-Wt / 2 - 0.4, base, Dt / 2 - 1.8), 3);
+  if (o.fence !== false) kFence(K, new V3(-Wt / 2 - 0.85, base, Dt / 2 + 0.6), new V3(-Wt / 2 - 0.85, base, Dt / 2 - 1.3), 3);
   const sn = piece(K, 'static');
-  for (let k = 0; k < 4; k++) { const a = R.r(0, Math.PI * 2), rr = 1.05; kSnow(K, sn, new V3(Math.cos(a) * (Wt / 2 + px + 0.5) * rr, 0, Math.sin(a) * (Dt / 2 + px + 0.5) * rr), R.r(0.8, 1.4)); }
+  for (let k = 0; k < 4; k++) { const a = R.r(0, Math.PI * 2), rr = 1.05; kSnow(K, sn, new V3(Math.cos(a) * (Wt / 2 + px + 0.9) * rr, 0, Math.sin(a) * (Dt / 2 + px + 0.9) * rr), R.r(0.8, 1.4)); }
+  if (o.interior) {        // a cosy room for whoever lives here: dark warm floorboards + a rug (the host lights it)
+    const fl = piece(K, 'static'), iw = Wt - 2 * t - 0.04, id = Dt - 2 * t - 0.04, nb = Math.round(iw / 0.42);
+    for (let k = 0; k < nb; k++) add(fl, GEO.brick, R.pick(['#5a2e18', '#4e2814', '#663620']), M(-iw / 2 + iw * (k + 0.5) / nb, base + 0.02, 0, iw / nb - 0.03, 0.06, id), { bake: 0.3, mask: 1 });
+    add(fl, GEO.dot, '#b8343a', M(0.3, base + 0.06, 0.6, 2.2, 0.03, 1.5), { bake: 0 });
+  }
   return { Wt, Dt, h, rise, yRidge };
 }
 
 export function buildBreakableHouse(scene, o = {}) {
   init(scene);
-  const K = newCtx(o.seed ?? 1), dims = assembleHouse(K, o);
-  return finish(K, scene, o, { ...dims, radius: Math.hypot(dims.Wt, dims.Dt) / 2 + dims.rise + 2, cy: dims.yRidge / 2 });
+  const K = newCtx(o.seed ?? 1), dims = assembleHouse(K, o), hd = houseDims(o);
+  return finish(K, scene, o, { ...dims, radius: hd.radius, cy: hd.cy });
 }
 
 /** THE KIT laid out like his sheet: each module on its own (every one still breakable; nothing falls) */
@@ -1099,6 +1242,119 @@ function finish(K, scene, o, info) {
   return house;
 }
 
+// =====================================================================================================
+// FAR VERSION + LOD: a cheap distant house from the SAME params (one merged mesh, one draw: blocks + the same icing drape at
+// low resolution, glowing windows baked in via the GLOWM mask). placeHouse() shows it; the breakable near version is built
+// on demand (the camera comes inside GB.lodNear, or a shot / blast reaches it) and dropped again past GB.lodFar if untouched.
+// =====================================================================================================
+function assembleFar(K, o) {
+  const { Gm, nx, nz, floors, t, base, H, Wt, Dt, h, A, rise, yRidge, ovz, Ls, roofY } = houseDims(o);
+  const p = piece(K, 'far'), px = GB.plinthPad, e = 0.62, rt = GB.roofT, cA = Math.cos(A), sA = Math.sin(A);
+  // plinth + its snow
+  add(p, GEO.box, GB.stone, M(0, (base + 0.12) / 2, 0, Wt + 2 * (px + e), base + 0.12, Dt + 2 * (px + e)), { bake: 0.35, mask: 1 });
+  iceDrape(K, rrPath(-Wt / 2 - px - e + 0.05, Wt / 2 + px + e - 0.05, -Dt / 2 - px - e + 0.05, Dt / 2 + px + e - 0.05, 0.4, base + 0.12, 1),
+    { host: p, closed: true, w: 0.5, th: 0.12, hang: 0.1, drip: 0.12, step: 0.9, lite: true });
+  // walls: one cookie block + the two gable prisms
+  add(p, GEO.box, GB.cookie, M(0, base + floors * H / 2, 0, Wt - 0.04, floors * H, Dt - 0.04), { bake: 0.12, mask: 1 });
+  const Fw = {
+    front: frame(new V3(0, 0, Dt / 2 - t / 2), XA.clone(), YA.clone(), ZA.clone()),
+    back: frame(new V3(0, 0, -(Dt / 2 - t / 2)), XA.clone().negate(), YA.clone(), ZA.clone().negate()),
+    right: frame(new V3(Wt / 2 - t / 2, 0, 0), ZA.clone().negate(), YA.clone(), XA.clone()),
+    left: frame(new V3(-(Wt / 2 - t / 2), 0, 0), ZA.clone(), YA.clone(), XA.clone().negate()),
+  };
+  for (const side of ['front', 'back']) p.ops.push(S => prism(S, [[-Wt / 2, h], [Wt / 2, h], [0, yRidge]], Fw[side], -t / 2, t / 2, { L: 1, mask: 1 }));
+  // windows (baked glow), awnings, doors -- the same variant lists as the near house
+  const span = { front: [Wt, nx], back: [Wt, nx], right: [Dt - 2 * t, nz], left: [Dt - 2 * t, nz] }, warm = GB.warm[0];
+  for (let f = 0; f < floors; f++) {
+    const V = wallsOf(nx, nz, o, f), y0 = base + f * H;
+    for (const side of ['front', 'back', 'left', 'right']) {
+      const [L, n] = span[side], W = L / n, Fs = Fw[side];
+      V[side].forEach((v, i) => {
+        const uc = -L / 2 + W * (i + 0.5);
+        if (v === 'window' || v === 'lattice') {
+          const yc = y0 + (GB.winY[0] + GB.winY[1]) / 2, hh = GB.winY[1] - GB.winY[0];
+          add(p, GEO.box, GB.cookieLt, MF(Fs, uc, yc, t / 2, 1.5, hh + 0.3, 0.12), { bake: 0.3, mask: 1 });
+          add(p, GEO.box, warm, MF(Fs, uc, yc, t / 2 + 0.06, 1.22, hh, 0.04), { mask: GLOWM, bake: 0 });
+          add(p, GEO.box, GB.icing, MF(Fs, uc, y0 + GB.winY[0] - 0.08, t / 2 + 0.1, 1.6, 0.12, 0.22), { bake: 0 });
+          if (v === 'window') add(p, GEO.box, o.awning ?? GB.red, MB(FP(Fs, uc, y0 + GB.winY[1] + 0.05, t / 2 + 0.3), Fs.a, Fs.b.clone().multiplyScalar(0.7).addScaledVector(Fs.n, 0.7).normalize(), Fs.n.clone().multiplyScalar(0.7).addScaledVector(Fs.b, -0.7).normalize(), 1.7, 0.7, 0.08), { bake: 0.1 });
+        } else if (v === 'dark') add(p, GEO.box, '#3a2216', MF(Fs, uc, y0 + 1.0, t / 2 + 0.02, 1.2, 0.9, 0.04), { bake: 0 });
+        else if (v === 'door' || v === 'arch') {
+          add(p, GEO.box, o.door ?? GB.door, MF(Fs, uc, y0 + GB.doorH / 2, t / 2 + 0.02, 1.24, GB.doorH, 0.08), { bake: 0.2 });
+          add(p, GEO.box, '#ffd27a', MF(Fs, uc, y0 + GB.doorH * 0.68, t / 2 + 0.08, 0.3, 0.3, 0.04), { mask: GLOWM, bake: 0 });
+          add(p, GEO.lump, GB.icing, MF(Fs, uc, y0 + GB.doorH + 0.25, t / 2 + 0.12, 1.9, 0.3, 0.3), { bake: 0 });
+        }
+      });
+    }
+  }
+  const R = clamp(rise * 0.15, 0.38, 0.55);
+  add(p, GEO.dot, '#ffd08a', MB(FP(Fw.front, 0, h + rise * 0.36, t / 2 + 0.03), XA, YA, ZA, R * 1.9, R * 1.9, 0.08), { mask: GLOWM, bake: 0 });
+  // corner posts
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) addTube(p, [new V3(sx * (Wt / 2 - 0.05), base, sz * (Dt / 2 - 0.05)), new V3(sx * (Wt / 2 - 0.05), h + 0.1, sz * (Dt / 2 - 0.05))], { r: GB.postR, sides: 6, col: GB.cookieLt, mask: 1 });
+  // roof slabs + the same drape (low res)
+  for (const s of [1, -1]) {
+    const Fr = frame(new V3(0, yRidge, 0), ZA.clone(), new V3(s * cA, -sA, 0), new V3(s * sA, cA, 0));
+    add(p, GEO.box, GB.shingle, MB(FP(Fr, 0, Ls / 2, rt / 2 + 0.04), Fr.a, Fr.b, Fr.n, Dt + 2 * ovz, Ls, rt + 0.08), { bake: 0.3, mask: 0.75 });
+    roofIce(K, [{ F: Fr, u0: -1e9, u1: 1e9, find: () => p }], s, -Dt / 2 - ovz, Dt / 2 + ovz, Ls, { rake0: true, rake1: true, ridge: s === -1, far: true });
+  }
+  if (o.dormer ?? true) {
+    const ds = o.dormerSide ?? -1, zc = Dt / 2 - Gm / 2, xf = ds * (Wt / 2 - 0.5), y = roofY(xf);
+    add(p, GEO.box, GB.cookie, M(xf - ds * 0.55, y + 0.5, zc, 1.1, 1.6, 1.6), { bake: 0.2, mask: 1 });
+    add(p, GEO.box, '#ffcf80', M(xf + ds * 0.01, y + 0.55, zc, 0.05, 0.7, 0.55), { mask: GLOWM, bake: 0 });
+    add(p, GEO.lump, GB.icing, M(xf - ds * 0.5, y + 1.42, zc, 1.3, 0.5, 2.1), { bake: 0 });
+  }
+  if (o.chimney !== 0 && o.chimney !== false) {
+    const cs = o.chimney ?? -1, z = -Dt / 2 + Gm * 0.5, x = cs * Wt * 0.22, hw = GB.chimneyHW, yb = roofY(Math.abs(x) + hw) - 0.25, yt = yRidge + 0.85;
+    add(p, GEO.box, GB.cookie, M(x, (yb + yt) / 2, z, hw * 2, yt - yb, hw * 2), { bake: 0.3, mask: 1 });
+    add(p, GEO.box, GB.red, M(x, yt - 0.72, z, hw * 2 + 0.12, 0.34, hw * 2 + 0.12), { bake: 0.1 });
+    add(p, GEO.lump, GB.icing, M(x, yt + 0.22, z, hw * 2 + 0.4, 0.5, hw * 2 + 0.4), { bake: 0 });
+  }
+  add(p, GEO.ball, GB.red, M(0, yRidge + 0.62, Dt / 2 + ovz - 0.02, 0.92, 0.92, 0.4), { bake: 0 });
+  return p;
+}
+/** the far mesh on its own (one draw) */
+export function buildFarHouse(o = {}) {
+  const K = newCtx(o.seed ?? 1); assembleFar(K, o);
+  const S = new Buf();
+  for (const q of K.pieces) for (const op of q.ops) op(S, S);
+  const tris = S.n / 3, mesh = new THREE.Mesh(S.geometry(), MAT.solid);
+  mesh.name = 'gingerbread:far'; mesh.castShadow = mesh.receiveShadow = true; mesh.userData.tris = tris;
+  mesh.position.set(o.x ?? 0, o.y ?? 0, o.z ?? 0); mesh.rotation.y = o.ry ?? 0;
+  return mesh;
+}
+/** a house that lives as its far version until it is needed close up. -> entry {o, far, near, center, radius} */
+export function placeHouse(scene, o = {}) {
+  init(scene);
+  const far = buildFarHouse(o); scene.add(far); far.updateMatrixWorld(true);
+  const d = houseDims(o), e = { o, far, near: null, center: new V3(0, d.cy, 0).applyMatrix4(far.matrixWorld), radius: d.radius, farTris: far.userData.tris };
+  far.userData.lod = e; DESTRUCT.lods.push(e);
+  return e;
+}
+function ensureNear(e) {
+  if (!e.near) {
+    e.near = buildBreakableHouse(DESTRUCT.scene, e.o); e.near.lod = e; e.far.visible = false;
+    DESTRUCT.onNear?.(e.near, e);
+  }
+  return e.near;
+}
+function dropNear(e) {
+  const H = e.near; if (!H || H.damaged) return;          // a house you have shot stays breakable
+  DESTRUCT.onFar?.(H, e);
+  H.group.removeFromParent(); H.solid.geometry.dispose(); H.glow.geometry.dispose();
+  DESTRUCT.houses.splice(DESTRUCT.houses.indexOf(H), 1);
+  e.near = null; e.far.visible = true;
+}
+const _cp = new V3();
+/** swap by distance from the camera; DESTRUCT.lodForce = 'near' | 'far' | null pins one for checks */
+function lodUpdate(camera) {
+  camera.getWorldPosition(_cp);
+  for (const e of DESTRUCT.lods) {
+    const f = DESTRUCT.lodForce, d = _cp.distanceTo(e.center);
+    if (f === 'near' || (!f && d < GB.lodNear)) ensureNear(e);
+    else if (!f && d > GB.lodFar) dropNear(e);
+    if (e.near) { e.near.group.visible = f !== 'far'; e.far.visible = f === 'far'; } else e.far.visible = true;
+  }
+}
+
 // oriented box distance
 const _d = new V3();
 function obbDist(o, p) {
@@ -1109,8 +1365,9 @@ function obbDist(o, p) {
 
 // ---- the registry ---------------------------------------------------------------------------------------
 export const DESTRUCT = {
-  houses: [], scene: null, debris: null, parts: null, ground: () => 0, _t: 0, _crunchT: -1, _debT: -1,
-  hitAt, raycast, update, clear, stats, burst,
+  houses: [], lods: [], scene: null, debris: null, parts: null, ground: () => 0, _t: 0, _crunchT: -1, _debT: -1,
+  lodForce: null, onNear: null, onFar: null,
+  hitAt, raycast, update, clear, stats, burst, ensureNear, lodUpdate,
 };
 function init(scene) {
   if (DESTRUCT.scene === scene && DESTRUCT.debris) return;
@@ -1126,6 +1383,7 @@ const rv = (k) => new V3((Math.random() - 0.5) * k, (Math.random() - 0.5) * k, (
 function hitAt(point, radius, power = 1, o = {}) {
   let touched = 0, killed = 0; const blast = radius > 1;
   let hitCol = null, best = Infinity;
+  for (const e of DESTRUCT.lods) if (!e.near && point.distanceTo(e.center) < e.radius + radius) ensureNear(e);
   for (const H of DESTRUCT.houses) {
     if (point.distanceTo(H.center) > H.radius + radius) continue;
     _lp.copy(point).applyMatrix4(H.inv);
@@ -1133,7 +1391,7 @@ function hitAt(point, radius, power = 1, o = {}) {
     for (const p of H.pieces) {
       if (!p.alive || p.hp === Infinity) continue;
       const dd = obbDist(p.obb, _lp); if (dd > radius) continue;
-      touched++;
+      touched++; H.damaged = true;
       if (dd < best) { best = dd; hitCol = p.col; }
       p.hp -= blast ? power * (1 - 0.6 * dd / radius) : power;
       if (p.hp <= 0) {
@@ -1216,10 +1474,13 @@ function bite(H, p) {
 }
 
 const _ray = [];
-function raycast(raycaster) {
+function raycast(raycaster, again = true) {
   _ray.length = 0;
-  for (const H of DESTRUCT.houses) _ray.push(H.solid, H.glow);
+  for (const H of DESTRUCT.houses) if (H.group.visible) _ray.push(H.solid, H.glow);
+  for (const e of DESTRUCT.lods) if (!e.near || !e.near.group.visible) _ray.push(e.far);
   const hits = raycaster.intersectObjects(_ray, false);
+  const lod = hits[0]?.object.userData.lod;
+  if (lod && again) { ensureNear(lod); if (DESTRUCT.lodForce !== 'far') return raycast(raycaster, false); }
   return hits.length ? { point: hits[0].point, house: hits[0].object.userData.house, distance: hits[0].distance, normal: hits[0].face?.normal } : null;
 }
 
@@ -1390,19 +1651,22 @@ function burst(point, o = {}) {
   }
 }
 
-function update(dt) {
+function update(dt, camera) {
   DESTRUCT._t += dt;
+  if (camera && DESTRUCT.lods.length) lodUpdate(camera);
   DESTRUCT.debris?.update(dt);
   DESTRUCT.parts?.update(dt);
 }
 function clear() {
   for (const H of DESTRUCT.houses) { H.group.removeFromParent(); H.solid.geometry.dispose(); H.glow.geometry.dispose(); }
   DESTRUCT.houses.length = 0;
+  for (const e of DESTRUCT.lods) { e.far.removeFromParent(); e.far.geometry.dispose(); }
+  DESTRUCT.lods.length = 0;
   DESTRUCT.debris?.clear(); DESTRUCT.parts?.clear();
 }
 function stats() {
   let alive = 0, total = 0, tris = 0;
   for (const H of DESTRUCT.houses) { tris += H.tris; for (const p of H.pieces) { if (p.hp === Infinity) continue; total++; if (p.alive) alive++; } }
-  return { houses: DESTRUCT.houses.length, alive, total, tris, debris: DESTRUCT.debris?.count() || 0, moving: DESTRUCT.debris?.moving() || 0,
+  return { houses: DESTRUCT.houses.length, lods: DESTRUCT.lods.length, far: DESTRUCT.lods.filter(e => !e.near).length, alive, total, tris, debris: DESTRUCT.debris?.count() || 0, moving: DESTRUCT.debris?.moving() || 0,
     perHouse: DESTRUCT.houses.map(H => Math.round(H.tris)) };
 }

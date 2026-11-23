@@ -43,7 +43,8 @@ export async function loadCrew(rig, scene) {
 
   const driverY = driver.holder.position.y;
   return {
-    muzzle: santa.muzzle, eject: santa.eject, cigarTip: santa.cigarTip, rate: santa.rate,
+    get muzzle() { return santa.muzzle; }, get eject() { return santa.eject; }, cigarTip: santa.cigarTip,
+    get rate() { return santa.rate; }, get def() { return santa.def; }, setWeapon: k => santa.setWeapon(k),
     kick: () => santa.kick(), aim: p => santa.aimAt(p), setFiring: on => santa.setFiring(on),
     update(dt, t) {
       driver.holder.position.y = driverY + Math.abs(Math.sin(t * 6)) * CREW.jiggle.bounce;   // bouncing on the bench with the gallop

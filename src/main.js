@@ -9,13 +9,14 @@ import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
 import { applyLook, addInk, LOOK, initialLook } from './look.js';
 import { makeMenus } from './menu.js';
+import { WEAPONS, ORDER, makeShots, loadGuns, heldGun } from './weapons.js';
 import { CONTENT } from './gag.js';
 import { loadModels, makeSanta, makeElf } from './characters.js';
 // sound is optional: if src/audio.js is missing or fails, the game stays silent instead of blank
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 17;
+export const BUILD = 18;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -50,7 +51,7 @@ const setState = s => { STATE = s; document.body.classList.toggle('play', s === 
 setState(STATE);
 const hideBoot = () => document.getElementById('boot').classList.add('gone');
 setTimeout(hideBoot, 12000);   // never hold the game hostage to a slow model load
-Promise.all([loadCrew(rig, scene), buildMenuCrew()]).then(([c]) => { rig.crew = c; addInk(rig.sleigh.g); for (const d of rig.deer) addInk(d.g); setLook(initialLook('lit')); setTimeout(hideBoot, 300); }).catch(e => { hideBoot(); document.getElementById('build').textContent += ' crew: ' + e.message; });
+Promise.all([loadCrew(rig, scene), buildMenuCrew()]).then(([c]) => { rig.crew = c; setWeapon(weapon, false); addInk(rig.sleigh.g); for (const d of rig.deer) addInk(d.g); setLook(initialLook('lit')); setTimeout(hideBoot, 300); }).catch(e => { hideBoot(); document.getElementById('build').textContent += ' crew: ' + e.message; });
 
 // ---- THE START SCREEN SCENE: Santa + two elves in the plaza by the big tree, fire pit glow, snow, bloom --------------
 const MENU = { spot: new THREE.Vector3(MENU_SPOT.x, 0, MENU_SPOT.z), crew: null, burstT: 3, firing: false, fireCd: 0 };
@@ -189,6 +190,48 @@ function updateAim(dt) {
   return { px, py };
 }
 
+// ---- WEAPONS: his four guns; switch with the WEAPON button / 1-4 / Q / gamepad Y; fly through a floating gun to grab it -------
+const shots = makeShots(scene, groundH, {
+  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); },
+});
+let shake = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
+const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
+wBtn.style.cssText = 'width:auto;height:auto;border-radius:16px;padding:9px 12px;z-index:7;font-size:12px;right:calc(env(safe-area-inset-right) + 12px);bottom:calc(env(safe-area-inset-bottom) + 316px);background:linear-gradient(#5a5f7a,#3a3e56)';
+document.getElementById('hud').appendChild(wBtn);
+function setWeapon(key, announce = true) {
+  weapon = key; try { localStorage.setItem('weapon', key); } catch (e) {}
+  wBtn.textContent = '⟳ ' + WEAPONS[key].name;
+  rig.crew?.setWeapon(key); MENU.crew?.santa.setWeapon(key);
+  if (announce) sfx('cookie_pickup', { rate: 0.75 });
+}
+const nextWeapon = d => setWeapon(ORDER[(ORDER.indexOf(weapon) + d + ORDER.length) % ORDER.length]);
+wBtn.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); nextWeapon(1); });
+addEventListener('keydown', e => { const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code); if (n >= 0) setWeapon(ORDER[n]); if (e.code === 'KeyQ') nextWeapon(1); });
+let gpY = false;
+function pollWeaponPad() { const gp = navigator.getGamepads?.().find(g => g && g.connected); const y = !!gp?.buttons[3]?.pressed; if (y && !gpY) nextWeapon(1); gpY = y; }
+wBtn.textContent = '⟳ ' + WEAPONS[weapon].name;
+// pickups: each gun floats over the village on a glowing ring
+const pickups = [];
+loadGuns().then(gs => {
+  ORDER.forEach((key, i) => {
+    const a = i / ORDER.length * Math.PI * 2 + 0.7, r = 75, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const g = new THREE.Group(); g.position.set(x, groundH(x, z) + 26 + i * 4, z);
+    const held = heldGun(gs, key); held.g.scale.multiplyScalar(1.4); held.g.position.z = -1; g.add(held.g);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.12, 8, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffd25a').multiplyScalar(2.5), toneMapped: false }));
+    ring.rotation.x = Math.PI / 2; g.add(ring);
+    scene.add(g); pickups.push({ key, g, held, cd: 0 });
+  });
+}).catch(() => {});
+function updatePickups(dt, t) {
+  for (const p of pickups) {
+    p.g.rotation.y += dt * 1.2; p.g.position.y += Math.sin(t * 2 + p.g.position.x) * dt * 0.6;
+    p.cd -= dt;
+    if (p.cd <= 0 && STATE === 'play' && (p.g.position.distanceToSquared(rig.S) < 25 || p.g.position.distanceToSquared(rig.lead) < 25)) {
+      p.cd = 3; if (weapon !== p.key) setWeapon(p.key);
+    }
+  }
+}
+
 let wasFiring = false;
 function updateGun(dt, t) {
   const firing = STATE === 'play' && input.fire;
@@ -209,17 +252,25 @@ function updateGun(dt, t) {
   }
   fireCd -= dt;
   flash.intensity *= Math.exp(-30 * dt);
+  const W = crew?.def || WEAPONS.gatling;
   if (firing && ready && fireCd <= 0) {
     fireCd = crew ? crew.rate : 0.05;
-    if (crew) { crew.kick(); casing(crew.eject); }
-    sfx('gun_shot', { vol: 0.7 }); if (Math.random() < 0.3) sfx('casing', { vol: 0.25 });
-    const tr = tracers[trI++ % TR];
-    muzzle.getWorldPosition(tr.p);
-    _d.subVectors(AIM.target, tr.p).normalize();   // straight at the reticle's point (the gun swings after it)
-    _d.x += (Math.random() - 0.5) * 0.03; _d.y += (Math.random() - 0.5) * 0.03; _d.normalize();
-    tr.v.copy(_d).multiplyScalar(140).add(rig.SV); tr.life = 1.2;
-    flash.position.copy(tr.p); flash.intensity = 25;
+    if (crew) { crew.kick(); if (W.shot === 'tracer' || W.shot === 'slug') casing(crew.eject); }
+    sfx(W.snd, { vol: W.vol, rate: W.sndRate || 1 }); if (W.shot === 'tracer' && Math.random() < 0.3) sfx('casing', { vol: 0.25 });
+    const from = muzzle.getWorldPosition(new THREE.Vector3());
+    _d.subVectors(AIM.target, from).normalize();   // straight at the reticle's point (the gun swings after it)
+    _d.x += (Math.random() - 0.5) * W.spread; _d.y += (Math.random() - 0.5) * W.spread; _d.normalize();
+    if (W.shot === 'tracer') {
+      const tr = tracers[trI++ % TR];
+      tr.p.copy(from); tr.v.copy(_d).multiplyScalar(W.speed).add(rig.SV); tr.life = 1.2;
+    } else {
+      if (W.shot === 'snowball') _d.y += 0.12;      // lob it a little
+      shots.fire(W, from, _d.normalize(), rig.SV.clone().multiplyScalar(0.6));
+      if (W.shot === 'rocket') shots.puff(from, '#d8d6e0', 6, 3, 0.8);
+    }
+    flash.position.copy(from); flash.intensity = W.shot === 'snowball' ? 6 : 25;
   }
+  shots.update(dt);
   updateCasings(dt);
   for (let i = 0; i < TR; i++) {
     const tr = tracers[i];
@@ -314,6 +365,7 @@ function updateCamera(dt) {
   camLook.lerp(look, 1 - Math.exp(-8 * dt));
   camera.position.copy(camPos);
   camera.lookAt(camLook);
+  if (shake > 0.001) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; shake *= Math.exp(-6 * dt); }
   const fov = 62 + (rig.speed - FLY.speed) * 0.55;
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
@@ -336,6 +388,7 @@ function frame(now) {
     AUTO.climb = THREE.MathUtils.clamp((55 - rig.lead.y) / 20, -1, 1);
     rig.update(dt, STATE === 'play' ? input : AUTO, t);
     updateGun(dt, t);
+    updatePickups(dt, t); pollWeaponPad();
     if (STATE === 'menu' && MENU.crew) updateMenuCrew(dt, t);
   }
   for (const c of cookies) {
