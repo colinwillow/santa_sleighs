@@ -34,6 +34,11 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
 - **Sound**: `src/audio.js` (`window.sfx`: play / loop handles / master / music bus), files + CREDITS in `audio/`. Game code calls
   `window.sfx?.…` so a missing module never blanks the page. Check modules with `node --input-type=module --check < file`
   (plain `node --check` missed a stray paren once).
+- **Destructible gingerbread** (b10): `src/destruct.js` -- `buildBreakableHouse(scene, opts)` + the `DESTRUCT` registry (`hitAt(p, r, power)`,
+  `raycast`, `update(dt)`; bullet `(p, .32, 1)`, blast `(p, 3.2, 30)`). One merged mesh per material a house; each piece owns a vertex
+  range, a dead piece is copied out as CPU debris and its range collapsed (draws never change). Support: blocks fall when all below are
+  gone, roof panels drop under 45% wall tops, chimney with its panel. ~36k tris a house -- test-page weight; a village needs a far version.
+  Test page `?scene=destruct` (`src/destructshow.js`). Tuning in `GB`.
 - **Elf jiggle** (b5): `models/elf_girl_jiggle.glb` = his elf + `jiggle_L/R` bones (Spine2 children, falloff weights) made by
   `tools/blender/` (this Blender can't read Draco: undraco -> rig -> pack). The game springs them in `makeJiggle` (`CREW.jiggle`);
   input is high-passed acceleration, so a long turn doesn't pin them. His original `elf_girl.glb` stays untouched.
