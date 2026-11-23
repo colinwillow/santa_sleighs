@@ -17,7 +17,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 20;
+export const BUILD = 21;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -50,6 +50,8 @@ rig.onCrash = (power, at) => {
   shake = Math.max(shake, 0.4 + power * 0.8);
   sfx('debris', { vol: 0.6 + power * 0.4, rate: 0.7 }); if (power > 0.5) sfx('explosion', { vol: 0.5 * power, rate: 1.3 });
   shots?.puff?.(at, '#ffffff', 12 + Math.round(power * 16), 6, 1.0);
+  // the sleigh as a wrecking ball: a crash into a house knocks a hole in it the size of the hit
+  if (world.town) world.town.blast(at, 2.2 + power * 2.6, 99, rig.SV.clone().multiplyScalar(0.6));
   foot.eject(power, at);
 };
 // the look: LIT (shaded) or FLAT (self-lit textures + ink outlines) -- his switch (OPTIONS / DEBUG), remembered
@@ -204,7 +206,9 @@ function updateAim(dt) {
 
 // ---- WEAPONS: his four guns; switch with the WEAPON button / 1-4 / Q / gamepad Y; fly through a floating gun to grab it -------
 const shots = makeShots(scene, groundH, {
-  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); },
+  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); world.town?.blast(p, 3.6, 99); },
+  onHit: (p, kind) => { if (kind === 'snowball') world.town?.blast(p, 1.0, 1); },
+  solid: p => !!world.town?.solidAt(p),
 });
 let shake = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
 const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
@@ -283,9 +287,16 @@ function updateGun(dt, t) {
     const from = muzzle.getWorldPosition(new THREE.Vector3());
     _d.subVectors(AIM.target, from).normalize();   // straight at the reticle's point (the gun swings after it)
     _d.x += (Math.random() - 0.5) * W.spread; _d.y += (Math.random() - 0.5) * W.spread; _d.normalize();
+    // hitscan the town for the fast guns: the tracer stops at the wall, the brick takes the hit now
+    const hit = (W.shot === 'tracer' || W.shot === 'slug') ? world.town?.raycast(from, _d, 250) : null;
+    if (hit) {
+      if (W.shot === 'slug') world.town.blast(hit.point, 0.95, 99, _d.clone().multiplyScalar(10));
+      else world.town.hitBrick(hit.id, 1, _d.clone().multiplyScalar(6));
+      shots.puff(hit.point, '#c0743a', 3, 3, 0.5);
+    }
     if (W.shot === 'tracer') {
       const tr = tracers[trI++ % TR];
-      tr.p.copy(from); tr.v.copy(_d).multiplyScalar(W.speed).add(rig.SV); tr.life = 1.2;
+      tr.p.copy(from); tr.v.copy(_d).multiplyScalar(W.speed).add(rig.SV); tr.life = hit ? hit.dist / W.speed : 1.2;
     } else {
       if (W.shot === 'snowball') _d.y += 0.12;      // lob it a little
       shots.fire(W, from, _d.normalize(), rig.SV.clone().multiplyScalar(0.6));
@@ -366,6 +377,7 @@ function updateCamera(dt) {
   }
   const camMode = camOverride || CAM0;
   if (foot.active && STATE === 'play' && !camOverride) { foot.cameraUpdate(dt); if (shake > 0.001) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; shake *= Math.exp(-6 * dt); } return; }
+  if (camMode === 'free') return;   // test hook: something else drives the camera
   if (camMode === 'crew') {   // ?cam=crew : a close look at the crew from the front-left of the sleigh
     const g = rig.sleigh.g; g.updateMatrixWorld();
     camera.position.copy(g.localToWorld(new THREE.Vector3(6.5, 5.2, 3.0)));
@@ -477,4 +489,4 @@ function updateSound(dt) {
   let near = 1e9; for (const f of world.fireList) near = Math.min(near, f.p.distanceTo(camera.position));
   L.fire.setVolume(Math.max(0, 1 - near / 28) * 0.8, 0.3);
 }
-window.__game = { rig, scene, camera, FLY, renderer, post, menus, MENU, foot, get state() { return STATE; } };
+window.__game = { rig, scene, camera, FLY, renderer, post, menus, MENU, foot, world, freeCam: () => { camOverride = 'free'; }, get state() { return STATE; } };

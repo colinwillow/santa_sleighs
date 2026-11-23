@@ -7,6 +7,7 @@ import { groundH, VILLAGE_R, POND, MENU_SPOT } from './terrain.js';
 import { rand, rr, T, Batch, BOX, BLOB, CYL, bevBox, softDot } from './util.js';
 import { makeKit, finishKit, house, lampPost, telePole, wires, bench, firePit, PAL } from './kit.js';
 import { makeFlora } from './ground.js';
+import { makeTown } from './town.js';
 
 const LOOP = [[-50, -30], [-20, -46], [14, -36], [44, -52], [62, -22], [40, 4], [56, 30], [36, 54], [2, 40], [-24, 58], [-58, 38], [-42, 6]];
 export const ROAD = { half: 3.6, curbH: 0.22, walk: 2.2, y: 0.06 };
@@ -14,6 +15,9 @@ const DIRT = [[62, -22], [90, -26], [120, -12], [150, -20], [182, -4], [212, 10]
 
 export function buildVillage(scene, world) {
   const K = makeKit(), flora = makeFlora(scene);
+  // DESTRUCTIBLE TOWN (b21): every house is cookie bricks you can shoot / crash apart (src/town.js)
+  const town = makeTown(scene); world.town = town;
+  const gHouse = (x, z, ry) => { const r = town.house(x, z, ry); world.colliders.push(r.collider); world.chimneys.push(r.smoke); return r; };
   const R = new Batch();
   const curve = new THREE.CatmullRomCurve3(LOOP.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'centripetal');
   const NS = 420, pts = curve.getSpacedPoints(NS).slice(0, NS), tan = [], nrm = [];
@@ -93,15 +97,15 @@ export function buildVillage(scene, world) {
     if (placed.some(q => (q.x - x) ** 2 + (q.z - z) ** 2 < 16 ** 2)) continue;
     placed.push({ x, z });
     const style = rand() < 0.4 ? 'gingerbread' : 'victorian';
-    houses.push(house(K, x, z, Math.atan2(-n.x * side, -n.z * side), { style, toRoad: OFF, walkOut: half + walk }));
+    void style; houses.push(gHouse(x, z, Math.atan2(-n.x * side, -n.z * side)));
   }
   // farms at the end of the dirt road and out in the hills
   const end = dpts[DN];
-  houses.push(house(K, end.x + 4, end.z + 14, Math.PI, { style: 'gingerbread' }));
+  houses.push(gHouse(end.x + 4, end.z + 14, Math.PI));
   for (let k = 0; k < 8; k++) {
     const a = rr(0, Math.PI * 2), r = rr(140, 230), x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (Math.hypot(x - POND.x, z - POND.z) < POND.r + 22 || dirtDist(x, z) < 14) continue;
-    houses.push(house(K, x, z, rr(0, 6.28), { style: rand() < 0.5 ? 'gingerbread' : 'victorian' }));
+    houses.push(gHouse(x, z, rr(0, 6.28)));
   }
   const obstacles = houses.map(h => ({ x: h.x, z: h.z, r: h.r }));
   // THE START-SCREEN STAGE: cleared ground, a fire pit beside the crew, a lamp, a bench, two framing pines behind the camera line
@@ -191,6 +195,8 @@ export function buildVillage(scene, world) {
 
   // ---- meshes ------------------------------------------------------------------------------------
   finishKit(K, scene, world);
+  town.finish();
+  world.update.push((t, dt) => town.update(dt));
   const road = R.mesh(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.15, side: THREE.DoubleSide }));
   road.castShadow = false; scene.add(road);
 

@@ -99,14 +99,16 @@ export function makeShots(scene, groundH, hooks = {}) {
         s.life -= dt;
         if (s.def.gravity) s.v.y -= s.def.gravity * dt;
         if (s.def.shot === 'rocket') { s.v.addScaledVector(_d.copy(s.v).normalize(), 40 * dt); s.trailT -= dt; if (s.trailT <= 0) { s.trailT = 0.02; puff(m.position, '#d8d6e0', 1, 1.2, 1.2, 0.6); puff(m.position, '#ffb050', 1, 2, 0.15, 0.3); } }
+        const prevP = m.position.clone();
         m.position.addScaledVector(s.v, dt);
         m.lookAt(_d.copy(m.position).add(s.v));
         if (s.def.shot === 'snowball') m.rotation.x += dt * 8;
         const gy = groundH(m.position.x, m.position.z);
-        if (m.position.y < gy || s.life <= 0) {
-          const hit = m.position.y < gy + 0.5;
+        const inSolid = !!hooks.solid && (hooks.solid(m.position) || hooks.solid(prevP.lerp(m.position, 0.5)));   // bricks (sub-stepped)
+        if (m.position.y < gy || s.life <= 0 || inSolid) {
+          const hit = inSolid || m.position.y < gy + 0.5;
           if (hit) {
-            m.position.y = Math.max(m.position.y, gy);
+            if (!inSolid) m.position.y = Math.max(m.position.y, gy);
             if (s.def.shot === 'rocket') {
               puff(m.position, '#ffb050', 18, 10, 0.5); puff(m.position, '#3a3440', 14, 6, 1.8); puff(m.position, '#ffffff', 16, 9, 1.2);
               boom.position.copy(m.position); boom.position.y += 2; boom.intensity = 120;

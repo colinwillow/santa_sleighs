@@ -73,3 +73,8 @@ Friend-slop co-op / battle game: one player drives the sleigh, others run around
 shoots and the sleigh flies on its own). Nobody driving = it keeps going straight, can CRASH -- into gingerbread houses, wrecking
 them and throwing everyone off. Destruction battle-royale energy. Guns lie in the level; swap weapons, each with its own ammo
 (rockets, machine guns, snowball cannons...). The sleigh may grow big enough to walk around on. He's making enemies.
+
+## The sleigh breaks too (his, Nov 23) -- `models/sleighs/sleigh_01.glb` (133 parts)
+Pieces of the sleigh come off under fire, the same way the houses do. The two back BOOSTERS take more hits; shoot one off and the
+sleigh goes lopsided -- barrel-rolling, the reins wrapping up and dragging the reindeer down, or snapping so the team flies on
+without it. "The worst flight ever" friend-slop chaos (the clips people share). Next after the destructible town.
