@@ -8,16 +8,19 @@ import { loadModels, makeSanta } from './characters.js';
 
 export const FOOT = {
   deckY: 1.25, deckX: 0.75, deckZ0: -0.7, deckZ1: 1.7,    // the walkable floor of his sleigh (sleigh-local metres)
-  walk: 4.2, run: 7.5, jump: 10.5, jump2: 9.5, flipT: 0.55, gravity: 22,   // jump ~2.5 m; the 2nd jump (in the air) is a front flip, ~+2 m
+  walk: 4.2, run: 7.5, walkClip: 3.2, runClip: 6.5, hipY: 1.0,   // clip speeds (m/s at timeScale 1) so the feet don't skate; hip = air-spin pivot
+  jump: 10.5, jump2: 9.5, flipT: 0.55, gravity: 22,   // jump ~2.5 m; the 2nd jump (in the air) is a front flip, ~+2 m
   splat: 13,                                              // landing faster than this knocks him flat
   catchR: 2.6, noCatch: 1.2,                            // after he leaves the deck the sleigh can't grab him back for this long                                            // how close the deck must pass to grab it from the ground / air
 };
 
+const _look = new THREE.Vector3(), _X = new THREE.Vector3(1, 0, 0), _sq = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _hip = new THREE.Vector3(), _hip2 = new THREE.Vector3();
 export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
   const st = { mode: 'seat', santa: null, local: new THREE.Vector3(0, FOOT.deckY, -0.3), pos: new THREE.Vector3(), vel: new THREE.Vector3(),
-    face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false, zoom: 1, kick: 0, jumps: 0, flip: 0 };
+    face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false, zoom: 1, kick: 0, jumps: 0, flip: 0, camLook: new THREE.Vector3() };
   loadModels().then(M => {
     st.santa = makeSanta(M.santa, { role: 'idle', stance: 'foot' });
+    st.santa.anim.preload('idle', 'walk', 'run', 'air', 'fire', 'tipsy');   // no first-use hitch when he changes gait
     try { st.santa.setWeapon(localStorage.getItem('weapon') || 'gatling'); } catch (e) { st.santa.setWeapon('gatling'); }
     st.santa.holder.visible = false; scene.add(st.santa.holder); st.ready = true;
   });
@@ -158,19 +161,27 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     S.holder.position.copy(st.pos);
     const baseQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), st.face);
     if (st.stun > 0) baseQ.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2 * Math.min(1, st.stun * 3)));   // flat on his back
-    if (st.tumble > 0) baseQ.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), t * 9));                                // cartwheeling out
-    S.holder.quaternion.slerp(baseQ, st.tumble > 0 || st.stun > 0 ? 1 : 1 - Math.exp(-14 * dt));
-    // the double-jump FRONT FLIP: one full turn round his waist (eased), so he doesn't pivot on his boots
+    S.holder.quaternion.slerp(baseQ, st.stun > 0 ? 1 : 1 - Math.exp(-14 * dt));
+    // AIR SPINS turn round his HIPS, never his boots (his note): the cartwheel when he's thrown / hit, and the double-jump flip
+    let spin = 0;
+    if (st.tumble > 0) spin = st.tumbleA = (st.tumbleA || 0) + 9 * dt;                       // cartwheeling out
+    else st.tumbleA = 0;
     if (st.flip > 0) {
       st.flip = Math.max(0, st.flip - dt);
-      const u = 1 - st.flip / FOOT.flipT, a = Math.PI * 2 * (u * u * (3 - 2 * u));
-      const fq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), a);
-      S.holder.quaternion.copy(baseQ).multiply(fq);
-      const waist = new THREE.Vector3(0, 1.0, 0);
-      S.holder.position.add(waist.clone().sub(waist.clone().applyQuaternion(fq).applyQuaternion(baseQ)).add(new THREE.Vector3(0, 0, 0)));
+      const u = 1 - st.flip / FOOT.flipT; spin = Math.PI * 2 * (u * u * (3 - 2 * u));
+    }
+    if (spin) {
+      const fq = _sq.setFromAxisAngle(_X, spin), q = _sq2.copy(S.holder.quaternion).multiply(fq);
+      _hip.set(0, FOOT.hipY, 0);
+      S.holder.position.add(_hip).sub(_hip2.set(0, FOOT.hipY, 0).applyQuaternion(q));
+      S.holder.quaternion.copy(q);
     }
     const moving = (st.mode === 'deck' ? mag : Math.hypot(st.vel.x, st.vel.z) / FOOT.run) > 0.15;
-    S.setIdle(st.mode === 'air' ? 'jump' : moving ? (mag > 0.85 ? 'run' : 'walk') : 'tipsy');
+    // airborne (a jump, a fall, thrown / hit) = the in-air loop straight away -- never the jump START, which looks like he's
+    // pushing off the ground while he's already up (his note). Legs keep pace with the ground speed.
+    const hv = Math.hypot(st.vel.x, st.vel.z), run = mag > 0.85;
+    S.setIdle(st.mode === 'air' || st.tumble > 0 ? 'air' : moving ? (run ? 'run' : 'walk') : 'idle');
+    S.anim.setSpeed(st.mode === 'air' || !moving ? 1 : THREE.MathUtils.clamp(hv / (run ? FOOT.runClip : FOOT.walkClip), 0.75, 1.8));
     S.setFiring(st.firing && !moving && st.mode !== 'air');   // shooting on the move keeps his legs walking (hands stay on the gun)
     // the camera (his note: it went crazy): level, never spins round when he backs up; it follows him only while he
     // moves forward / sideways, and turns when the aim is pushed hard to one side
@@ -187,10 +198,15 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     const back = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw));
     const want = st.pos.clone().addScaledVector(back, -6.5 * st.zoom); want.y = st.pos.y + 3.2 * st.zoom;
     want.y = Math.max(want.y, groundH(want.x, want.z) + 1.2);
+    for (const c of (rig.colliders || [])) if (c.r > 0 && (want.x - c.x) ** 2 + (want.z - c.z) ** 2 < (c.r + 1) ** 2) want.y = Math.max(want.y, c.top + 1.5);   // never inside a house
     if (st.camPos.lengthSq() === 0 || st.camPos.distanceTo(want) > 60) st.camPos.copy(want);
-    st.camPos.lerp(want, 1 - Math.exp(-(st.mode === 'air' ? 3 : 5) * dt));
+    st.camPos.lerp(want, 1 - Math.exp(-(st.mode === 'air' || st.tumble > 0 ? 2.2 : 5) * dt));
     camera.position.copy(st.camPos);
-    camera.lookAt(st.pos.x + back.x * 3, st.pos.y + 1.6, st.pos.z + back.z * 3);
+    // the look point eases too, so a tumbling / bouncing Santa never whips the camera round
+    _look.set(st.pos.x + back.x * 3, st.pos.y + 1.6, st.pos.z + back.z * 3);
+    if (st.camLook.lengthSq() === 0 || st.camLook.distanceTo(_look) > 60) st.camLook.copy(_look);
+    st.camLook.lerp(_look, 1 - Math.exp(-(st.mode === 'air' ? 3 : 8) * dt));
+    camera.lookAt(st.camLook);
     if (camera.fov !== 60) { camera.fov = 60; camera.updateProjectionMatrix(); }
   }
 

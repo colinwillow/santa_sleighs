@@ -19,7 +19,7 @@ export async function loadCrew(rig, scene) {
   sackElf.holder.position.set(0.15, 3.05, -1.55);   // on top of the sack sackElf.holder.rotation.y = 0.35; sl.add(sackElf.holder);
 
   // driver: hands out on the reins, bobbing with the gallop
-  const handR = new THREE.Vector3(), handL = new THREE.Vector3();
+  const handR = new THREE.Vector3(), handL = new THREE.Vector3(), _rv = new THREE.Vector3();
   driver.armIK = (e, t) => {
     const bob = Math.sin(t * 6) * 0.03, B = e.B;
     ik2(B.RightArm, B.RightForeArm, B.RightHand, e.L(-0.18, 0.5 + bob, 0.42), e.L(-0.8, 0, -0.3));
@@ -44,6 +44,11 @@ export async function loadCrew(rig, scene) {
     update(dt, t) {
       driver.holder.position.y = driverY + Math.abs(Math.sin(t * 6)) * CREW.jiggle.bounce;   // bouncing on the bench with the gallop
       santa.update(dt, t); driver.update(dt, t); sackElf.update(dt, t);
+      // the RED LINES he kept seeing: the reins start at the driver elf's hands, which sat at the world origin (on the ground)
+      // until her clip was ready / when her IK didn't run -- if a hand isn't on the sleigh, hold the rein at the dash instead
+      sl.updateMatrixWorld();
+      if (handL.distanceTo(sl.position) > 4) handL.copy(sl.localToWorld(_rv.set(0.25, 1.9, 2.0)));
+      if (handR.distanceTo(sl.position) > 4) handR.copy(sl.localToWorld(_rv.set(-0.25, 1.9, 2.0)));
       for (const r of reins) r.update(dt);
     },
     debug: { santa, driver, sackElf },

@@ -7,11 +7,11 @@ import { retargetClip } from './retarget.js';
 // role -> clip file stem, per character kind. Add a role here + drop the GLB in models/anims/.
 export const CLIPS = {
   santa: {
-    idle: 'Rifle_Idle_2', fire: 'Firing_Rifle_2', walk: 'Rifle_Walk', run: 'Rifle_Run', jump: 'Jumping_5',
+    idle: 'Rifle_Idle_2', fire: 'Firing_Rifle_2', walk: 'Rifle_Walk', run: 'Rifle_Run', jump: 'Jumping_5', air: 'Falling_Idle',
     tipsy: 'Drunk_Idle', dance: 'Silly_Dancing', cheer: 'Cheering',
   },
   elf: {
-    idle: 'Idle_14', happy: 'Happy_Idle', walk: 'Walking', run: 'Standard_Run', jump: 'Jumping_5',
+    idle: 'Idle_14', happy: 'Happy_Idle', walk: 'Walking', run: 'Standard_Run', jump: 'Jumping_5', air: 'Falling_Idle',
     samba: 'Samba_Dancing', hiphop: 'Hip_Hop_Dancing', wave_dance: 'Wave_Hip_Hop_Dance', wave: 'Waving',
     sit: 'Sitting_Idle_3', cheer: 'Cheering',
   },
@@ -44,7 +44,7 @@ export function animator(kind, restScene, liveScene) {
   return {
     mixer, roles: Object.keys(CLIPS[kind]),
     get role() { return currentRole; },
-    async play(role, fade = 0.3, { once = false, speed = 1 } = {}) {
+    async play(role, fade = 0.18, { once = false, speed = 1 } = {}) {
       if (role === currentRole) return current;
       currentRole = role;
       const a = await action(role);
@@ -55,6 +55,8 @@ export function animator(kind, restScene, liveScene) {
       current = a;
       return a;
     },
+    /** playback speed of the current clip (legs matched to ground speed) */
+    setSpeed(s) { if (current) current.timeScale += (s - current.timeScale) * 0.2; },
     preload(...roles) { return Promise.all(roles.map(action)); },
     update(dt) { mixer.update(dt); },
   };

@@ -81,14 +81,14 @@ window.addEventListener('pointerdown', e => {
   if (isUI(e.target) || e.pointerType === 'mouse') return;
   const side = e.clientX < innerWidth * 0.5 ? 'L' : 'R', P = pads[side];
   if (P.id !== null) return;
-  P.id = e.pointerId; P.ox = e.clientX; P.oy = e.clientY; P.x = P.y = 0; P.t0 = performance.now(); P.maxd = 0;
+  P.id = e.pointerId; P.ox = e.clientX; P.oy = e.clientY; P.x = P.y = 0; P.t0 = performance.now(); P.maxd = 0; P.sx = e.clientX; P.sy = e.clientY;
   // RIGHT pad (his): a touch ON the resting stick but off its middle shoots straight away, that way; the middle is the
   // jump tap. So a touch inside the resting pad keeps the pad where it is and reads the offset at once.
   if (side === 'R') {
     const h = home('R'), dx = e.clientX - h.x, dy = e.clientY - h.y, R = STICKS.R;
     if (Math.hypot(dx, dy) < R * 1.25) {
       P.ox = h.x; P.oy = h.y; const d = Math.hypot(dx, dy), k = d > R ? R / d : 1;
-      P.x = dx * k / R; P.y = -dy * k / R; P.maxd = Math.hypot(P.x, P.y);
+      P.x = dx * k / R; P.y = -dy * k / R;
       padEl.R.firstChild.style.transform = `translate(${dx * k}px,${dy * k}px)`;
     }
   }
@@ -102,13 +102,13 @@ window.addEventListener('pointermove', e => {
     let dx = e.clientX - P.ox, dy = e.clientY - P.oy; const d = Math.hypot(dx, dy), R = STICKS.R;
     if (d > R) { dx *= R / d; dy *= R / d; }
     padEl[s].firstChild.style.transform = `translate(${dx}px,${dy}px)`;
-    P.x = dx / R; P.y = -dy / R; P.maxd = Math.max(P.maxd || 0, Math.hypot(P.x, P.y));
+    P.x = dx / R; P.y = -dy / R; P.maxd = Math.max(P.maxd || 0, Math.hypot(e.clientX - P.sx, e.clientY - P.sy) / R);   // travel from where the thumb LANDED
   }
 });
 const end = e => {
   for (const s of ['L', 'R']) {
     const P = pads[s]; if (e.pointerId !== P.id) continue;
-    // a quick tap in the middle of the RIGHT pad = JUMP (his: jump is always a tap in the middle of the right stick)
+    // a quick tap ANYWHERE on the RIGHT pad = JUMP (his: any quick tap, not just the middle; holding = shooting)
     if (s === 'R' && performance.now() - P.t0 < STICKS.tapMs && (P.maxd || 0) < STICKS.tapR) input.tap = true;
     P.id = null; P.x = P.y = 0; padEl[s].classList.remove('act', 'firing'); placeHome();
   }
