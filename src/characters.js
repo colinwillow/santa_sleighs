@@ -16,8 +16,11 @@ export const CREW = {
   gunScale: 1.3,
   // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
   // arms were inside his body) the gun is held further out and the elbows flare to the sides so the arms read from behind.
-  seatStance: { fwd: 0.3, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2] },
-  footStance: { fwd: 0.4, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2], still: true },   // b29: the sleigh's working elbows; `still` = walk/run clips don't swing his shoulders + hands (they dragged the IK arms through his body)
+  // side = gun pivot x as a multiple of his right hip's x (0.55 = across the belly; bigger = out at his right hip, Rambo carry);
+  // h = height between hip (0) and chest (1); scale = gun size multiplier for this stance
+  // b39 HIP CARRY (his: "his arms are completely gone"): the gun sits low at his right hip, not across the belly
+  seatStance: { side: 1.9, h: 0.15, scale: 0.85, fwd: 0.3, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2] },
+  footStance: { side: 1.9, h: 0.15, scale: 0.85, fwd: 0.4, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2], still: true },   // b29: the sleigh's working elbows; `still` = walk/run clips don't swing his shoulders + hands (they dragged the IK arms through his body)
   aimYaw: 1.5, aimUp: 0.6, aimDown: 1.1,   // aim limits (rad) relative to the sleigh
   recoil: 0.11,                       // metres of kick per shot
   // secondary motion on the elves' jiggle bones (models/elf_girl_jiggle.glb, see tools/blender/)
@@ -239,6 +242,7 @@ export const ARMFIT = {
   nocoat:  { spread: 0.5,  fwd: 0.22, pole: 1.6 },
   classic: { spread: 0.1,  fwd: 0,    pole: 1 },
   snowman: { spread: 0.6,  fwd: 0.25, pole: 1.7 },
+  elf:     { spread: 0.22, fwd: 0,    pole: 1 },
 };
 const _sa = new THREE.Vector3(), _sq1 = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _sq3 = new THREE.Quaternion();
 /** open both upper arms outward by `a` rad round the character's forward axis (world-space, after the clip) */
@@ -276,9 +280,9 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   let gun = buildGun(); const pivot = new THREE.Group();
   const hipL = H.worldToLocal(wpos(B.RightUpLeg)), chestL = H.worldToLocal(wpos(B.Spine2));
   B.Spine.add(pivot);
-  pivot.position.copy(B.Spine.worldToLocal(local(hipL.x * 0.55, hipL.y + (chestL.y - hipL.y) * 0.55, hipL.z + ST.fwd)));   // across the belly (on foot: held out in front, so his arms show)
+  pivot.position.copy(B.Spine.worldToLocal(local(hipL.x * ST.side, hipL.y + (chestL.y - hipL.y) * ST.h, hipL.z + ST.fwd)));   // across the belly (on foot: held out in front, so his arms show)
   pivot.scale.setScalar(1 / B.Spine.getWorldScale(V()).x);
-  gun.g.scale.setScalar(CREW.gunScale); pivot.add(gun.g);
+  gun.g.scale.setScalar(CREW.gunScale * ST.scale); pivot.add(gun.g);
 
   const anim = animator('santa', gltf.scene, inst);
   const hat = makeHatSway(B);
@@ -295,7 +299,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       const scene = await loadGuns();
       if (self.weapon !== key) return;
       const next = heldGun(scene, key);
-      pivot.remove(gun.g); gun = next; pivot.add(gun.g);
+      next.g.scale.multiplyScalar(ST.scale); pivot.remove(gun.g); gun = next; pivot.add(gun.g);
     },
     setIdle(r) { idleRole = r; if (!firing) anim.play(r); },
     setFiring(on) { if (on === firing) return; firing = on; anim.play(on ? 'fire' : idleRole, 0.15); },
@@ -351,6 +355,7 @@ export function makeElf(gltf, { role = 'idle', seat = null } = {}) {
     L: (x, y, z) => H.localToWorld(new THREE.Vector3(x, y, z)),
     update(dt, t) {
       anim.update(dt);
+      spreadArms(E.B, H, ARMFIT.elf.spread);   // her dance idles swung the arms through her body
       if (!seatDone && ready) {   // sit her hips on the seat once the sitting clip is on
         H.updateMatrixWorld(true);
         const hy = H.worldToLocal(wpos(E.B.Hips)).y;
