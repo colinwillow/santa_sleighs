@@ -231,8 +231,30 @@ function makeHatSway(B) {
 }
 
 // ---- SANTA: his model + a clip + the gun on his Spine with both fists IK'd onto its grips -------------------------
-export function makeSanta(gltf, { role = 'idle', stance = 'seat' } = {}) {
-  const ST = stance === 'foot' ? CREW.footStance : CREW.seatStance;
+/** ARM FIT per character (his, Nov 24: "any fat or wide rig always needs the arms adjusted"): Mixamo clips are made for a slim
+ *  body, so on a wide one the arms swing INTO the belly. `spread` (rad) opens both upper arms outward after the clip; `fwd` (m)
+ *  pushes the held gun out from the belly; `pole` scales how far out to the side the elbows bend under the gun IK. */
+export const ARMFIT = {
+  tough:   { spread: 0.15, fwd: 0.05, pole: 1.15 },
+  nocoat:  { spread: 0.5,  fwd: 0.22, pole: 1.6 },
+  classic: { spread: 0.1,  fwd: 0,    pole: 1 },
+  snowman: { spread: 0.6,  fwd: 0.25, pole: 1.7 },
+};
+const _sa = new THREE.Vector3(), _sq1 = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _sq3 = new THREE.Quaternion();
+/** open both upper arms outward by `a` rad round the character's forward axis (world-space, after the clip) */
+export function spreadArms(B, H, a) {
+  if (!a) return;
+  H.getWorldQuaternion(_sq1); _sa.set(0, 0, 1).applyQuaternion(_sq1);
+  for (const [bone, s] of [[B.LeftArm, 1], [B.RightArm, -1]]) {
+    if (!bone) continue;
+    bone.getWorldQuaternion(_sq2); _sq3.setFromAxisAngle(_sa, s * a).multiply(_sq2);   // +X is his LEFT: +a about forward lifts it outward
+    bone.parent.getWorldQuaternion(_sq2).invert(); bone.quaternion.copy(_sq2.multiply(_sq3)); bone.updateMatrixWorld(true);
+  }
+}
+
+export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[santaChoice()] || ARMFIT.tough } = {}) {
+  const ST0 = stance === 'foot' ? CREW.footStance : CREW.seatStance;
+  const ST = { ...ST0, fwd: ST0.fwd + fit.fwd, poleR: [ST0.poleR[0] * fit.pole, ST0.poleR[1], ST0.poleR[2]], poleL: [ST0.poleL[0] * fit.pole, ST0.poleL[1], ST0.poleL[2]] };
   const inst = skClone(gltf.scene);
   const S = prep(inst, CREW.santaH), B = S.B, H = S.holder;
   H.updateMatrixWorld(true);
@@ -281,6 +303,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat' } = {}) {
     aimAt(world) { aimWorld = world ? (aimWorld || V()).copy(world) : null; },
     update(dt, t) {
       anim.update(dt);
+      spreadArms(B, H, fit.spread);
       H.updateMatrixWorld(true);
       // aim, in his own frame, clamped to the arc in front of him
       if (aimWorld) {
