@@ -16,33 +16,51 @@ export const SNOW = {
   hp: 25,                 // Gatling hits (a rifle slug = SNOW.slug, a rocket blast kills)
   slug: 5,
   face: 25,               // m: turn to face Santa inside this
+  // b52 (his: "rig him up with some of the mutant animations"): ON FOOT Santa inside `aggro` m gets chased -- RUN while farther
+  // than `runAt`, WALK in, stop at `reach` and SWIPE / PUNCH (animation only, no damage yet); a JUMP ATTACK now and then from
+  // `jumpMin..jumpMax` m (the clip's own forward travel moves him); FLEX / ROAR now and then while he watches; back home past `leash`.
+  aggro: 25, runAt: 12, reach: 3.0, leash: 45, jumpMin: 5, jumpMax: 8.5, jumpCd: 9,
+  walkRate: 1.1, runRate: 1.0,   // clip timeScale; ground speed = the clip's own stride speed x this (measured at load, no skating)
+  tauntCd: [7, 14],       // s between flex / roar taunts while Santa is near but not chased (sleigh overhead, or out of leash)
+  attackGap: 0.35,        // s of idle between swings
   turn: 3,                // rad/s-ish smoothing of the turn
   roarCd: 14,             // s between roars
   respawn: 20,            // s dead before he's back
   off: 8.2,               // m off the road centre line (just past the sidewalk)
   hide: 220,              // m from the camera: skip animating + hide
 };
-// the village road loop (a copy of village.js LOOP -- keep in sync); spots are picked along it
-/** ARM FIT (his: "his body is very wide, the Mixamo arms swing into it"): after the clip, open both upper arms by fit.spread rad,
- *  then (fit.elbow > 0) a two-bone IK keeps each hand where the clip put it -- pushed out by fit.hand m from his centre line --
- *  with the elbow bending toward a pole far out to that side. Run AFTER mixer.update every frame; tools/pose/snowcheck.html
- *  measures exactly this function. */
-const _fp = new THREE.Vector3(), _fh = new THREE.Vector3(), _fo = new THREE.Vector3();
+/** ARM FIT (his: "his body is very wide, the Mixamo arms swing into it"), run AFTER mixer.update every frame, all in his CHEST
+ *  frame (shoulder line + spine, so a punch's body twist carries it): open both upper arms by fit.spread rad round the chest's
+ *  forward axis; then (fit.elbow > 0) a two-bone IK keeps each hand where the clip put it -- pushed out to at least fit.hand m
+ *  from the chest centre when it is BEHIND the chest front (a hand out in front, e.g. a swipe, may cross) -- with the elbow bent
+ *  toward a pole fit.elbow m out to that side (a bit down + back). tools/pose/snowcheck.html measures exactly this function. */
+const _fX = new THREE.Vector3(), _fU = new THREE.Vector3(), _fF = new THREE.Vector3(), _fc = new THREE.Vector3(), _fp = new THREE.Vector3(), _fh = new THREE.Vector3(), _fo = new THREE.Vector3();
+const _fq = new THREE.Quaternion(), _fq2 = new THREE.Quaternion();
 export function fitSnowArms(B, H, fit = ARMFIT.snowman) {
   if (!fit) return;
   H.updateMatrixWorld(true);
-  spreadArms(B, H, fit.spread);
+  B.LeftShoulder.getWorldPosition(_fX); B.RightShoulder.getWorldPosition(_fo); _fX.sub(_fo).normalize();            // +X = his left
+  B.Neck.getWorldPosition(_fU); B.Spine1.getWorldPosition(_fc); _fU.sub(_fc); _fU.addScaledVector(_fX, -_fU.dot(_fX)).normalize();
+  _fF.crossVectors(_fX, _fU);                                                                                       // forward
+  B.Spine2.getWorldPosition(_fc);
+  for (const [s, a] of [[1, B.LeftArm], [-1, B.RightArm]]) {
+    if (!a || !fit.spread) continue;
+    a.getWorldQuaternion(_fq2); _fq.setFromAxisAngle(_fF, s * fit.spread).multiply(_fq2);
+    a.parent.getWorldQuaternion(_fq2).invert(); a.quaternion.copy(_fq2.multiply(_fq)); a.updateMatrixWorld(true);
+  }
   if (!fit.elbow) return;
   for (const [s, a, f, h] of [[1, B.LeftArm, B.LeftForeArm, B.LeftHand], [-1, B.RightArm, B.RightForeArm, B.RightHand]]) {
     if (!a || !f || !h) continue;
-    h.getWorldPosition(_fh); H.worldToLocal(_fh);
-    if (fit.hand) _fh.x = s > 0 ? Math.max(_fh.x, fit.hand) : Math.min(_fh.x, -fit.hand);   // the hand stays on its own side, clear of the belly
-    H.localToWorld(_fh);
-    a.getWorldPosition(_fo); H.worldToLocal(_fo);
-    _fp.set(_fo.x + s * fit.elbow, _fo.y - fit.elbow * 0.35, _fo.z - fit.elbow * 0.25); H.localToWorld(_fp);   // far out, a bit down + back
+    h.getWorldPosition(_fh); _fo.subVectors(_fh, _fc);
+    const x = _fo.dot(_fX) * s, z = _fo.dot(_fF);
+    if (fit.hand && x < fit.hand && z < (fit.front ?? 0.4)) _fh.addScaledVector(_fX, s * (fit.hand - x));   // out of the belly, to its own side
+    a.getWorldPosition(_fp); _fp.addScaledVector(_fX, s * fit.elbow).addScaledVector(_fU, -fit.elbow * 0.35).addScaledVector(_fF, -fit.elbow * 0.25);
     ik2(a, f, h, _fh, _fp);
   }
 }
+
+// the village road loop (a copy of village.js LOOP -- keep in sync); spots are picked along it
+const _jv = new THREE.Vector3();
 
 const LOOP = [[-50, -30], [-20, -46], [14, -36], [44, -52], [62, -22], [40, 4], [56, 30], [36, 54], [2, 40], [-24, 58], [-58, 38], [-42, 6]];
 
@@ -90,8 +108,33 @@ function rayCapsule(o, d, len, a, b, r) {
  * Loads in the background; until then every call is a no-op.
  */
 export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = () => {}, sfx = () => {} }) {
-  const list = [], clips = {};
+  const list = [], clips = {}, gait = { walk: 1.8, run: 5 }, jumpPath = [];
   let ready = false;
+  /** stride speed of the in-place walk / run (2 x the planted foot's sweep a cycle) + the jump attack's forward path (holder m), then
+   *  the jump's hips x/z are pinned to frame 0 so the HOLDER carries the travel (no snap back when the clip ends) */
+  function measureClips(src) {
+    const inst = skClone(src), P = prep(inst, SNOW.height), H = P.holder, mx = new THREE.AnimationMixer(inst), v = new THREE.Vector3();
+    for (const [role, lo, hi] of [['walk', 0.8, 3], ['run', 2.5, 8]]) {
+      if (!clips[role]) continue;
+      const a = mx.clipAction(clips[role]); a.play(); let z0 = 1e9, z1 = -1e9;
+      for (let k = 0; k <= 40; k++) { mx.setTime(clips[role].duration * k / 40); H.updateMatrixWorld(true); for (const f of [P.B.LeftFoot, P.B.RightFoot]) { H.worldToLocal(f.getWorldPosition(v)); z0 = Math.min(z0, v.z); z1 = Math.max(z1, v.z); } }
+      gait[role] = THREE.MathUtils.clamp(2 * (z1 - z0) / clips[role].duration, lo, hi); a.stop(); mx.setTime(0);
+    }
+    const jc = clips.jump, tr = jc?.tracks.find(t => /Hips\.position$/.test(t.name));
+    if (tr) {
+      const hips = P.B.Hips, par = hips.parent, n = tr.times.length; H.updateMatrixWorld(true);
+      const p0 = H.worldToLocal(par.localToWorld(v.fromArray(tr.values, 0))).clone();
+      for (let i = 0; i < n; i++) { const p = H.worldToLocal(par.localToWorld(v.fromArray(tr.values, i * 3))); jumpPath.push(tr.times[i], p.x - p0.x, p.z - p0.z); }
+      for (let i = 1; i < n; i++) { tr.values[i * 3] = tr.values[0]; tr.values[i * 3 + 2] = tr.values[2]; }
+    }
+    console.log('snowmen gait', gait, 'jump travel', jumpPath.length ? Math.hypot(jumpPath.at(-2), jumpPath.at(-1)).toFixed(2) : '-');
+  }
+  /** the jump's forward offset (holder-local x, z) at clip time t */
+  function jumpAt(t, out) {
+    let i = 0; while (i + 3 < jumpPath.length && jumpPath[i + 3] < t) i += 3;
+    const t0 = jumpPath[i], t1 = jumpPath[i + 3] ?? t0, k = t1 > t0 ? THREE.MathUtils.clamp((t - t0) / (t1 - t0), 0, 1) : 0;
+    return out.set(jumpPath[i + 1] + ((jumpPath[i + 4] ?? jumpPath[i + 1]) - jumpPath[i + 1]) * k, 0, jumpPath[i + 2] + ((jumpPath[i + 5] ?? jumpPath[i + 2]) - jumpPath[i + 2]) * k);
+  }
   (async () => {
     const gltf = await load(SNOW.url);
     const roles = CLIPS.snowman;
@@ -99,6 +142,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       const g = await load(`./models/anims/${stem}.glb`);
       clips[role] = retargetClip(g.scene, g.animations[0], gltf.scene, { name: role });
     }));
+    measureClips(gltf.scene);
     for (const s of pickSpots(world, groundH, SNOW.count)) {
       const inst = skClone(gltf.scene);
       const P = prep(inst, SNOW.height), H = P.holder;
@@ -109,7 +153,8 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       const r = THREE.MathUtils.clamp(rad * 0.5 * 0.8, 0.55, 1.3);   // hit capsule radius (m), from the bind-pose bounds
       const mixer = new THREE.AnimationMixer(inst), act = {};
       for (const k in clips) act[k] = mixer.clipAction(clips[k]);
-      const e = { H, B: P.B, mixer, act, home: s, r, hp: SNOW.hp, dead: false, deadT: 0, hitT: 0, roarT: 0, near: false, cur: null, yaw: s.ry, pulse: 0 };
+      const e = { H, B: P.B, mixer, act, home: s, r, hp: SNOW.hp, dead: false, deadT: 0, hitT: 0, roarT: 0, near: false, cur: null, yaw: s.ry, pulse: 0,
+        oneT: 0, gapT: 0, jumpCdT: 0, tauntT: 4 + Math.random() * 6, swing: 0, jump0: new THREE.Vector3() };
       e.play = (role, fade = 0.2, once = false, speed = 1) => {
         const a = act[role]; if (!a) return;
         a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); a.clampWhenFinished = once; a.timeScale = speed; a.play();
@@ -126,6 +171,12 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
   const _a = new THREE.Vector3(), _b = new THREE.Vector3();
   const capsule = e => { _a.copy(e.H.position); _a.y += e.r * 0.9; _b.copy(e.H.position); _b.y += SNOW.height - e.r * 0.8; };
 
+  const _up = new THREE.Vector3(0, 1, 0);
+  /** play a one-shot role to its end (clip length / speed, minus a little so the hand-back blends) */
+  function oneShot(e, role, speed = 1, fade = 0.2) {
+    const a = e.act[role]; if (!a) return;
+    e.play(role, fade, true, speed); e.oneT = a.getClip().duration / speed - 0.2;
+  }
   function kill(e) {
     e.dead = true; e.deadT = 0; e.hp = 0;
     e.play('die', 0.15, true, 1.15);
@@ -138,8 +189,8 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
     if (e.dead || !ready) return;
     e.hp -= n; e.pulse = 1;
     if (e.hp <= 0) { kill(e); return; }
-    if (e.hitT <= 0 && e.role !== 'roar') { e.play('hit', 0.08, true, 1.6); e.hitT = 0.75; }
-    else if (e.role === 'hit') e.hitT = Math.max(e.hitT, 0.35);
+    if (e.hitT <= 0 && e.role !== 'roar' && e.role !== 'jump') { e.play('hit', 0.08, true, 1.6); e.hitT = 0.75; e.oneT = 0.75; }
+    else if (e.role === 'hit') { e.hitT = Math.max(e.hitT, 0.35); e.oneT = Math.max(e.oneT, 0.35); }
     // a hit makes him look at whoever did it
     if (from) e.wantYaw = Math.atan2(from.x - e.H.position.x, from.z - e.H.position.z);
   }
@@ -182,7 +233,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
           } else if (e.deadT >= 3.2 && H.visible) { H.visible = false; }
           if (e.deadT > SNOW.respawn) {   // back, with a puff, growing out of the snow
             e.dead = false; e.poofed = false; e.hp = SNOW.hp; e.hitT = 0; e.grow = 0; H.visible = true; H.scale.setScalar(0.001);
-            H.position.set(e.home.x, e.home.y, e.home.z); e.play('idle', 0);
+            H.position.set(e.home.x, e.home.y, e.home.z); e.yaw = e.home.ry; e.oneT = 0; e.play('idle', 0);
             const c = H.position.clone(); c.y += 0.6; puff(c, '#ffffff', 18, 4, 1.0);
           }
           if (H.visible) e.mixer.update(dt);
@@ -191,19 +242,58 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         if (e.grow != null) { e.grow += dt * 2.2; H.scale.setScalar(Math.min(1, 1 - Math.pow(1 - Math.min(1, e.grow), 3))); if (e.grow >= 1) e.grow = null; }
         const far = camera && H.position.distanceTo(camera.position) > SNOW.hide;
         H.visible = !far; if (far) continue;
-        // face Santa when he's close; a roar the first time he comes in
-        const dx = santa.x - H.position.x, dz = santa.z - H.position.z, dist = Math.hypot(dx, dz, santa.y - H.position.y);
+        // what he does: chase an ON-FOOT Santa (run far, walk in, swipe / punch at reach, a jump attack now and then), taunt a
+        // flying one, go home when it's over. One-shots (hit / roar / flex / swipe / punch / jump) run to their end (e.oneT).
+        const P = H.position, dx = santa.x - P.x, dz = santa.z - P.z, flat = Math.hypot(dx, dz), dist = Math.hypot(dx, dz, santa.y - P.y);
+        const onFoot = santa.y - groundH(santa.x, santa.z) < 2.5;
+        const homeD = Math.hypot(P.x - e.home.x, P.z - e.home.z);
+        const chase = onFoot && flat < SNOW.aggro && Math.hypot(santa.x - e.home.x, santa.z - e.home.z) < SNOW.leash;
         const near = dist < SNOW.face;
-        e.roarT -= dt;
-        if (near && !e.near && e.roarT <= 0 && e.hitT <= 0) { e.play('roar', 0.25, true, 1); e.roarT = SNOW.roarCd; e.roarEnd = 2.6; sfx('crunch', { vol: 0.5, rate: 0.5 }); }
+        e.roarT -= dt; e.jumpCdT -= dt; e.tauntT -= dt; e.gapT -= dt;
+        if (e.hitT > 0) e.hitT -= dt;
+        let want = e.home.ry, move = 0;
+        if (e.oneT > 0) {                       // a one-shot is playing
+          e.oneT -= dt;
+          if (e.role === 'jump') { const a = e.act.jump; jumpAt(a.time, _jv).applyAxisAngle(_up, e.jumpYaw); P.set(e.jump0.x + _jv.x, P.y, e.jump0.z + _jv.z); }
+          want = e.role === 'jump' ? e.jumpYaw : (near ? Math.atan2(dx, dz) : e.yaw);
+          if (e.oneT <= 0) { e.gapT = SNOW.attackGap; e.play('idle', 0.3); }
+        } else if (chase) {
+          want = Math.atan2(dx, dz);
+          if (!e.near && e.roarT <= 0) { oneShot(e, 'roar', 1.4, 0.25); e.roarT = SNOW.roarCd; sfx('crunch', { vol: 0.5, rate: 0.5 }); }
+          else if (flat <= SNOW.reach) {        // in reach: swing (alternating swipe / punch), a breath between
+            if (e.gapT <= 0) { oneShot(e, e.swing++ % 2 ? 'punch' : 'swipe', 1.15, 0.15); sfx('whoosh', { vol: 0.5, rate: 0.6 }); }
+            else if (e.role !== 'idle') e.play('idle', 0.25);
+          } else if (flat > SNOW.jumpMin && flat < SNOW.jumpMax && e.jumpCdT <= 0 && Math.random() < dt * 0.8) {
+            e.jumpYaw = want; e.yaw = want; e.jump0.copy(P); oneShot(e, 'jump', 1, 0.15); e.jumpCdT = SNOW.jumpCd;
+            sfx('whoosh', { vol: 0.6, rate: 0.5 });
+          } else {
+            const run = flat > SNOW.runAt, role = run ? 'run' : 'walk';
+            if (e.role !== role) e.play(role, 0.3, false, run ? SNOW.runRate : SNOW.walkRate);
+            move = gait[role] * (run ? SNOW.runRate : SNOW.walkRate);
+          }
+        } else if (homeD > 1.2) {               // back to his spot
+          want = Math.atan2(e.home.x - P.x, e.home.z - P.z);
+          if (e.role !== 'walk') e.play('walk', 0.35, false, SNOW.walkRate);
+          move = gait.walk * SNOW.walkRate;
+        } else {
+          if (e.role !== 'idle') e.play('idle', 0.4);
+          if (near) {
+            want = Math.atan2(dx, dz);
+            if (!e.near && e.roarT <= 0) { oneShot(e, 'roar', 1, 0.25); e.roarT = SNOW.roarCd; sfx('crunch', { vol: 0.5, rate: 0.5 }); }
+            else if (e.tauntT <= 0) { oneShot(e, Math.random() < 0.6 ? 'flex' : 'roar', 1, 0.3); e.tauntT = SNOW.tauntCd[0] + Math.random() * (SNOW.tauntCd[1] - SNOW.tauntCd[0]); }
+          }
+        }
         e.near = near;
-        let want = near ? Math.atan2(dx, dz) : e.home.ry;
-        if (e.wantYaw != null) { want = e.wantYaw; if (near) e.wantYaw = null; }
+        if (e.wantYaw != null) { if (e.oneT <= 0 && !chase) want = e.wantYaw; if (near) e.wantYaw = null; }
         let dy = want - e.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-        e.yaw += dy * (1 - Math.exp(-SNOW.turn * dt)); H.rotation.y = e.yaw;
-        // one-shots hand back to the idle
-        if (e.hitT > 0) { e.hitT -= dt; if (e.hitT <= 0) e.play('idle', 0.3); }
-        if (e.role === 'roar') { e.roarEnd -= dt; if (e.roarEnd <= 0) e.play('idle', 0.4); }
+        e.yaw += dy * (1 - Math.exp(-SNOW.turn * (move ? 1.6 : 1) * dt)); H.rotation.y = e.yaw;
+        if (move) { const k = Math.max(0, Math.cos(dy)); P.x += Math.sin(e.yaw) * move * k * dt; P.z += Math.cos(e.yaw) * move * k * dt; }
+        // houses + each other push him out (circles), feet on the snow
+        if (move || e.role === 'jump') {
+          for (const c of world.colliders) { if (!(c.r > 0)) continue; const ox = P.x - c.x, oz = P.z - c.z, d = Math.hypot(ox, oz), m = c.r + e.r; if (d < m && d > 1e-4) { P.x = c.x + ox / d * m; P.z = c.z + oz / d * m; } }
+          for (const o of list) { if (o === e || o.dead) continue; const ox = P.x - o.H.position.x, oz = P.z - o.H.position.z, d = Math.hypot(ox, oz), m = e.r + o.r; if (d < m && d > 1e-4) { P.x = o.H.position.x + ox / d * m; P.z = o.H.position.z + oz / d * m; } }
+          P.y = groundH(P.x, P.z);
+        }
         e.pulse *= Math.exp(-14 * dt);
         if (e.grow == null) H.scale.set(1 + e.pulse * 0.06, 1 - e.pulse * 0.07, 1 + e.pulse * 0.06);   // a squash on each hit
         e.mixer.update(dt);

@@ -245,7 +245,7 @@ export const ARMFIT = {
   tough:   { spread: 0.15, fwd: 0.05, pole: 1.15, leftOut: 0.6, rightOut: 0.45, rightHand: 0.32 },
   nocoat:  { spread: 0.5,  fwd: 0.22, pole: 1.6, leftOut: 0.52, rightOut: 0.45, rightHand: 0.28 },
   classic: { spread: 0.1,  fwd: 0,    pole: 1, leftOut: 0.38, rightOut: 0.4, rightHand: 0.26 },
-  snowman: { spread: 0.6,  fwd: 0.25, pole: 1.7 },
+  snowman: { spread: 0.5,  fwd: 0.25, pole: 1.7, elbow: 0, hand: 0 },   // b52: spread in his CHEST frame (enemies.js fitSnowArms); snowcheck: 0 flags on all 10 clips
   elf:     { spread: 0.22, fwd: 0,    pole: 1 },
 };
 const _sa = new THREE.Vector3(), _sq1 = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _sq3 = new THREE.Quaternion();

@@ -1,8 +1,8 @@
 <!doctype html><meta charset="utf-8"><base href="../../">
 <!-- SNOW CHECK: the pose check for the SNOWMAN MONSTER (tools/pose/posecheck.html is Santa's). Body as a faint ghost, skeleton solid --
      LEFT bones BLUE, RIGHT bones RED, spine / head YELLOW. Each clip is SAMPLED at n times (default 16) with the game's own arm fit
-     (enemies.js fitSnowArms, ARMFIT.snowman) applied after the clip; flags: a forearm (elbow) or hand INSIDE the torso (ellipse from
-     spine/hips-weighted vertices at that height, current pose) or a forearm / hand crossing to the other side. One row per clip, drawn at
+     (enemies.js fitSnowArms, ARMFIT.snowman) applied after the clip; flags: a forearm (elbow, + its own arm thickness) or hand INSIDE the torso
+     (ellipse from spine/hips-weighted vertices at that height, current pose, all in the CHEST frame = Spine1's turn since rest taken out) or a forearm / hand crossing to the other side. One row per clip, drawn at
      its WORST sample (most flags, else the middle). Usage: node tools/pose/run.cjs out.png "r=idle,walk&fit=1" snowcheck
        fit=0 -> raw clip (before), fit=1 (default) -> shipped fit, fitj={"spread":..} -> try values. -->
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/"}}</script>
@@ -36,11 +36,24 @@ const report = { fit };
     // the strongest joint per vertex, once
     const pos = skin.geometry.attributes.position, sk = skin.geometry.attributes.skinIndex, sw = skin.geometry.attributes.skinWeight, tv = [];
     for (let i = 0; i < pos.count; i += 2) { let bi = 0, bw = -1; for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; bi = sk.getComponent(i, k); } } if (torsoJ.has(bi)) tv.push(i); }
-    const loc = o => Hd.worldToLocal(o.getWorldPosition(new THREE.Vector3()));
+    // CHEST FRAME: every point is measured with Spine1's turn / lean since rest taken out (a punch twists his whole body; "his
+    // left" is his chest's left, not the ground's). Rest = after prep, before the clip.
+    Hd.updateMatrixWorld(true);
+    const hq = Hd.getWorldQuaternion(new THREE.Quaternion()), restQ = Bn.Spine1.getWorldQuaternion(new THREE.Quaternion()), s0 = Hd.worldToLocal(Bn.Spine1.getWorldPosition(new THREE.Vector3()));
+    const Rinv = new THREE.Quaternion(), sNow = new THREE.Vector3();
+    const frame = () => { const w = Bn.Spine1.getWorldQuaternion(new THREE.Quaternion()); Rinv.copy(hq).invert().multiply(w).multiply(restQ.clone().invert()).multiply(hq).invert(); sNow.copy(Hd.worldToLocal(Bn.Spine1.getWorldPosition(new THREE.Vector3()))); };
+    const chest = v => Hd.worldToLocal(v).sub(sNow).applyQuaternion(Rinv).add(s0);
+    const loc = o => chest(o.getWorldPosition(new THREE.Vector3()));
+    // the arm's own THICKNESS (his arms are fat too): mean distance of forearm-weighted vertices from the forearm bone line, at rest
+    const armR = {};
+    { const V = new THREE.Vector3(); for (const sd of ['Left', 'Right']) { const fi = skin.skeleton.bones.indexOf(Bn[sd + 'ForeArm']), A = Bn[sd + 'ForeArm'].getWorldPosition(new THREE.Vector3()), Bp = Bn[sd + 'Hand'].getWorldPosition(new THREE.Vector3()), line = new THREE.Line3(A, Bp), c = new THREE.Vector3(); let sum = 0, n = 0;
+      for (let i = 0; i < pos.count; i += 2) { let bi = 0, bw = -1; for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; bi = sk.getComponent(i, k); } } if (bi !== fi) continue; skin.getVertexPosition(i, V); skin.localToWorld(V); line.closestPointToPoint(V, true, c); sum += c.distanceTo(V); n++; }
+      armR[sd] = n ? sum / n : 0; } }
+    report['armRadius_' + role] = { L: +armR.Left.toFixed(3), R: +armR.Right.toFixed(3) };
     const pose = t => { mixer.setTime(t); Hd.updateMatrixWorld(true); if (fit) fitSnowArms(Bn, Hd, fit); Hd.updateMatrixWorld(true); };
     const measure = t => {
-      pose(t);
-      const V = new THREE.Vector3(), pts = tv.map(i => { skin.getVertexPosition(i, V); skin.localToWorld(V); return Hd.worldToLocal(V.clone()); });
+      pose(t); frame();
+      const V = new THREE.Vector3(), pts = tv.map(i => { skin.getVertexPosition(i, V); skin.localToWorld(V); return chest(V.clone()); });
       // torso cross-section at height y: x/z extents of torso vertices in a 10 cm band
       const band = y => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9, n = 0; for (const p of pts) if (Math.abs(p.y - y) < 0.1) { n++; x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); } return n < 6 ? null : { x0, x1, z0, z1 }; };
       const rep = { t: +t.toFixed(2) }, flags = [];
@@ -49,10 +62,11 @@ const report = { fit };
       for (const n of ['RightForeArm', 'RightHand']) if (rep[n][0] > -0.02) flags.push(n + ' crosses to his LEFT (x ' + rep[n][0] + ')');
       for (const n of ['LeftForeArm', 'RightForeArm', 'LeftHand', 'RightHand']) {
         const [x, y, z] = rep[n], b = band(y); if (!b) continue;
-        const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, hx = (b.x1 - b.x0) / 2, hz = (b.z1 - b.z0) / 2;
+        const ar = /ForeArm/.test(n) ? armR[/Left/.test(n) ? 'Left' : 'Right'] : 0;   // an elbow touches the belly when its own fat does
+        const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, hx = (b.x1 - b.x0) / 2 + ar, hz = (b.z1 - b.z0) / 2 + ar;
         const e = ((x - cx) / hx) ** 2 + ((z - cz) / hz) ** 2;   // < 1 = inside the torso ellipse
         rep[n + '_in'] = +e.toFixed(2); rep[n + '_torsoHalf'] = [+hx.toFixed(2), +hz.toFixed(2)];
-        if (e < 1) flags.push(n + ' INSIDE the body (ellipse ' + e.toFixed(2) + ' < 1; |x| ' + Math.abs(x - cx).toFixed(2) + ' vs half-width ' + hx.toFixed(2) + ')');
+        if (e < 1) flags.push(n + (ar ? ' (its skin)' : '') + ' INSIDE the body (ellipse ' + e.toFixed(2) + ' < 1; |x| ' + Math.abs(x - cx).toFixed(2) + ' vs half-width ' + hx.toFixed(2) + ')');
       }
       rep.flags = flags; return rep;
     };
