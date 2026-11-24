@@ -15,6 +15,10 @@
 // Vertex colour on the fronts is now a TINT over the painted cookie (per-chunk bake variation, a few toasted ones); seam
 // edges are GROOVED (the front inset TOWN.groove, sides slope back to the flush back -- a dark crack lip, crumb deeper in),
 // zero extra triangles. Everything that is not a painted front samples a white texel, so it keeps its vertex colour.
+// b47 (his ok on both): ROOF COURSES IN GEOMETRY -- roof chunk fronts are stepped at the painted row lines (each course's lower
+// edge `TOWN.shingle.step` proud, a riser under it, sides follow the sawtooth), ~+580 tris a house. ATLAS: regions are packed
+// tallest-first at finish() and shared per layout (side per D, gable per W, roof per W x D), ppm 56 -> 44: 1024 x 2048 (and
+// overflowing -- the last house size painted off the canvas) -> 1024 x 1024, ~10.7 -> ~5.3 MB GPU with mips.
 import * as THREE from 'three';
 import { groundH } from './terrain.js';
 import { rand, rr, shadowProxy } from './util.js';
@@ -30,7 +34,9 @@ export const TOWN = {
   span: 2,                             // a chunk can hang sideways this many chunks off one held from below
   debrisMax: 420, gravity: 20,
   door: [1.2, 2.0], win: [1.2, 2.0, 3.0],   // door w x h; window w, y0, y1
-  ppm: 56, groove: 0.035, toast: 0.12,  // atlas px a metre; crack groove inset (m); share of toasted (darker) chunks
+  ppm: 44, groove: 0.035, toast: 0.12,  // atlas px a metre (b47: 56 -> 44, the packed atlas fits 1024 x 1024); crack groove inset (m); share of toasted chunks
+  shingle: { y0: 0.1, rh: 0.5, step: 0.045, tilt: 0.3 },   // b47 roof courses in GEOMETRY: row lines at y0 + j*rh up the slope (= the painted rows),
+                                       // each course's lower edge sits `step` proud of the one below; tilt = extra normal lean for the read
   cookie: ['#d98f4e', '#cf8446', '#e39a58'], roof: ['#8a4c2a', '#9a5631', '#7c4325'], icing: '#fff8f0', crumb: '#efc08a',
 };
 
@@ -209,9 +215,9 @@ function paintGable(g, U0, U1, Y0, Y1, L) {
 /** a roof slab: overlapping scalloped chocolate shingles (glossy lip, sugar, a few candies), frosting along the eave */
 function paintRoof(g, U0, U1, Y0, Y1, len) {
   g.fillStyle = '#4e2612'; g.fillRect(U0, Y0, U1 - U0, Y1 - Y0);
-  const rh = 0.42, per = 0.56, rows = Math.ceil(len / rh) + 1, R = Math.random;
+  const rh = TOWN.shingle.rh, per = 0.56, rows = Math.ceil(len / rh) + 1, R = Math.random;
   for (let j = rows; j >= 0; j--) {
-    const yb = 0.1 + j * rh, off = (j % 2) * per / 2, ry = rh * 0.62, tp = yb + rh * 1.45;
+    const yb = TOWN.shingle.y0 + j * rh, off = (j % 2) * per / 2, ry = rh * 0.62, tp = yb + rh * 1.45;
     for (let cx = U0 - per + off; cx < U1 + per; cx += per) {
       const sh = 0.92 + R() * 0.16, gr = g.createLinearGradient(0, yb, 0, tp);
       gr.addColorStop(0, `rgb(${168 * sh | 0},${101 * sh | 0},${59 * sh | 0})`); gr.addColorStop(0.3, `rgb(${138 * sh | 0},${76 * sh | 0},${42 * sh | 0})`); gr.addColorStop(1, '#4a2410');
@@ -280,6 +286,7 @@ export function makeTown(scene) {
     const ci = crumbC.clone().multiply(new THREE.Color(1, 1, 1).lerp(col, 0.25)), ce = col.clone().multiplyScalar(0.82), ck = col.clone().multiplyScalar(0.4);
     const uv = (u, y) => R ? [R.R.id, (u - R.u0) * ppm, (y - R.y0) * ppm] : WHITE;
     const ip = insetPoly(poly, inner.map(s => s ? TOWN.groove : 0));
+    if (S.rows) return shingled(S, poly, ip, inner, { cf, cr, cb, ce, ck, ci }, uv);
     // front
     const c0 = vert(FP(S, cu, cy, h + TOWN.bulge), S.N, cf, uv(cu, cy)), rim = [];
     for (const [u, y] of ip) {
@@ -297,6 +304,63 @@ export function makeTown(scene) {
       const cF = inner[k] ? ck : ce, cB = inner[k] ? ci : ce;
       const f0 = vert(FP(S, ip[k][0], ip[k][1], h), o, cF), f1 = vert(FP(S, ip[k1][0], ip[k1][1], h), o, cF), b0 = vert(FP(S, u0, y0, -h), o, cB), b1 = vert(FP(S, u1, y1, -h), o, cB);
       tri(f0, b0, b1); tri(f0, b1, f1);
+    }
+  }
+  /** b47 a ROOF chunk with real shingle courses: the (inset) front is cut into bands at the row lines; each band runs from
+   *  `step` proud at its lower edge to flush at its top (tucked under the next course), a riser closes each step (faces down
+   *  the slope), and the sides follow the sawtooth down to the flat back. Same chunk, same index range, so it breaks as one. */
+  function shingled(S, poly, ip, inner, C, uv) {
+    const h = S.T / 2, n = poly.length, SH = TOWN.shingle, B = S.rows, nb = B.length - 1;
+    let ylo = Infinity, yhi = -Infinity; for (const p of ip) { ylo = Math.min(ylo, p[1]); yhi = Math.max(yhi, p[1]); }
+    const band = y => { let j = 0; while (j < nb - 1 && y >= B[j + 1]) j++; return j; };
+    const lip = (y, j) => (B[j + 1] - y) / (B[j + 1] - B[j]);                 // 1 at a course's lower edge, 0 at its top
+    const vAt = (y, j) => j ? h + SH.step * lip(y, j) : h;               // the eave band lies flat under the frosting + cap
+    const nF = (S.N.clone().addScaledVector(S.B, SH.tilt)).normalize(), nR = S.B.clone().negate();
+    const cRise = C.cr.clone().multiplyScalar(0.62);
+    // front bands
+    for (let j = 0; j < nb; j++) {
+      if (B[j + 1] <= ylo || B[j] >= yhi) continue;
+      let bp = clipPoly(ip, [0, -1, -B[j]]); if (bp.length >= 3) bp = clipPoly(bp, [0, 1, B[j + 1]]);
+      if (bp.length < 3 || Math.abs(area2(bp)) < 1e-4) continue;
+      const vi = bp.map(([u, y]) => vert(FP(S, u, y, vAt(y, j)), nF, C.cr.clone().lerp(C.cf, lip(y, j)), uv(u, y)));
+      for (const [a, b, c] of THREE.ShapeUtils.triangulateShape(bp.map(([u, y]) => new THREE.Vector2(u, y)), [])) {
+        const A = bp[a], Bq = bp[b], Cq = bp[c];
+        ((Bq[0] - A[0]) * (Cq[1] - A[1]) - (Bq[1] - A[1]) * (Cq[0] - A[0]) >= 0) ? tri(vi[a], vi[b], vi[c]) : tri(vi[a], vi[c], vi[b]);
+      }
+    }
+    // risers: the chord of the front at each interior row line, from flush (below) up to the proud lip (above)
+    for (let j = 1; j < nb; j++) {
+      const L = B[j]; if (L <= ylo || L >= yhi) continue;
+      let ua = Infinity, ub = -Infinity;
+      for (let k = 0; k < n; k++) {
+        const P = ip[k], Q = ip[(k + 1) % n];
+        if ((P[1] - L) * (Q[1] - L) < 0) { const u = P[0] + (Q[0] - P[0]) * (L - P[1]) / (Q[1] - P[1]); ua = Math.min(ua, u); ub = Math.max(ub, u); }
+      }
+      if (!(ub - ua > 0.01)) continue;
+      const a0 = vert(FP(S, ua, L, h), nR, cRise, uv(ua, L)), b0 = vert(FP(S, ub, L, h), nR, cRise, uv(ub, L));
+      const b1 = vert(FP(S, ub, L, h + SH.step), nR, cRise, uv(ub, L)), a1 = vert(FP(S, ua, L, h + SH.step), nR, cRise, uv(ua, L));
+      tri(a0, b0, b1); tri(a0, b1, a1);
+    }
+    // back (flat)
+    const bk = poly.map(([u, y]) => vert(FP(S, u, y, -h), S.N.clone().negate(), C.cb));
+    for (let k = 1; k < n - 1; k++) tri(bk[0], bk[k + 1], bk[k]);
+    // sides: split where the front edge crosses a row line, each piece from the sawtooth front down to the flat back
+    for (let k = 0; k < n; k++) {
+      const k1 = (k + 1) % n, F0 = ip[k], F1 = ip[k1], P0 = poly[k], P1 = poly[k1];
+      const o = S.A.clone().multiplyScalar(P1[1] - P0[1]).addScaledVector(S.B, -(P1[0] - P0[0])).normalize();
+      if (inner[k]) o.addScaledVector(S.N, TOWN.groove / S.T).normalize();
+      const cF = inner[k] ? C.ck : C.ce, cB = inner[k] ? C.ci : C.ce;
+      const ts = [0, 1];
+      for (let j = 1; j < nb; j++) { const L = B[j]; if ((F0[1] - L) * (F1[1] - L) < 0) ts.push((L - F0[1]) / (F1[1] - F0[1])); }
+      ts.sort((a, b) => a - b);
+      for (let i = 0; i < ts.length - 1; i++) {
+        const ta = ts[i], tb = ts[i + 1]; if (tb - ta < 1e-5) continue;
+        const j = band(F0[1] + (F1[1] - F0[1]) * (ta + tb) / 2);
+        const fe = t => { const u = F0[0] + (F1[0] - F0[0]) * t, y = F0[1] + (F1[1] - F0[1]) * t; return vert(FP(S, u, y, vAt(y, j)), o, cF); };
+        const be = t => vert(FP(S, P0[0] + (P1[0] - P0[0]) * t, P0[1] + (P1[1] - P0[1]) * t, -h), o, cB);
+        const f0 = fe(ta), f1 = fe(tb), b0 = be(ta), b1 = be(tb);
+        tri(f0, b0, b1); tri(f0, b1, f1);
+      }
     }
   }
   /** a piped icing run from P to Q (house-local): a soft diamond tube; nA = across the slab, oA = across the edge */
@@ -481,6 +545,7 @@ export function makeTown(scene) {
       const B = new V3(-sgn * run, rise, 0).normalize(), A = new V3(0, 0, -sgn);
       const O = new V3(sgn * run, top - 0.15, 0).addScaledVector(B, -0.1);
       const S = surf(O, A, B, Tr, rRoof, TOWN.roof[0]);
+      S.rows = [0]; for (let y = TOWN.shingle.y0 + TOWN.shingle.rh; y < rLen - 0.3; y += TOWN.shingle.rh) S.rows.push(y); S.rows.push(rLen);
       fracture(hs, S, { kind: 'roof', u0: -RW / 2, u1: RW / 2, y0: 0, y1: rLen, cell: TOWN.cell.roof, ice: { bottom: 'drip', top: 'cap', end: 'pipe' } });
     }
     hs.total = hs.alive = hs.ids.length;
@@ -770,7 +835,7 @@ export function makeTown(scene) {
     house, finish, update, lodTick, raycast, solidAt, blast, hitBrick, houses,
     get stats() {
       const tris = mesh ? mesh.geometry.index.count / 3 : 0;
-      return { bricks: chunks.length, chunks: chunks.length, alive: chunks.filter(c => c.alive).length, houses: houses.length, tris, trisPerHouse: houses.length ? Math.round(tris / houses.length) : 0, far: 0 };
+      return { bricks: chunks.length, chunks: chunks.length, alive: chunks.filter(c => c.alive).length, houses: houses.length, tris, trisPerHouse: houses.length ? Math.round(tris / houses.length) : 0, far: 0, atlas: AT.size };
     },
   };
 }
