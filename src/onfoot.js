@@ -187,7 +187,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
   }
   function update(dt, t) {
 
-    if (input.tap) { input.tap = false; if (st.mode !== 'seat') jumpPress = true; }   // a tap on the right half = jump
+    if (input.tap) { input.tap = false; if (st.mode !== 'seat') jumpPress = true; }   // a tap on the right stick (unarmed) / above it = jump
     if (!st.ready || st.mode === 'seat') { if (st.santa) st.santa.holder.visible = false; return; }
     const S = st.santa;
     // stick -> a world direction, relative to the camera

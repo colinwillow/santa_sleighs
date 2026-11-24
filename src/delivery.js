@@ -13,7 +13,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/BufferGeometryUtils.js';
 import { groundH, VILLAGE_R } from './terrain.js';
 import { softDot, bevBox } from './util.js';
-import { ITEMS, placeAt } from './input.js';
 
 export const DELIVER = {
   houses: 4, chimR: 2.2,          // m: horizontal radius round the chimney top that counts as DOWN THE CHIMNEY
@@ -37,15 +36,15 @@ export const DELIVER = {
 // the sleigh keeps flying. Let go = drop + the camera eases back. Slide the finger off the button (slideOff px past its edge) =
 // cancel, nothing drops. camRate = how fast the camera chases the drop-cam pose (1/s, added to the chase's 4).
 export const DROPCAM = { tapMs: 200, ease: 0.35, up: 18, back: 5, side: 5, lookK: 0.85, step: 1 / 120, maxT: 5, slideOff: 30, ring: 2.6, ringView: 0.12, camRate: 6,
-  aimRate: 24, aimSide: 16, aimFwd: 12, aimCurve: 1.4, aimPx: 0.075 };
+  aimRate: 24, aimSide: 16, aimFwd: 12, aimCurve: 1.4, aimPx: 0.12 };
 // b74 AIM THE DROP WITH THE RIGHT THUMB (his: "when you press and hold the drop and the aimer comes out, you're supposed to be able
 // to AIM AROUND WITH YOUR RIGHT THUMB, then let go to drop"): while a drop is held (a PRESENT / BOMB button, or the draw gesture
 // with the present / bomb equipped on the weapon ring), the right stick pushes the release velocity sideways / forward in the
 // sleigh's frame -- aimRate m/s per s at full stick (curved by aimCurve), held within +-aimSide (his right +) and +-aimFwd (ahead +)
 // m/s -- so the landing ring slides where the thumb pushes and STAYS when the thumb centres. The drop flies with it.
-// b76 (CoD controls): the PRESENT / BOMB stickers sit ABOVE THE LEFT PAD (input.js ITEMS); held, a second finger dragged on the
-// right half (input.js LOOK) slides the ring: aimPx m/s of release velocity per px (right = his right, up = ahead), same clamps.
-// The gamepad's right stick still pushes it at aimRate.
+// b79 (quick draw): with PRESENT / BOMB equipped (input.js QUICKDRAW) the RIGHT STICK is the drop: touch = holdStart (main.js), the
+// thumb's drag slides the ring (aimPx m/s of release velocity per px of look drag; right = his right, up = ahead) and its deflection
+// pushes it at aimRate (as the gamepad's right stick does), lift = holdEnd(true) = drop. Keys Z / X still hold a drop.
 
 const V3 = THREE.Vector3;
 // ---- geometry: parts merged into one vertex-coloured mesh (baked top-front light so a MeshBasic glow still reads 3D) ---------
@@ -324,14 +323,13 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     }
     hold.land.copy(_pp);
   }
-  const holdBtn = kind => kind === 'present' ? bP : bB;
   function holdStart(kind, src) {
     if (hold.kind || foot.active || !document.body.classList.contains('play')) return;
-    hold.kind = kind; hold.src = src; hold.t = 0; hold.off.x = hold.off.z = 0; holdBtn(kind)?.classList.add('on');
+    hold.kind = kind; hold.src = src; hold.t = 0; hold.off.x = hold.off.z = 0;
   }
   function holdEnd(fire) {
     if (!hold.kind) return;
-    const k = hold.kind; hold.kind = null; holdBtn(k)?.classList.remove('on');
+    const k = hold.kind; hold.kind = null;
     if (fire) drop(k, { ...hold.off });
     hold.off.x = hold.off.z = 0;
   }
@@ -435,50 +433,16 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     background: var(--cream); border: 2.5px solid var(--ink); border-radius: 13px 16px 12px 15px / 15px 12px 16px 13px; padding: 3px 9px 3px 7px; box-shadow: 2px 3px 0 var(--ink); }
   #deliv svg { width: 20px; height: 20px; display: block; } #deliv .sk { margin-left: 6px; } #deliv .ok { color: #2a9a50; } #deliv .no { color: var(--candy); }
   #deliv.win { background: var(--gold); }
-  .dropb { width: 62px; height: 62px; z-index: 7; } .dropb svg { width: 36px; height: 36px; display: block; }
-  #dropPresent { transform: rotate(4deg);
-    border-radius: 52% 48% 47% 53% / 47% 53% 47% 53%; background: radial-gradient(circle at 34% 28%, #fff6dc 0 14%, transparent 15%), var(--gold); box-shadow: inset 0 0 0 3px #ffe39a, 3px 4px 0 var(--ink); }
-  #dropBomb { transform: rotate(-4deg);
-    border-radius: 48% 52% 53% 47% / 53% 47% 53% 47%; background: radial-gradient(circle at 34% 28%, #9d8ad8 0 14%, transparent 15%), #5a3d96; box-shadow: inset 0 0 0 3px #8a74c8, 3px 4px 0 var(--ink); }
-  #dropPresent.on { transform: rotate(4deg) translate(2px, 3px) scale(.94); box-shadow: 1px 1px 0 var(--ink); }
-  #dropBomb.on { transform: rotate(-4deg) translate(2px, 3px) scale(.94); box-shadow: 1px 1px 0 var(--ink); }
-  .dropb .n { position: absolute; right: -6px; top: -6px; min-width: 20px; height: 20px; border-radius: 50%; background: var(--candy); color: var(--cream);
-    border: 2.5px solid var(--ink); font: italic 900 12px/20px ui-rounded, system-ui, sans-serif; text-align: center; text-shadow: none; }
-  .dropb.empty { opacity: .45; }
-  body:not(.play) #deliv, body:not(.play) .dropb, body.onfoot .dropb { display: none !important; }`;
+  body:not(.play) #deliv { display: none !important; }`;
   document.head.appendChild(css);
   const GIFT = `<svg viewBox="0 0 30 30"><rect x="4" y="11" width="22" height="16" rx="2.5" fill="#e8263a" stroke="#1d1420" stroke-width="2.4"/><rect x="2.5" y="7.5" width="25" height="5.5" rx="2" fill="#ff4a5c" stroke="#1d1420" stroke-width="2.4"/><path d="M15 7.5V27" stroke="#1d1420" stroke-width="6.5"/><path d="M15 7.5V27" stroke="#f4c040" stroke-width="3"/><path d="M15 7.5c-2-4.5-8-5-7.5-1.6.3 2 4.6 1.6 7.5 1.6zM15 7.5c2-4.5 8-5 7.5-1.6-.3 2-4.6 1.6-7.5 1.6z" fill="#f4c040" stroke="#1d1420" stroke-width="2" stroke-linejoin="round"/></svg>`;
   const BOMB = `<svg viewBox="0 0 30 30"><circle cx="14" cy="18" r="9.5" fill="#e8263a" stroke="#1d1420" stroke-width="2.4"/><ellipse cx="10.6" cy="14.6" rx="2.6" ry="1.8" fill="#ffd0d6" transform="rotate(-35 10.6 14.6)"/><rect x="10.5" y="6.5" width="7" height="4.2" rx="1.2" fill="#f4c040" stroke="#1d1420" stroke-width="2"/><path d="M14 6.5c0-3 2.5-4 5-3.2" fill="none" stroke="#1d1420" stroke-width="2.2" stroke-linecap="round"/><path d="M21.6 1.2l.9 2.2 2.3.2-1.8 1.4.7 2.3-2.1-1.3-2 1.3.6-2.3-1.8-1.4 2.3-.2z" fill="#ffe14a" stroke="#1d1420" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
   const SKULL = `<svg viewBox="0 0 30 30"><rect x="12" y="2" width="6" height="4" rx="1" fill="#2e2a30" stroke="#1d1420" stroke-width="1.8"/><circle cx="15" cy="17" r="11" fill="#6a1020" stroke="#1d1420" stroke-width="2.4"/><ellipse cx="11" cy="15.5" rx="2.6" ry="3" fill="#9dff4a"/><ellipse cx="19" cy="15.5" rx="2.6" ry="3" fill="#9dff4a"/><path d="M9.5 21.5l2 1.8 1.8-1.8 1.7 1.8 1.8-1.8 1.7 1.8 2-1.8" fill="none" stroke="#9dff4a" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
   const hud = document.getElementById('hud');
   const pill = document.createElement('div'); pill.id = 'deliv'; hud.appendChild(pill);
-  const mkBtn = (id, svg, kind) => {
-    const b = document.createElement('div'); b.className = 'btn dropb'; b.id = id; b.innerHTML = svg + (kind === 'present' ? '<span class="n">6</span>' : ''); hud.appendChild(b);
-    // DROP-CAM: down = hold starts; up = drop (tap or hold); sliding off the button = cancel
-    let pid = null;
-    b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (hold.kind) return; pid = e.pointerId; try { b.setPointerCapture(pid); } catch (_) {} holdStart(kind, 'ptr'); });
-    b.addEventListener('pointermove', e => {
-      if (e.pointerId !== pid || hold.kind !== kind || hold.src !== 'ptr') return;
-      const r = b.getBoundingClientRect(), m = ITEMS.slideOff;
-      if (e.clientX < r.left - m || e.clientX > r.right + m || e.clientY < r.top - m || e.clientY > r.bottom + m) { pid = null; holdEnd(false); }
-    });
-    const up = fire => e => { if (e.pointerId !== pid) return; pid = null; if (hold.kind === kind && hold.src === 'ptr') holdEnd(fire); };
-    b.addEventListener('pointerup', up(true)); b.addEventListener('pointercancel', up(false));
-    return b;
-  };
-  const bP = mkBtn('dropPresent', GIFT, 'present'), bB = mkBtn('dropBomb', BOMB, 'bomb'), bPn = bP.querySelector('.n');
-  [bP, bB].forEach((b, i) => placeAt(b, ITEMS.x + i * ITEMS.gap, ITEMS.y + i * ITEMS.stagger, ITEMS.size, true));   // b76: above the LEFT pad
   const KEYS = { KeyZ: 'present', KeyX: 'bomb' };
   addEventListener('keydown', e => { if (e.repeat || !KEYS[e.code]) return; holdStart(KEYS[e.code], 'key'); });
   addEventListener('keyup', e => { if (KEYS[e.code] && hold.kind === KEYS[e.code] && hold.src === 'key') holdEnd(true); });
-  let gpX = false, gpB = false;
-  function pollPad() {
-    const gp = navigator.getGamepads?.().find(g => g && g.connected); if (!gp) return;
-    const x = !!gp.buttons[2]?.pressed, b = !!gp.buttons[1]?.pressed;
-    if (x && !gpX) holdStart('present', 'pad'); if (b && !gpB) holdStart('bomb', 'pad');
-    if (!x && gpX && hold.kind === 'present' && hold.src === 'pad') holdEnd(true); if (!b && gpB && hold.kind === 'bomb' && hold.src === 'pad') holdEnd(true);
-    gpX = x; gpB = b;
-  }
   function updateHud() {
     const good = street.filter(h => !h.bad), bad = street.find(h => h.bad);
     const n = good.filter(h => h.state === 'done').length, bs = bad ? bad.state : 'wait';
@@ -486,7 +450,6 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     if (key === hudKey) return; hudKey = key;
     pill.innerHTML = `${GIFT}<span>${n}/${good.length}</span><span class="sk">${SKULL}</span><span class="${bs === 'cleared' ? 'ok' : bs === 'wait' ? '' : 'no'}">${bs === 'cleared' ? '✓' : bs === 'wait' ? '·' : '✗'}</span>`;
     pill.classList.toggle('win', celebT >= 0);
-    bPn.textContent = stack; bP.classList.toggle('empty', stack <= 0);
   }
 
   // ---- the loop ----
@@ -494,7 +457,6 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
   function update(dt, t) {
     if (first) begin();
     cd -= dt;
-    pollPad();
     document.body.classList.toggle('onfoot', !!foot.active);
     updateHold(dt);
     // wrecked chimneys go (twice a second); a waiting house wrecked by gunfire / a crash can't take a present any more
@@ -573,5 +535,5 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     sparkG.attributes.position.needsUpdate = sparkG.attributes.color.needsUpdate = true;
     updateHud();
   }
-  return { update, drop, dropCam, hold, predict, aimDrop, aimDropPx, get street() { return street; }, get items() { return items; }, get stack() { return stack; }, facts, DELIVER, begin, end };
+  return { update, drop, dropCam, hold, holdStart, holdEnd, predict, aimDrop, aimDropPx, get street() { return street; }, get items() { return items; }, get stack() { return stack; }, facts, DELIVER, begin, end };
 }

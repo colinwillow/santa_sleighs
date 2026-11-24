@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { buildWorld, groundH, softDot } from './world.js';
 import { MENU_SPOT } from './terrain.js';
 import { buildRig, FLY } from './sleigh.js';
-import { input, pollInput, showReticle, setFire, setDial, ITEMS, placeAt, LOOK as LOOKCTL } from './input.js';
+import { input, pollInput, showReticle, setEquip, STICKS, LOOK as LOOKCTL } from './input.js';
 import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
 import { makeSnowmen } from './enemies.js';
@@ -21,7 +21,7 @@ import { makeDelivery, DROPCAM, bombGeo } from './delivery.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 78;
+export const BUILD = 79;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -251,29 +251,50 @@ let shake = 0, crashZoom = 0, weapon = (() => { try { const w = localStorage.get
 const delivery = makeDelivery({ scene, world, rig, foot, snowmen, camera, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a),
   onScore: n => { cookieCount = Math.max(0, cookieCount + n); if (n > 0) milk = Math.min(100, milk + n * 3); },
   onShake: k => { shake = Math.max(shake, k); crashZoom = Math.max(crashZoom, k * 0.2); } });
-// ---- b76 THE WEAPON (CoD controls, input.js FIREBTN / DIAL): one gun for Santa in the sleigh and on foot. GUN.key = the dial's
-// weapon, GUN.out = in his hands (the dial's centre / H / pad Y puts it away: unarmed, his own arms). Turning the dial (or LB / RB,
-// Q, 1-4, a floating pickup) pulls the next gun OUT. The items (present / bomb / grenade) are buttons of their own above the left pad.
-const GUN = { key: weapon, out: true };
-try { const v = JSON.parse(localStorage.getItem('gun') || 'null'); if (v && WEAPONS[v.key]) { GUN.key = v.key; GUN.out = v.out !== false; } } catch (e) {}
-const saveGun = () => { try { localStorage.setItem('gun', JSON.stringify(GUN)); localStorage.setItem('weapon', GUN.key); } catch (e) {} };
-function pickGun(key) {
-  if (!WEAPONS[key]) return; const was = GUN.out && GUN.key === key;
-  GUN.key = key; GUN.out = true; weapon = key; saveGun();
-  if (!was) { sfx('casing', { vol: 0.7, rate: 0.8 }); sfx('ui_tap', { vol: 0.5, rate: 0.9 }); }   // the dial's click + he pulls it out
+// ---- b79 QUICK DRAW (input.js QUICKDRAW / SWAP, his b78 words): three categories -- PRIMARY (the gun, EQUIP.gun = which one),
+// PRESENT, BOMB (in the sleigh the chimney bomb, on foot the grenade). EQUIP.cat = what's in his hands (null = unarmed, his own
+// arms). Tap a category = equip it; tap the equipped one again = unarmed. SWAP = the next variant of the equipped category (guns
+// only for now: Gatling -> Rifle -> Rockets -> Snowballs; unarmed it pulls the next gun out). The right stick does what the category
+// says: gun = FIRE while touched; present / bomb = hold to aim (drop-cam + ring / throw arc), lift = drop / throw; unarmed = camera.
+const EQUIP = { cat: 'gun', gun: weapon };
+try {
+  const v = JSON.parse(localStorage.getItem('equip') || 'null');
+  if (v) { if (WEAPONS[v.gun]) EQUIP.gun = v.gun; if ([null, 'gun', 'present', 'bomb'].includes(v.cat)) EQUIP.cat = v.cat; }
+  else { const g = JSON.parse(localStorage.getItem('gun') || 'null'); if (g && WEAPONS[g.key]) { EQUIP.gun = g.key; EQUIP.cat = g.out === false ? null : 'gun'; } }
+} catch (e) {}
+const GUN = { get key() { return EQUIP.gun; }, get out() { return EQUIP.cat === 'gun'; } };
+const saveEquip = () => { try { localStorage.setItem('equip', JSON.stringify(EQUIP)); localStorage.setItem('weapon', EQUIP.gun); } catch (e) {} };
+function cancelItem() { if (NADE.held) nadeEnd(false); if (delivery.hold?.kind) delivery.holdEnd?.(false); }
+function equip(cat) {
+  if (cat === 'present' && foot.active) { sfx('ui_back', { vol: 0.5, rate: 1.4 }); return; }   // presents go down chimneys: sleigh only
+  cancelItem();
+  if (EQUIP.cat === cat) { EQUIP.cat = null; sfx('ui_back', { vol: 0.55, rate: 1.25 }); }   // the quick draw: tap it again = put it away
+  else { EQUIP.cat = cat; sfx(cat === 'gun' ? 'casing' : 'ui_tap', { vol: 0.7, rate: cat === 'gun' ? 0.8 : 1.1 }); }
+  saveEquip();
 }
-function holster() { GUN.out = !GUN.out; saveGun(); sfx(GUN.out ? 'casing' : 'ui_back', GUN.out ? { vol: 0.7, rate: 0.8 } : { vol: 0.55, rate: 1.25 }); }
+function pickGun(key) {
+  if (!WEAPONS[key]) return; const was = EQUIP.cat === 'gun' && EQUIP.gun === key;
+  if (EQUIP.cat !== 'gun') cancelItem();
+  EQUIP.gun = key; EQUIP.cat = 'gun'; weapon = key; saveEquip();
+  if (!was) { sfx('casing', { vol: 0.7, rate: 0.8 }); sfx('ui_tap', { vol: 0.5, rate: 0.9 }); }
+}
+/** SWAP: step the variant of the equipped category (present / bomb have one kind each for now) */
+function cycleVariant(step) {
+  const cat = EQUIP.cat || 'gun';
+  if (cat !== 'gun') { sfx('ui_back', { vol: 0.4, rate: 1.5 }); return; }
+  const n = ORDER.length, i = ORDER.indexOf(EQUIP.gun); pickGun(ORDER[(((i + step) % n) + n) % n]);
+}
 /** the old entry point (the floating gun pickups): this gun, out */
 function setWeapon(key, announce = true) { pickGun(key); if (announce) sfx('cookie_pickup', { rate: 0.75 }); }
-// one writer for what each Santa holds: the crew Santa (sleigh) and the on-foot Santa follow GUN every frame (a grenade being thrown
-// puts the ornament bomb in his hand instead of the gun)
+// one writer for what each Santa holds: the crew Santa (sleigh) and the on-foot Santa follow EQUIP every frame (the BOMB category on
+// foot = the ornament grenade in his right hand)
 function syncHeld() {
   const cs = rig.crew?.debug?.santa; if (cs && cs.weapon !== GUN.key) cs.setWeapon(GUN.key);
   if (cs?.gun?.g) cs.gun.g.visible = GUN.out;
   cs?.setArmed?.(GUN.out);
   const fs = foot.santa; if (fs && fs.weapon !== GUN.key) fs.setWeapon(GUN.key);
-  const nade = foot.active && !!foot.throwing;
-  foot.setHeld?.(nade ? 'grenade' : GUN.out ? GUN.key : null, GUN.out && !nade);
+  const nade = foot.active && (!!foot.throwing || EQUIP.cat === 'bomb');
+  foot.setHeld?.(nade ? 'grenade' : GUN.out ? GUN.key : null, GUN.out && !foot.throwing);
 }
 // GRENADES (weapons.js THROW) + the throw / lob arc (snowballs and grenades)
 const grenades = makeGrenades(scene, groundH, bombGeo(), { puff: (...a) => shots?.puff(...a), solid: p => !!world.town?.solidAt(p) || !!world.props?.solidAt(p),
@@ -327,53 +348,42 @@ const RET3 = (() => {
 const RACK = { t: 0.28, roll: 0.55, back: 0.07 };
 const DR = { rackT: 0, wasFire: false };
 function heldSanta() { return foot.active ? foot.santa : rig.crew?.debug?.santa; }
-// THE GRENADE BUTTON (on foot, above the left pad: ITEMS slot 0; key G, pad X): PRESS = he pulls the pin + winds up (THROW clip held
-// at cockAt); held past ITEMS.tapMs the throw ARC + landing ring come up and LOOK (a finger on the right half) aims it; RELEASE =
-// throw at the crosshair; slide off the button = cancel (he lowers it). A quick tap = a quick throw straight at the crosshair.
-const NADE = { held: false, src: null, t0: 0, pid: null };
-const nadeBtn = (() => {
-  const b = document.createElement('div'); b.className = 'btn itemb'; b.id = 'nadeBtn';
-  b.innerHTML = `<svg viewBox="0 0 30 30"><circle cx="14" cy="18" r="9.5" fill="#e8263a" stroke="#1d1420" stroke-width="2.4"/><ellipse cx="10.6" cy="14.6" rx="2.6" ry="1.8" fill="#ffd0d6" transform="rotate(-35 10.6 14.6)"/><rect x="10.5" y="6.5" width="7" height="4.2" rx="1.2" fill="#f4c040" stroke="#1d1420" stroke-width="2"/><path d="M14 6.5c0-3 2.5-4 5-3.2" fill="none" stroke="#1d1420" stroke-width="2.2" stroke-linecap="round"/><path d="M21.6 1.2l.9 2.2 2.3.2-1.8 1.4.7 2.3-2.1-1.3-2 1.3.6-2.3-1.8-1.4 2.3-.2z" fill="#ffe14a" stroke="#1d1420" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
-  document.getElementById('hud').appendChild(b); placeAt(b, ITEMS.x, ITEMS.y, ITEMS.size, true);
-  b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (NADE.held) return; NADE.pid = e.pointerId; try { b.setPointerCapture(e.pointerId); } catch (_) {} nadeStart('ptr'); });
-  b.addEventListener('pointermove', e => {
-    if (e.pointerId !== NADE.pid || !NADE.held) return;
-    const r = b.getBoundingClientRect(), m = ITEMS.slideOff;
-    if (e.clientX < r.left - m || e.clientX > r.right + m || e.clientY < r.top - m || e.clientY > r.bottom + m) { NADE.pid = null; nadeEnd(false); }
-  });
-  const up = fire => e => { if (e.pointerId !== NADE.pid) return; NADE.pid = null; if (NADE.src === 'ptr') nadeEnd(fire); };
-  b.addEventListener('pointerup', up(true)); b.addEventListener('pointercancel', up(false));
-  return b;
-})();
+// THE GRENADE (on foot, BOMB equipped): the right stick (or G, mouse left, RT) PRESSED = he pulls the pin + winds up (THROW clip held
+// at cockAt); held past STICKS.tapMs the throw ARC + landing ring come up and the thumb aims it (it turns the camera; the crosshair
+// is the aim); LIFT = throw at the crosshair. A quick tap = a quick throw straight at the crosshair.
+const NADE = { held: false, src: null, t0: 0 };
 function nadeStart(src) {
   if (NADE.held || STATE !== 'play' || !foot.active || foot.throwing) return;
   if (!foot.throwCock()) return;
-  NADE.held = true; NADE.src = src; NADE.t0 = performance.now(); nadeBtn.classList.add('on');
+  NADE.held = true; NADE.src = src; NADE.t0 = performance.now();
 }
 function nadeEnd(fire) {
-  if (!NADE.held) return; NADE.held = false; NADE.src = null; nadeBtn.classList.remove('on');
+  if (!NADE.held) return; NADE.held = false; NADE.src = null;
   if (fire) foot.throwGo(); else foot.throwCancel();
 }
 addEventListener('keydown', e => { if (e.code === 'KeyG' && !e.repeat) nadeStart('key'); });
 addEventListener('keyup', e => { if (e.code === 'KeyG' && NADE.src === 'key') nadeEnd(true); });
-let gpX = false;
-function pollNadePad() {
-  const gp = navigator.getGamepads?.().find(g => g && g.connected); const x = !!gp?.buttons[2]?.pressed;
-  if (x && !gpX && foot.active) nadeStart('pad'); if (!x && gpX && NADE.src === 'pad') nadeEnd(true); gpX = x;
-}
+// THE TRIGGER (input.trigger: the right-stick finger / mouse left / Space / RT) does what the equipped category says
+const TRIG = { was: false };
 function updateControls(dt) {
-  pollNadePad();
-  if (NADE.held && (!foot.active || STATE !== 'play' || !foot.throwing)) { NADE.held = false; NADE.src = null; NADE.pid = null; nadeBtn.classList.remove('on'); }
-  nadeBtn.classList.toggle('empty', !!foot.throwing && !NADE.held);
-  // the dial: steps / a picked icon / the holster tap (only in play)
+  if (NADE.held && (!foot.active || STATE !== 'play' || !foot.throwing)) { NADE.held = false; NADE.src = null; }
   if (STATE === 'play') {
-    if (input.dialStep) { const n = ORDER.length, i = ORDER.indexOf(GUN.key); pickGun(ORDER[(((i + input.dialStep) % n) + n) % n]); }
-    if (input.dialPick) pickGun(input.dialPick);
-    if (input.holster) holster();
+    if (input.catTap) equip(input.catTap);
+    if (input.swapStep) cycleVariant(input.swapStep);
+    if (input.swapPick) { if (WEAPONS[input.swapPick]) pickGun(input.swapPick); }
+    if (input.holster && EQUIP.cat) equip(EQUIP.cat);
   }
-  input.dialStep = 0; input.dialPick = null; input.holster = false;
-  setDial(ORDER, GUN.key, GUN.out); setFire(GUN.out ? GUN.key : null);
-  // a drop being held (PRESENT / BOMB above the left pad): LOOK slides its landing ring (and the pad's right stick pushes it) -- not the camera
+  input.catTap = null; input.swapStep = 0; input.swapPick = null; input.holster = false;
+  const item = EQUIP.cat === 'bomb' ? (foot.active ? 'grenade' : 'bomb') : EQUIP.cat === 'present' && !foot.active ? 'present' : null;
+  const trig = STATE === 'play' && input.trigger, tapNow = STATE === 'play' && input.trigTap;
+  const pressed = (trig && !TRIG.was) || tapNow, released = (!trig && TRIG.was) || (tapNow && !trig);
+  TRIG.was = trig;
+  if (pressed && item) { if (item === 'grenade') nadeStart('trig'); else delivery.holdStart?.(item, 'trig'); }
+  if (released) { if (NADE.src === 'trig') nadeEnd(true); if (delivery.hold?.kind && delivery.hold.src === 'trig') delivery.holdEnd?.(true); }
+  // a quick tap on the right stick = JUMP when the stick isn't a trigger (unarmed, or the present on foot)
+  if (input.rTap) { input.rTap = false; if (STATE === 'play' && EQUIP.cat !== 'gun' && !item) input.tap = true; }
+  setEquip({ cat: EQUIP.cat, gun: EQUIP.gun, guns: ORDER, presents: delivery.stack ?? 0, foot: foot.active });
+  // a drop being held: the thumb slides its landing ring (drag px + the stick's deflection) -- not the camera
   if (delivery.hold?.kind) {
     delivery.aimDropPx?.(input.lookDX, input.lookDY); delivery.aimDrop?.(input.rx, input.ry, dt);
     input.lookDX = input.lookDY = 0; input.camX = input.camY = 0;
@@ -420,7 +430,7 @@ function updateArc(dt, W, muzzle, out, fireHeld) {
   const tp = out ? foot.takeThrow?.() : null;
   if (tp) { solveThrow(tp, AIM.target, THROW.speed, THROW.g, _av); _av.addScaledVector(foot.st.vel, 0.5); grenades.throw(tp, _av); }
   if (STATE !== 'play') { aimArc.hide(); return; }
-  if (out && NADE.held && performance.now() - NADE.t0 >= ITEMS.tapMs) {
+  if (out && NADE.held && performance.now() - NADE.t0 >= STICKS.tapMs) {
     foot.handPos(_af); solveThrow(_af, AIM.target, THROW.speed, THROW.g, _av); _av.addScaledVector(foot.st.vel, 0.5);
     const r = grenades.predict(_af, _av, aimArc.pts); aimArc.show(r.n, r.hit ? r.land : null, '#ffd0d6', camera); return;
   }
@@ -434,13 +444,13 @@ function updateArc(dt, W, muzzle, out, fireHeld) {
 }
 
 function updateGun(dt, t) {
-  // b76: the FIRE BUTTON held (Space / left mouse / RT) = shooting, every gun at its own rate (the Gatling continuous); unarmed or
-  // mid-throw = nothing
+  // b79: the gun out + the trigger (right-stick finger / left mouse / Space / RT) = shooting, every gun automatic at its own rate;
+  // unarmed, an item or mid-throw = nothing
   const W0 = STATE === 'play' && GUN.out && !(foot.active && foot.throwing) ? WEAPONS[GUN.key] : null;
   const firing = !!W0 && input.fire;
   const scr = STATE === 'play' ? updateAim(dt) : null;
   // the crosshair: a gun out, or a grenade being held (never for the drops: their landing ring is the aim)
-  const showRet = !!scr && (!!W0 || NADE.held);
+  const showRet = !!scr && (!!W0 || NADE.held || (foot.active && EQUIP.cat === 'bomb'));
   if (showRet) {
     // the crosshair is drawn after the world (over houses / trees) but BEFORE the player's own things (renderOrder 11):
     // Santa on foot, or the sleigh + crew + team when riding, so they cover it (his note: it was drawn on top of them)

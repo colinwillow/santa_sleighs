@@ -1,31 +1,46 @@
-// CONTROLS (b76, his: "just having it SHOOT WHEN YOU'RE TOUCHING the stick is better... closer to what CALL OF DUTY MOBILE does").
-// LEFT pad (floating, left half) FLIES the sleigh / walks him; a flick = DODGE. RIGHT HALF OF THE SCREEN = LOOK: a finger down
-// anywhere there (not on a button) and dragged turns the camera (drag px -> yaw / pitch, LOOK); a quick TAP there = JUMP.
-// FIRE BUTTON (FIREBTN) = the equipped weapon's icon: PRESS = fire now; while held a ring folds out round it and dragging the thumb
-// AIMS exactly like LOOK while the gun keeps firing; lift = stop. WEAPON DIAL (DIAL) next to it: rotate it with a finger (circular
-// drag) = next / previous weapon (snaps with a click); tap its centre = gun away / back out; tap a rim icon = that weapon.
-// ITEMS (PRESENT / BOMB in the sleigh, GRENADE on foot) sit above the left pad (ITEMS: delivery.js + main.js own their logic).
-// Output each frame: input.steer, input.climb (left, -1..1, + = right / up), input.lookDX / lookDY (px of LOOK drag since the last
-// poll, right half + the fire thumb + a mouse drag), input.camX / camY (gamepad right stick / I J K L: rates, -1..1), input.rx / ry
-// (the same raw stick), input.fire (held), input.dialStep (+-n steps, the game clears it), input.dialPick (a key), input.holster,
-// input.tap (jump), input.boost, input.dodge, input.moveHold, input.lookDown (a LOOK finger or the fire thumb is on the glass).
-// The game paints the widgets with setFire(key | null) and setDial(items, sel, out).
+// CONTROLS (b79, his b78 playtest: "joysticks back in the same spot, the new SIZE... three buttons above the right stick... if you
+// have a gun equipped and press ANYWHERE on the right stick it just SHOOTS"). Sizes + layout from his Korajin HUD
+// (images/reference/controls_korajin_size_ref.png, 393 pt portrait): two equal sticks in the bottom corners, the quick-draw buttons
+// are ARC SEGMENTS on top of the right ring, a round utility button (SWAP) bottom-centre between the sticks.
+// LEFT STICK (floats in the left half) flies the sleigh / walks him; a flick = DODGE. RIGHT STICK (floats in the right half below
+// STICKS.zoneTop): with the GUN out, a finger on it = FIRE (every gun automatic) while its deflection turns the camera (rate) + a little
+// direct drag; UNARMED = camera only, a quick tap = JUMP; PRESENT / BOMB = the drop / throw aim while held, lift = drop / throw (a
+// quick tap = a quick one). A finger on the right half ABOVE the stick zone = LOOK drag (tap = jump).
+// QUICK DRAW (the arc): PRIMARY (the current gun) / PRESENT / BOMB -- tap = equip, tap the equipped one again = unarmed (input.catTap;
+// main.js owns the state). SWAP (bottom centre): tap = next variant of the equipped category (input.swapStep), hold = a fan of the
+// variants, slide onto one + let go = pick it (input.swapPick).
+// THE STUCK-FIRE RULE (b79): firing is a LEVEL read every frame from live tracked pointers only (input.trigger = the right-stick finger
+// / left mouse / Space / RT). Every tracked pointer is released by window pointerup / pointercancel / lostpointercapture, by touchend
+// reconciliation (a touch list that no longer has a finger near it), by a watchdog (STICKS.watchMs after a touchend), and by blur /
+// visibilitychange / pagehide / leaving play. Nothing listens on a single element for its own release any more.
+// Output each frame (pollInput): steer, climb (left, -1..1), camX / camY + rx / ry (right stick deflection + gamepad + I J K L, rates
+// -1..1), lookDX / lookDY (px of drag since the last poll), lookDown, trigger (held), trigTap (a press + release between two polls),
+// fire (= trigger || trigTap), rTap / catTap / swapStep / swapPick / holster / tap / dodge (events: the game clears them), boost, moveHold.
+// The game paints the buttons with setEquip({ cat, gun, guns, presents, foot }).
 
-export const input = { steer: 0, climb: 0, camX: 0, camY: 0, rx: 0, ry: 0, lookDX: 0, lookDY: 0, lookDown: false, fire: false,
-  dialStep: 0, dialPick: null, holster: false, boost: false, mouse: null, dodge: null, moveHold: false, tap: false };
-export const STICKS = { R: 58, deadL: 0.06 };
-// LOOK: rad per px of drag (yaw / pitch), on foot and in the sleigh's chase camera; a touch shorter than tapMs that moved less than
-// tapPx = JUMP; sleighBack = s after every look finger lifts before the chase camera eases back behind the team (rate sleighEase)
+export const input = { steer: 0, climb: 0, camX: 0, camY: 0, rx: 0, ry: 0, lookDX: 0, lookDY: 0, lookDown: false,
+  trigger: false, trigTap: false, fire: false, rTap: false, catTap: null, swapStep: 0, swapPick: null, holster: false,
+  boost: false, mouse: null, dodge: null, moveHold: false, tap: false, device: 'touch' };
+// STICKS (pt on a 393-wide phone, scaled by the short screen side / 393, clamped kMin..kMax; the same pt in landscape): ring = the
+// outer radius, knob = the knob radius, R = how far the knob travels, x = centre in from the left / right edge, y = centre up from the
+// bottom (safe areas added). zoneTop = the right stick floats only below this share of the screen height (above it = LOOK drag).
+// deadR / rateK: right-stick deflection -> camera rate; dragK = share of the thumb's movement that turns the camera directly.
+// tapMs / tapPx = a quick tap (jump / quick drop). watchMs = a tracked finger missing from the touch list this long after a touchend
+// is released (the stuck-fire watchdog).
+export const STICKS = { ring: 75, knob: 28, R: 62, x: 95, y: 150, kMin: 0.8, kMax: 1.25, zoneTop: 0.42, deadL: 0.06,
+  deadR: 0.12, rateK: 1, dragK: 0.45, tapMs: 220, tapPx: 14, watchMs: 500 };
+// LOOK: rad per px of drag (yaw / pitch), on foot and in the sleigh's chase camera (onfoot.js / main.js); sleighBack = s after every
+// look finger lifts before the chase camera eases back behind the team (rate sleighEase); mouseK = mouse drag gain
 export const LOOK = { footYaw: 0.0068, footPitch: 0.005, sleighYaw: 0.006, sleighPitch: 0.0042, tapMs: 220, tapPx: 14, sleighBack: 1.2, sleighEase: 2.5, mouseK: 0.8 };
-// FIREBTN: centre x px from the right edge, y px from the bottom; size px; ring = the folded-out ring's radius px; lookK = drag gain vs
-// LOOK; dotMax = how far the thumb dot follows (px); fold = s the ring takes to open
-export const FIREBTN = { x: 110, y: 185, size: 86, ring: 92, lookK: 1, dotMax: 74, fold: 0.16 };
-// DIAL: centre x / y px from the right / bottom edges, size px, iconR = rim radius of the icons, gain = dial turn per degree of finger
-// turn (landX / landY = its centre in LANDSCAPE, left of the fire button: the top-right corner is the pause button), a tap (< tapMs, < tapDeg of turn) inside centreR px = holster, outside = pick the icon under it
-export const DIAL = { x: 56, y: 306, landX: 246, landY: 112, size: 100, iconR: 36, gain: 1.5, tapMs: 260, tapDeg: 12, centreR: 17 };
-// ITEMS: the item stickers above the left pad: slot i centre = (x + i * gap, y + i * stagger) px from the left / bottom edges; a hold
-// past tapMs = the aim (drop-cam / throw arc); sliding slideOff px past the button = cancel
-export const ITEMS = { x: 52, y: 238, gap: 76, stagger: 16, size: 62, tapMs: 200, slideOff: 30 };
+// QUICKDRAW: the three arc segments on top of the right ring (pt): r0..r1 = inner / outer radius from the right stick's centre,
+// seg = each segment's span (deg), at = their centre angles (deg from straight up, clockwise): PRIMARY, PRESENT, BOMB; iconR / labR
+// = where the icon / label sit; icon = icon size
+export const QUICKDRAW = { r0: 80, r1: 117, seg: 32, at: [-34, 0, 34], iconR: 104, labR: 86, icon: 24, cats: ['gun', 'present', 'bomb'] };
+// SWAP: the round button bottom-centre (r pt, y pt up from the bottom); a hold past holdMs opens the FAN: items (item pt) on an arc
+// fanR pt round it, spread fanSpan deg about straight up; let go within pickR pt of one = pick it
+export const SWAP = { r: 23, y: 84, holdMs: 260, fanR: 82, fanSpan: 120, item: 46, pickR: 40 };
+// BOOST (sleigh only): above the left stick, centre x pt in from the left, y pt up from the bottom, r pt
+export const BOOSTB = { x: 58, y: 268, r: 29 };
 // FLICK (left pad): the thumb travels past `at` x STICKS.R from where it landed within `ms` = a DODGE that way
 export const FLICK = { at: 0.9, ms: 150 };
 /** place a fixed element by its CENTRE: x / y px from the given edges (safe areas added) */
@@ -46,11 +61,19 @@ const INK = '#1d1420', CREAM = '#fcefd4', CANDY = '#e8263a', GOLD = '#f4b73a';
 const svgUrl = (vb, body) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${vb}'>${body}</svg>`)}")`;
 const chev = (rot, col) => `<path transform='rotate(${rot} 68 68)' d='M60 27l8-8 8 8' fill='none' stroke='${INK}' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/><path transform='rotate(${rot} 68 68)' d='M60 27l8-8 8 8' fill='none' stroke='${col}' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/>`;
 const PAD_L = svgUrl('0 0 136 136', `<circle cx='68' cy='68' r='64' fill='${CREAM}' fill-opacity='.16'/>
-<circle cx='68' cy='68' r='63.5' fill='none' stroke='${GOLD}' stroke-width='9'/>
+<circle cx='68' cy='68' r='63.5' fill='none' stroke='${GOLD}' stroke-width='7'/>
 <path d='M17 46A55 55 0 0 1 46 15' fill='none' stroke='#fff4c8' stroke-width='3' stroke-linecap='round'/>
-<circle cx='68' cy='68' r='58.2' fill='none' stroke='${INK}' stroke-width='2.6'/>
-<circle cx='68' cy='68' r='44' fill='none' stroke='${CREAM}' stroke-width='2' stroke-dasharray='5 7' stroke-opacity='.7'/>
+<circle cx='68' cy='68' r='59.2' fill='none' stroke='${INK}' stroke-width='2.2'/>
+<circle cx='68' cy='68' r='44' fill='none' stroke='${CREAM}' stroke-width='1.6' stroke-dasharray='5 7' stroke-opacity='.7'/>
 ${chev(0, CREAM)}${chev(90, CREAM)}${chev(180, CREAM)}${chev(270, CREAM)}`);
+const PAD_R = svgUrl('0 0 136 136', `<circle cx='68' cy='68' r='64' fill='${CANDY}' fill-opacity='.12'/>
+<circle cx='68' cy='68' r='63.5' fill='none' stroke='${CREAM}' stroke-width='7'/>
+<circle cx='68' cy='68' r='63.5' fill='none' stroke='${CANDY}' stroke-width='7' stroke-dasharray='12.47 12.47' transform='rotate(-8 68 68)'/>
+<circle cx='68' cy='68' r='59.2' fill='none' stroke='${INK}' stroke-width='2.2'/>
+<circle cx='68' cy='68' r='44' fill='none' stroke='${CREAM}' stroke-width='2' stroke-opacity='.8'/>
+<circle cx='68' cy='68' r='44' fill='none' stroke='${CANDY}' stroke-width='2' stroke-dasharray='6 8'/>
+<path d='M68 16v12M68 108v12M16 68h12M108 68h12' stroke='${INK}' stroke-width='6' stroke-linecap='round'/>
+<path d='M68 16v12M68 108v12M16 68h12M108 68h12' stroke='${CREAM}' stroke-width='2.8' stroke-linecap='round'/>`);
 const KN_L = svgUrl('0 0 56 56', `<circle cx='28' cy='28' r='25.5' fill='${CREAM}' stroke='${INK}' stroke-width='3.5'/>
 <circle cx='28' cy='28' r='19' fill='none' stroke='${GOLD}' stroke-width='4'/>
 <path d='M28 15.5l3.4 7.6 8.2.8-6.2 5.5 1.8 8.1L28 33.3l-7.2 4.2 1.8-8.1-6.2-5.5 8.2-.8z' fill='${GOLD}' stroke='${INK}' stroke-width='2.4' stroke-linejoin='round'/>
@@ -68,61 +91,68 @@ const ICON = {
   grenade: `<circle cx='14' cy='18' r='9' fill='${CANDY}' stroke='${INK}' stroke-width='2.4'/><ellipse cx='10.8' cy='14.8' rx='2.4' ry='1.7' fill='#ffd0d6' transform='rotate(-35 10.8 14.8)'/><rect x='10.5' y='6.8' width='7' height='4' rx='1.2' fill='${GOLD}' stroke='${INK}' stroke-width='1.9'/><path d='M14 6.8c0-3 2.5-4 5-3.2' fill='none' stroke='${INK}' stroke-width='2' stroke-linecap='round'/><circle cx='20.5' cy='3.4' r='2.2' fill='#ffe14a' stroke='${INK}' stroke-width='1.2'/>`,
   present: `<rect x='5' y='12' width='20' height='14' rx='2.4' fill='${CANDY}' stroke='${INK}' stroke-width='2.2'/><rect x='3.5' y='8.5' width='23' height='5' rx='2' fill='#ff4a5c' stroke='${INK}' stroke-width='2.2'/><path d='M15 8.5V26' stroke='${INK}' stroke-width='6'/><path d='M15 8.5V26' stroke='${GOLD}' stroke-width='2.8'/><path d='M15 8.5c-2-4-7-4.5-6.8-1.5.3 1.8 4.2 1.5 6.8 1.5zM15 8.5c2-4 7-4.5 6.8-1.5-.3 1.8-4.2 1.5-6.8 1.5z' fill='${GOLD}' stroke='${INK}' stroke-width='1.8' stroke-linejoin='round'/>`,
   bomb: `<circle cx='14' cy='18' r='9' fill='#5a3d96' stroke='${INK}' stroke-width='2.4'/><circle cx='14' cy='18' r='4.2' fill='#9dff4a' stroke='${INK}' stroke-width='1.6'/><rect x='10.5' y='6.8' width='7' height='4' rx='1.2' fill='${GOLD}' stroke='${INK}' stroke-width='1.9'/><path d='M14 6.8c0-3 2.5-4 5-3.2' fill='none' stroke='${INK}' stroke-width='2' stroke-linecap='round'/><circle cx='20.5' cy='3.4' r='2.2' fill='#ffe14a' stroke='${INK}' stroke-width='1.2'/>`,
+  more: `<circle cx='15' cy='15' r='10' fill='${CREAM}' stroke='${INK}' stroke-width='2' stroke-dasharray='3 3'/><path d='M11.5 12a3.5 3.5 0 1 1 5 3.2c-1 .5-1.5 1.1-1.5 2.3' fill='none' stroke='${INK}' stroke-width='2.2' stroke-linecap='round'/><circle cx='15' cy='21' r='1.3' fill='${INK}'/>`,
+  cycle: `<path d='M7 12a8.5 8.5 0 0 1 15-3' fill='none' stroke='${INK}' stroke-width='5' stroke-linecap='round'/><path d='M23 18a8.5 8.5 0 0 1-15 3' fill='none' stroke='${INK}' stroke-width='5' stroke-linecap='round'/><path d='M7 12a8.5 8.5 0 0 1 15-3' fill='none' stroke='${CREAM}' stroke-width='2.2' stroke-linecap='round'/><path d='M23 18a8.5 8.5 0 0 1-15 3' fill='none' stroke='${CREAM}' stroke-width='2.2' stroke-linecap='round'/><path d='M24 4.5v6h-6z' fill='${CREAM}' stroke='${INK}' stroke-width='1.8' stroke-linejoin='round'/><path d='M6 25.5v-6h6z' fill='${CREAM}' stroke='${INK}' stroke-width='1.8' stroke-linejoin='round'/>`,
 };
-ICON.fist = `<path d='M7 13.5c0-2 1.4-3 3-3h11c2.2 0 3.5 1.4 3.5 3.6v5.4c0 4-2.8 6.8-6.8 6.8h-4.4C9.4 26.3 7 23.6 7 20z' fill='#f0c8a0' stroke='${INK}' stroke-width='2.3' stroke-linejoin='round'/><path d='M11.5 10.5v6M15.5 10.5v6M19.5 10.5v6' stroke='${INK}' stroke-width='1.8' stroke-linecap='round'/><path d='M7 17.5c2.5-.4 4.4.6 5.4 2.6' fill='none' stroke='${INK}' stroke-width='2' stroke-linecap='round'/><path d='M8 26.5h12v3H8z' fill='${CANDY}' stroke='${INK}' stroke-width='2' stroke-linejoin='round'/>`;
 const icoSvg = (k, s = 30) => `<svg viewBox="0 0 30 30" width="${s}" height="${s}">${ICON[k] || ''}</svg>`;
-// the fire ring that folds out: a candy-cane ring with four ink-outlined chevrons pointing out (the aim directions)
-const RING_SVG = (() => {
-  const R = FIREBTN.ring, S = R + 14, ch = rot => `<g transform='rotate(${rot})'><path d='M-9 ${-R - 3}l9-9 9 9' fill='none' stroke='${INK}' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/><path d='M-9 ${-R - 3}l9-9 9 9' fill='none' stroke='${CREAM}' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'/></g>`;
-  return `<svg viewBox='${-S} ${-S} ${2 * S} ${2 * S}' width='${2 * S}' height='${2 * S}'><circle r='${R}' fill='${CANDY}' fill-opacity='.10'/>
-<circle r='${R}' fill='none' stroke='${INK}' stroke-width='9'/><circle r='${R}' fill='none' stroke='${CREAM}' stroke-width='5'/>
-<circle r='${R}' fill='none' stroke='${CANDY}' stroke-width='5' stroke-dasharray='11 11'/>${[0, 90, 180, 270].map(ch).join('')}</svg>`;
-})();
+const LABEL = { gatling: 'GATLING', rifle: 'RIFLE', rocket: 'ROCKETS', snowball: 'SNOWBALLS', present: 'PRESENT', bomb: 'BOMB', grenade: 'GRENADE' };
+
 const css = document.createElement('style');
 css.textContent = `
-.pad { position: fixed; width: 136px; height: 136px; margin: -68px 0 0 -68px; border-radius: 50%; pointer-events: none; z-index: 6;
-  border: 3px solid ${INK}; background: ${PAD_L} center/100% 100% no-repeat; box-shadow: 3px 4px 0 ${INK}99; opacity: .4; transition: opacity .3s; }
+.pad { position: fixed; border-radius: 50%; pointer-events: none; z-index: 6; border: 2.5px solid ${INK}; box-sizing: border-box;
+  background: ${PAD_L} center/100% 100% no-repeat; box-shadow: 3px 4px 0 ${INK}88; opacity: .5; transition: opacity .3s; }
 .pad.act { opacity: 1; transition: opacity .06s; }
-.pad .kn { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
-  background: ${KN_L} center/100% 100% no-repeat; box-shadow: 2px 3px 0 ${INK}; }
-#lookDot { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; pointer-events: none; z-index: 6;
-  border: 2.5px solid ${INK}; background: ${CREAM}55; box-shadow: 2px 3px 0 ${INK}66; display: none; }
-#lookDot.act { display: block; }
-#fireBtn { z-index: 7; border-radius: 50% 47% 52% 49% / 48% 52% 47% 53%; transform: rotate(-4deg);
-  background: radial-gradient(circle at 33% 27%, #ff8a96 0 13%, transparent 14%), ${CANDY}; box-shadow: inset 0 0 0 3.5px #ff7d8b, 3px 4px 0 ${INK}; }
-#fireBtn .ico { position: relative; width: 54%; height: 54%; z-index: 2; }
-#fireBtn .ico svg { width: 100%; height: 100%; display: block; }
-#fireBtn .bg { position: absolute; inset: 16%; border-radius: 50%; background: ${CREAM}; border: 2.5px solid ${INK}; z-index: 1; }
-#fireBtn.unarmed { background: #9b8f96; box-shadow: inset 0 0 0 3.5px #b9aeb4, 3px 4px 0 ${INK}; }
-#fireBtn.unarmed .ico { opacity: .7; }
-#fireBtn.held { transform: rotate(-4deg) translate(2px, 3px) scale(.95); box-shadow: inset 0 0 0 3.5px #fff, 1px 1px 0 ${INK}; }
-#fireBtn .fring { position: absolute; left: 50%; top: 50%; width: 0; height: 0; z-index: 0; opacity: 0; transform: scale(.4) rotate(-70deg);
-  transition: transform ${FIREBTN.fold}s cubic-bezier(.3, 1.5, .55, 1), opacity ${FIREBTN.fold * 0.6}s; }
-#fireBtn .fring svg { position: absolute; transform: translate(-50%, -50%); left: 0; top: 0; }
-#fireBtn.held .fring { opacity: 1; transform: scale(1) rotate(0deg); }
-#fireBtn .fdot { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; z-index: 3; border-radius: 50%;
-  background: ${KN_R} center/100% 100% no-repeat; box-shadow: 2px 3px 0 ${INK}; display: none; }
-#fireBtn.held .fdot { display: block; }
-#wdial { z-index: 7; border-radius: 50%; background: ${CREAM}; border: 3px solid ${INK}; box-shadow: inset 0 0 0 4px ${GOLD}, 3px 4px 0 ${INK}; }
-#wdial .rot { position: absolute; inset: 0; transition: transform .12s ease-out; }
-#wdial.drag .rot { transition: none; }
-#wdial .wi { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; opacity: .55; }
-#wdial .wi.on { opacity: 1; }
-#wdial .wi svg { width: 100%; height: 100%; display: block; }
-#wdial .notch { position: absolute; left: 50%; top: -11px; width: 0; height: 0; margin-left: -8px; border: 8px solid transparent; border-top: 11px solid ${INK}; z-index: 2; }
-#wdial .notch::after { content: ''; position: absolute; left: -5px; top: -10px; border: 5px solid transparent; border-top: 7px solid ${GOLD}; }
-#wdial .hub { position: absolute; left: 50%; top: 50%; width: ${DIAL.centreR * 2}px; height: ${DIAL.centreR * 2}px; margin: -${DIAL.centreR}px 0 0 -${DIAL.centreR}px;
-  border-radius: 50%; background: ${CANDY}; border: 2.5px solid ${INK}; box-shadow: 1.5px 2px 0 ${INK}; display: grid; place-items: center; }
-#wdial .hub svg { width: 70%; height: 70%; }
-#wdial.away .hub { background: #9b8f96; }
-#wdial.away .wi.on { opacity: .6; }
+.pad .kn { position: absolute; left: 50%; top: 50%; border-radius: 50%; background: ${KN_L} center/100% 100% no-repeat; box-shadow: 2px 3px 0 ${INK}; }
+#padR { background-image: ${PAD_R}; } #padR .kn { background-image: ${KN_R}; display: grid; place-items: center; }
+#padR .kn .ico { width: 62%; height: 62%; border-radius: 50%; background: ${CREAM}; border: 2px solid ${INK}; display: none; place-items: center; }
+#padR .kn .ico svg { width: 82%; height: 82%; display: block; }
+#padR.eq .kn .ico { display: grid; }
+#padR.hot { opacity: 1; box-shadow: 0 0 0 4px ${CANDY}, 3px 4px 0 4px ${INK}; }
+.padlab { position: fixed; z-index: 6; pointer-events: none; transform: translate(-50%, 0); white-space: nowrap;
+  font: italic 900 11px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; letter-spacing: .12em; color: ${CREAM};
+  text-shadow: 1.5px 1.5px 0 ${INK}, -1px -1px 0 ${INK}, 1px -1px 0 ${INK}, -1px 1px 0 ${INK}; opacity: .85; }
+#qdArc { position: fixed; z-index: 7; pointer-events: none; overflow: visible; }
+#qdArc .hit { pointer-events: all; cursor: pointer; }
+#qdArc .seg .face { fill: ${CREAM}; }
+#qdArc .seg.sel .face { fill: ${GOLD}; }
+#qdArc .seg .lab { font: italic 900 9px ui-rounded, "SF Pro Rounded", system-ui, sans-serif; letter-spacing: .08em; fill: ${INK}; text-anchor: middle; }
+#qdArc .seg.off { opacity: .45; }
+#qdArc .seg.sel .glint { stroke: #fff6c8; }
+#qdArc .seg.press { transform: translate(var(--px), var(--py)); }
+#qdArc .badge circle { fill: ${CANDY}; stroke: ${INK}; stroke-width: 2.2; } #qdArc .badge text { fill: ${CREAM}; font: italic 900 10px ui-rounded, system-ui, sans-serif; text-anchor: middle; }
+#swapBtn { z-index: 7; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #fff6dc 0 13%, transparent 14%), ${GOLD};
+  box-shadow: inset 0 0 0 3px #ffe39a, 3px 4px 0 ${INK}; }
+#swapBtn .cur { position: absolute; inset: 12%; border-radius: 50%; background: ${CREAM}; border: 2px solid ${INK}; display: grid; place-items: center; }
+#swapBtn .cur svg { width: 80%; height: 80%; display: block; }
+#swapBtn .cy { position: absolute; right: -7px; top: -7px; width: 22px; height: 22px; border-radius: 50%; background: ${CANDY}; border: 2px solid ${INK}; display: grid; place-items: center; }
+#swapBtn .cy svg { width: 18px; height: 18px; display: block; }
+#swapBtn .soon { position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%) rotate(-4deg); font: italic 900 8px/1 ui-rounded, system-ui, sans-serif;
+  color: ${CREAM}; background: ${INK}; border-radius: 6px; padding: 2px 4px; letter-spacing: .08em; display: none; text-shadow: none; }
+#swapBtn.soon { background: #b9aeb4; box-shadow: inset 0 0 0 3px #d6cdd2, 3px 4px 0 ${INK}; } #swapBtn.soon .soon { display: block; } #swapBtn.soon .cy { display: none; }
+#swapBtn.on { transform: translate(2px, 3px) scale(.94); box-shadow: 1px 1px 0 ${INK}; }
+#swapFan { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 8; pointer-events: none; display: none; }
+#swapFan.open { display: block; }
+#swapFan .fi { position: absolute; border-radius: 50%; background: ${CREAM}; border: 3px solid ${INK}; box-shadow: 3px 4px 0 ${INK}; display: grid; place-items: center;
+  transform: scale(.4); opacity: 0; transition: transform .14s cubic-bezier(.3,1.6,.5,1), opacity .1s; }
+#swapFan.open .fi { transform: scale(1); opacity: 1; }
+#swapFan .fi svg { width: 72%; height: 72%; display: block; }
+#swapFan .fi.cur { background: ${GOLD}; }
+#swapFan .fi.hi { transform: scale(1.18); background: #fff6c8; box-shadow: 0 0 0 4px ${CANDY}, 3px 4px 0 4px ${INK}; }
+#swapFan .fi.ghost { opacity: .5; }
+#swapFan .fl { position: absolute; transform: translate(-50%, 0); font: italic 900 9px/1 ui-rounded, system-ui, sans-serif; color: ${CREAM}; white-space: nowrap;
+  text-shadow: 1px 1px 0 ${INK}, -1px -1px 0 ${INK}, 1px -1px 0 ${INK}, -1px 1px 0 ${INK}; }
 #reticle { position: fixed; width: 46px; height: 46px; margin: -23px 0 0 -23px; pointer-events: none; z-index: 5; display: none; }
 body.play:not(.ret3d) #reticle { display: block; }
-body:not(.play) .pad, body:not(.play) #fireBtn, body:not(.play) #wdial, body:not(.play) #lookDot { display: none; }
+body:not(.play) .pad, body:not(.play) .padlab, body:not(.play) #qdArc, body:not(.play) #swapBtn, body:not(.play) #swapFan { display: none; }
 `;
 document.head.appendChild(css);
-const padL = document.createElement('div'); padL.className = 'pad'; padL.id = 'padL'; padL.innerHTML = '<div class="kn"></div>'; document.body.appendChild(padL);
-const lookDot = document.createElement('div'); lookDot.id = 'lookDot'; document.body.appendChild(lookDot);
+const hud = document.getElementById('hud') || document.body;
+const mkPad = id => { const p = document.createElement('div'); p.className = 'pad'; p.id = id; p.innerHTML = '<div class="kn"></div>'; document.body.appendChild(p); return p; };
+const padL = mkPad('padL'), padR = mkPad('padR');
+padR.firstChild.innerHTML = '<div class="ico"></div>';
+const padRIco = padR.querySelector('.ico');
+const mkLab = t => { const l = document.createElement('div'); l.className = 'padlab'; l.textContent = t; document.body.appendChild(l); return l; };
+const labL = mkLab('FLY'), labR = mkLab('LOOK · TAP = JUMP');
 const ret = document.createElement('div'); ret.id = 'reticle';
 // the crosshair: an ink-outlined candy-cane ring + four icing ticks + a red pip (src/main.js RET3 paints the same on a canvas)
 ret.innerHTML = `<svg viewBox="0 0 46 46" width="46" height="46"><g fill="none" stroke-linecap="round">
@@ -131,173 +161,258 @@ ret.innerHTML = `<svg viewBox="0 0 46 46" width="46" height="46"><g fill="none" 
 <path d="M23 4v7M23 35v7M4 23h7M35 23h7" stroke="${INK}" stroke-width="6.5"/><path d="M23 4v7M23 35v7M4 23h7M35 23h7" stroke="${CREAM}" stroke-width="3"/></g>
 <circle cx="23" cy="23" r="3.6" fill="${CANDY}" stroke="${INK}" stroke-width="2"/></svg>`;
 document.body.appendChild(ret);
-const hud = document.getElementById('hud') || document.body;
 let lastDevice = 'touch';
-const look = { x: 0, y: 0 };   // px accumulated since the last poll
+const look = { x: 0, y: 0 };   // px of look drag accumulated since the last poll
 
-// ---- FIRE BUTTON -------------------------------------------------------------------------------------------------------------------
-const fireEl = document.createElement('div'); fireEl.className = 'btn'; fireEl.id = 'fireBtn';
-fireEl.innerHTML = `<div class="fring">${RING_SVG}</div><div class="bg"></div><div class="ico"></div><div class="fdot"></div>`;
-hud.appendChild(fireEl); placeAt(fireEl, FIREBTN.x, FIREBTN.y, FIREBTN.size);
-const fireIco = fireEl.querySelector('.ico'), fireDot = fireEl.querySelector('.fdot');
-const fire = { id: null, x: 0, y: 0, ox: 0, oy: 0 };
-let fireKey = '';
-/** the fire button shows this weapon's icon (null = unarmed: a fist, greyed) */
-export function setFire(key) {
-  const k = key || 'fist'; if (k === fireKey) return; fireKey = k;
-  fireIco.innerHTML = icoSvg(k); fireEl.classList.toggle('unarmed', !key);
+// ---- LAYOUT: Korajin's proportions, scaled by the short side ------------------------------------------------------------------
+const insetProbe = document.createElement('div');
+insetProbe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+document.body.appendChild(insetProbe);
+const LAY = { k: 1, L: { x: 0, y: 0 }, R: { x: 0, y: 0 }, swap: { x: 0, y: 0 }, ins: { l: 0, r: 0, b: 0 } };
+const qdSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); qdSvg.id = 'qdArc'; hud.appendChild(qdSvg);
+const swapEl = document.createElement('div'); swapEl.className = 'btn'; swapEl.id = 'swapBtn';
+swapEl.innerHTML = `<div class="cur"></div><div class="cy">${icoSvg('cycle')}</div><div class="soon">SOON</div>`; hud.appendChild(swapEl);
+const swapCur = swapEl.querySelector('.cur');
+const fanEl = document.createElement('div'); fanEl.id = 'swapFan'; hud.appendChild(fanEl);
+const boostEl = document.getElementById('boost');
+function layout() {
+  const W = innerWidth, H = innerHeight, cs = getComputedStyle(insetProbe);
+  LAY.ins = { l: parseFloat(cs.paddingLeft) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0 };
+  const k = LAY.k = Math.min(STICKS.kMax, Math.max(STICKS.kMin, Math.min(W, H) / 393));
+  LAY.L = { x: LAY.ins.l + STICKS.x * k, y: H - LAY.ins.b - STICKS.y * k };
+  LAY.R = { x: W - LAY.ins.r - STICKS.x * k, y: H - LAY.ins.b - STICKS.y * k };
+  const D = 2 * STICKS.ring * k, kn = 2 * STICKS.knob * k;
+  for (const p of [padL, padR]) { p.style.width = p.style.height = D + 'px'; p.style.margin = `${-D / 2}px 0 0 ${-D / 2}px`;
+    const n = p.firstChild; n.style.width = n.style.height = kn + 'px'; n.style.margin = `${-kn / 2}px 0 0 ${-kn / 2}px`; }
+  labL.style.left = LAY.L.x + 'px'; labL.style.top = (LAY.L.y + STICKS.ring * k + 6) + 'px';
+  labR.style.left = LAY.R.x + 'px'; labR.style.top = (LAY.R.y + STICKS.ring * k + 6) + 'px';
+  placeHome(); buildArc();
+  // SWAP: bottom centre between the sticks
+  const sr = SWAP.r * k; LAY.swap = { x: W / 2, y: H - LAY.ins.b - SWAP.y * k };
+  swapEl.style.width = swapEl.style.height = 2 * sr + 'px'; swapEl.style.left = (LAY.swap.x - sr) + 'px'; swapEl.style.top = (LAY.swap.y - sr) + 'px';
+  swapEl.style.right = swapEl.style.bottom = 'auto';
+  if (boostEl) { const br = BOOSTB.r * k; Object.assign(boostEl.style, { width: 2 * br + 'px', height: 2 * br + 'px', left: (LAY.ins.l + BOOSTB.x * k - br) + 'px',
+    top: (H - LAY.ins.b - BOOSTB.y * k - br) + 'px', right: 'auto', bottom: 'auto' }); }
 }
-fireEl.addEventListener('pointerdown', e => {
-  e.preventDefault(); e.stopPropagation(); if (fire.id !== null) return;
-  fire.id = e.pointerId; fire.x = fire.ox = e.clientX; fire.y = fire.oy = e.clientY; try { fireEl.setPointerCapture(fire.id); } catch (_) {}
-  fireEl.classList.add('held'); fireDot.style.transform = ''; lastDevice = e.pointerType === 'mouse' ? 'mouse' : 'touch'; hideHint();
-});
-fireEl.addEventListener('pointermove', e => {
-  if (e.pointerId !== fire.id) return;
-  look.x += (e.clientX - fire.x) * FIREBTN.lookK; look.y += (e.clientY - fire.y) * FIREBTN.lookK; fire.x = e.clientX; fire.y = e.clientY;
-  let dx = e.clientX - fire.ox, dy = e.clientY - fire.oy; const d = Math.hypot(dx, dy), m = FIREBTN.dotMax;
-  if (d > m) { dx *= m / d; dy *= m / d; }
-  fireDot.style.transform = `translate(${dx.toFixed(0)}px,${dy.toFixed(0)}px)`;
-});
-const fireUp = e => { if (e.pointerId !== fire.id) return; fire.id = null; fireEl.classList.remove('held'); };
-fireEl.addEventListener('pointerup', fireUp); fireEl.addEventListener('pointercancel', fireUp);
 
-// ---- WEAPON DIAL ------------------------------------------------------------------------------------------------------------------
-const dialEl = document.createElement('div'); dialEl.className = 'btn'; dialEl.id = 'wdial';
-dialEl.innerHTML = `<div class="rot"></div><div class="notch"></div><div class="hub">${icoSvg('fist')}</div>`;
-hud.appendChild(dialEl);
-const placeDial = () => { const land = innerWidth > innerHeight; placeAt(dialEl, land ? DIAL.landX : DIAL.x, land ? DIAL.landY : DIAL.y, DIAL.size); };
-placeDial(); addEventListener('resize', placeDial);
-const dialRot = dialEl.querySelector('.rot'), dialHub = dialEl.querySelector('.hub');
-const dial = { items: [], idx: 0, key: '', id: null, a: 0, acc: 0, turned: 0, t0: 0, sx: 0, sy: 0, icons: [] };
-const dialStepDeg = () => 360 / Math.max(1, dial.items.length);
-function paintDial() {
-  const rot = dial.idx * dialStepDeg() + dial.acc * DIAL.gain;   // item i sits at -i * step (counter-clockwise), so turning clockwise = next
-  dialRot.style.transform = `rotate(${rot.toFixed(1)}deg)`;
-  dial.icons.forEach((el, i) => { const a = -i * dialStepDeg() * Math.PI / 180, r = DIAL.iconR;
-    el.style.transform = `translate(${(Math.sin(a) * r).toFixed(1)}px,${(-Math.cos(a) * r).toFixed(1)}px) rotate(${(-rot).toFixed(1)}deg)`; el.classList.toggle('on', i === dial.idx); });
+// ---- QUICK DRAW: three arc segments on top of the right ring -------------------------------------------------------------------
+const QD = { segs: {}, state: null };
+function buildArc() {
+  const k = LAY.k, r0 = QUICKDRAW.r0 * k, r1 = QUICKDRAW.r1 * k, C = r1 + 10, h = C + 10;
+  qdSvg.setAttribute('width', 2 * C); qdSvg.setAttribute('height', h); qdSvg.setAttribute('viewBox', `0 0 ${2 * C} ${h}`);
+  qdSvg.style.left = (LAY.R.x - C) + 'px'; qdSvg.style.top = (LAY.R.y - C) + 'px';
+  const P = (a, r) => { const t = a * Math.PI / 180; return `${(C + r * Math.sin(t)).toFixed(1)} ${(C - r * Math.cos(t)).toFixed(1)}`; };
+  const sector = (a0, a1, ra, rb) => `M${P(a0, rb)}A${rb} ${rb} 0 0 1 ${P(a1, rb)}L${P(a1, ra)}A${ra} ${ra} 0 0 0 ${P(a0, ra)}Z`;
+  const arcLine = (a0, a1, r) => `M${P(a0, r)}A${r} ${r} 0 0 1 ${P(a1, r)}`;
+  const XY = (a, r) => { const t = a * Math.PI / 180; return [C + r * Math.sin(t), C - r * Math.cos(t)]; };
+  qdSvg.innerHTML = QUICKDRAW.cats.map((cat, i) => {
+    const a = QUICKDRAW.at[i], a0 = a - QUICKDRAW.seg / 2, a1 = a + QUICKDRAW.seg / 2, d = sector(a0, a1, r0, r1);
+    const [ix, iy] = XY(a, QUICKDRAW.iconR * k), [lx, ly] = XY(a, QUICKDRAW.labR * k), [bx, by] = XY(a1 - 5, r1 - 2), s = QUICKDRAW.icon * k;
+    return `<g class="seg" data-cat="${cat}" style="--px:${(1.5).toFixed(1)}px;--py:2px">
+<path d="${d}" fill="${INK}" transform="translate(2.5 3.5)"/><path class="face" d="${d}"/>
+<path class="glint" d="${arcLine(a0 + 4, a1 - 4, r1 - 4)}" fill="none" stroke="#ffffff" stroke-opacity=".7" stroke-width="2" stroke-linecap="round"/>
+<path d="${d}" fill="none" stroke="${INK}" stroke-width="2.8" stroke-linejoin="round"/>
+<g class="ic" transform="translate(${(ix - s / 2).toFixed(1)} ${(iy - s / 2).toFixed(1)}) scale(${(s / 30).toFixed(3)})"></g>
+<text class="lab" x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" transform="rotate(${a} ${lx.toFixed(1)} ${(ly).toFixed(1)})"></text>
+${cat === 'present' ? `<g class="badge"><circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="9"/><text x="${bx.toFixed(1)}" y="${(by + 3.5).toFixed(1)}">6</text></g>` : ''}
+<path class="hit" d="${d}" fill="transparent"/></g>`;
+  }).join('');
+  QD.segs = {};
+  for (const g of qdSvg.querySelectorAll('.seg')) QD.segs[g.dataset.cat] = { g, ic: g.querySelector('.ic'), lab: g.querySelector('.lab'), n: g.querySelector('.badge text'), key: '' };
+  for (const g of qdSvg.querySelectorAll('.hit')) g.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    const seg = e.target.closest('.seg'); input.catTap = seg.dataset.cat; lastDevice = e.pointerType === 'mouse' ? 'mouse' : 'touch'; hideHint();
+    seg.classList.add('press'); setTimeout(() => seg.classList.remove('press'), 110);
+  });
+  QD.paintKey = ''; if (QD.state) setEquip(QD.state, true);
 }
-/** the dial shows these weapons with `sel` at the top; out = false greys it (the gun is put away) */
-export function setDial(items, sel, out) {
-  const key = items.join(',') + '|' + sel + '|' + out; if (key === dial.key) return;
-  const rebuild = items.join(',') !== dial.items.join(',');
-  dial.key = key; dial.items = items.slice();
-  if (rebuild) { dialRot.innerHTML = items.map(k => `<div class="wi">${icoSvg(k)}</div>`).join(''); dial.icons = [...dialRot.children]; }
-  const i = items.indexOf(sel); if (i >= 0) dial.idx = i;
-  dialEl.classList.toggle('away', !out); dialHub.innerHTML = icoSvg(out ? 'fist' : sel); paintDial();
-}
-const dialAngle = e => { const r = dialEl.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI; };
-dialEl.addEventListener('pointerdown', e => {
-  e.preventDefault(); e.stopPropagation(); if (dial.id !== null) return;
-  dial.id = e.pointerId; dial.a = dialAngle(e); dial.acc = 0; dial.turned = 0; dial.t0 = performance.now(); dial.sx = e.clientX; dial.sy = e.clientY;
-  try { dialEl.setPointerCapture(dial.id); } catch (_) {} dialEl.classList.add('drag'); lastDevice = e.pointerType === 'mouse' ? 'mouse' : 'touch'; hideHint();
-});
-dialEl.addEventListener('pointermove', e => {
-  if (e.pointerId !== dial.id) return;
-  const a = dialAngle(e); let da = a - dial.a; da = ((da + 540) % 360) - 180; dial.a = a;   // screen y is down: + = clockwise
-  dial.acc += da; dial.turned += Math.abs(da);
-  const step = dialStepDeg(), n = dial.items.length;
-  while (dial.acc * DIAL.gain > step / 2) { dial.acc -= step / DIAL.gain; dial.idx = (dial.idx + 1) % n; input.dialStep++; }
-  while (dial.acc * DIAL.gain < -step / 2) { dial.acc += step / DIAL.gain; dial.idx = (dial.idx - 1 + n) % n; input.dialStep--; }
-  paintDial();
-});
-const dialUp = e => {
-  if (e.pointerId !== dial.id) return; dial.id = null; dialEl.classList.remove('drag');
-  if (e.type === 'pointerup' && performance.now() - dial.t0 < DIAL.tapMs && dial.turned < DIAL.tapDeg) {
-    const r = dialEl.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
-    if (Math.hypot(dx, dy) < DIAL.centreR + 4) input.holster = true;
-    else {   // tap a rim icon = that weapon (screen angle from the top, clockwise, minus the dial's turn)
-      const step = dialStepDeg(), rot = dial.idx * step, ang = Math.atan2(dx, -dy) * 180 / Math.PI;
-      const i = ((Math.round(-(ang - rot) / step) % dial.items.length) + dial.items.length) % dial.items.length;
-      input.dialPick = dial.items[i];
-    }
+const variantsOf = (s, cat) => cat === 'gun' ? s.guns : cat === 'present' ? ['present'] : [s.foot ? 'grenade' : 'bomb'];
+/** paint the quick-draw arc, the swap button and the right knob: s = { cat: 'gun' | 'present' | 'bomb' | null, gun, guns, presents, foot } */
+export function setEquip(s, force = false) {
+  QD.state = s;
+  const key = [s.cat, s.gun, s.presents, s.foot].join('|'); if (!force && key === QD.paintKey) return; QD.paintKey = key;
+  const icon = { gun: s.gun, present: 'present', bomb: s.foot ? 'grenade' : 'bomb' };
+  for (const cat of QUICKDRAW.cats) {
+    const S = QD.segs[cat]; if (!S) continue;
+    if (S.key !== icon[cat]) { S.key = icon[cat]; S.ic.innerHTML = ICON[icon[cat]] || ''; S.lab.textContent = LABEL[icon[cat]] || ''; }
+    S.g.classList.toggle('sel', s.cat === cat);
+    S.g.classList.toggle('off', cat === 'present' && (s.foot || s.presents <= 0));
+    if (S.n) S.n.textContent = s.presents;
   }
-  dial.acc = 0; paintDial();
-};
-dialEl.addEventListener('pointerup', dialUp); dialEl.addEventListener('pointercancel', dialUp);
+  // SWAP: the variant of the equipped category (the gun when unarmed); one kind only = SOON
+  const cat = s.cat || 'gun', vs = variantsOf(s, cat), cur = cat === 'gun' ? s.gun : vs[0];
+  swapCur.innerHTML = icoSvg(cur); swapEl.classList.toggle('soon', vs.length < 2);
+  padR.classList.toggle('eq', !!s.cat && !(s.cat === 'present' && s.foot)); padRIco.innerHTML = s.cat ? icoSvg(icon[s.cat]) : '';
+  labL.textContent = s.foot ? 'MOVE' : 'FLY';
+  labR.textContent = s.cat === 'gun' ? 'HOLD = FIRE' : s.cat === 'bomb' ? (s.foot ? 'HOLD = AIM · LIFT = THROW' : 'HOLD = AIM · LIFT = DROP')
+    : s.cat === 'present' && !s.foot ? 'HOLD = AIM · LIFT = DROP' : 'LOOK · TAP = JUMP';
+}
 
-// ---- the left pad + the right-half LOOK fingers ------------------------------------------------------------------------------------
-const padL0 = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
-const looks = new Map();   // pointerId -> { x, y, sx, sy, t0, maxd }
-const homeL = () => ({ x: 110, y: innerHeight - 120 });
-function placeHome() { if (padL0.id === null) { const h = homeL(); padL.style.left = h.x + 'px'; padL.style.top = h.y + 'px'; padL.firstChild.style.transform = ''; } }
-placeHome(); addEventListener('resize', placeHome);
-const isUI = t => t.closest?.('.btn, .mn .b, #pauseBtn, a, .info, .col');
+// ---- SWAP button + its fan ----------------------------------------------------------------------------------------------------------
+const SW = { id: null, t0: 0, open: false, timer: 0, items: [], hi: -1, x: 0, y: 0 };
+function openFan() {
+  const s = QD.state; if (!s || SW.id === null) return;
+  const cat = s.cat || 'gun', vs = variantsOf(s, cat).slice(), cur = cat === 'gun' ? s.gun : vs[0];
+  const ghosts = vs.length < 2 ? 2 : 0; for (let i = 0; i < ghosts; i++) vs.push('more');
+  const k = LAY.k, n = vs.length, R = SWAP.fanR * k, sz = SWAP.item * k, span = SWAP.fanSpan;
+  SW.items = vs.map((v, i) => { const a = (n === 1 ? 0 : -span / 2 + span * i / (n - 1)) * Math.PI / 180;
+    return { v, x: LAY.swap.x + Math.sin(a) * R, y: LAY.swap.y - Math.cos(a) * R }; });
+  fanEl.innerHTML = SW.items.map(it => `<div class="fi${it.v === cur ? ' cur' : ''}${it.v === 'more' ? ' ghost' : ''}" style="left:${(it.x - sz / 2).toFixed(0)}px;top:${(it.y - sz / 2).toFixed(0)}px;width:${sz.toFixed(0)}px;height:${sz.toFixed(0)}px">${icoSvg(it.v)}</div>`
+    + `<div class="fl" style="left:${it.x.toFixed(0)}px;top:${(it.y + sz / 2 + 5).toFixed(0)}px">${it.v === 'more' ? 'SOON' : LABEL[it.v] || ''}</div>`).join('');
+  void fanEl.offsetWidth; fanEl.classList.add('open'); SW.open = true; SW.hi = -1; fanHover(SW.x, SW.y);
+  window.sfx?.play('ui_tap', { vol: 0.4, rate: 1.3 });
+}
+function fanHover(x, y) {
+  if (!SW.open) return;
+  let best = -1, bd = SWAP.pickR * LAY.k;
+  SW.items.forEach((it, i) => { const d = Math.hypot(x - it.x, y - it.y); if (d < bd && it.v !== 'more') { bd = d; best = i; } });
+  if (best !== SW.hi) { SW.hi = best; [...fanEl.querySelectorAll('.fi')].forEach((el, i) => el.classList.toggle('hi', i === best)); }
+}
+function closeFan() { SW.open = false; fanEl.classList.remove('open'); fanEl.innerHTML = ''; SW.items = []; SW.hi = -1; }
+swapEl.addEventListener('pointerdown', e => {
+  e.preventDefault(); e.stopPropagation(); if (SW.id !== null) return;
+  SW.id = e.pointerId; SW.type = e.pointerType; SW.t0 = performance.now(); SW.x = e.clientX; SW.y = e.clientY; SW.seen = SW.t0; swapEl.classList.add('on');
+  clearTimeout(SW.timer); SW.timer = setTimeout(openFan, SWAP.holdMs); lastDevice = e.pointerType === 'mouse' ? 'mouse' : 'touch'; hideHint();
+});
+function swapEnd(clean) {
+  clearTimeout(SW.timer); swapEl.classList.remove('on');
+  if (clean) {
+    if (SW.open) { if (SW.hi >= 0) input.swapPick = SW.items[SW.hi].v; }
+    else input.swapStep++;
+  }
+  SW.id = null; closeFan();
+}
+
+// ---- the sticks + LOOK fingers: every tracked pointer lives here, released in ONE place ---------------------------------------------
+const T = { L: null, R: null };   // { id, ox, oy, x, y, sx, sy, lx, ly, t0, maxd, flicked, seen }
+const looks = new Map();          // pointerId -> { x, y, sx, sy, t0, maxd, seen }
+let rPulse = false, boostId = null;
+const playing = () => document.body.classList.contains('play');
+function placeHome() {
+  if (!T.L) { padL.style.left = LAY.L.x + 'px'; padL.style.top = LAY.L.y + 'px'; padL.firstChild.style.transform = ''; padL.classList.remove('act'); }
+  if (!T.R) { padR.style.left = LAY.R.x + 'px'; padR.style.top = LAY.R.y + 'px'; padR.firstChild.style.transform = ''; padR.classList.remove('act', 'hot'); }
+}
+layout(); addEventListener('resize', layout); addEventListener('orientationchange', () => setTimeout(layout, 120));
+const isUI = t => t.closest?.('.btn, .mn .b, #pauseBtn, a, .info, .col, #qdArc .hit');
 window.addEventListener('pointerdown', e => {
-  if (isUI(e.target) || e.pointerType === 'mouse') return;
+  if (e.pointerType === 'mouse') { mouseDown(e); return; }
+  if (isUI(e.target) || !playing()) return;
   lastDevice = 'touch'; hideHint();
-  if (e.clientX < innerWidth * 0.5) {
-    const P = padL0; if (P.id !== null) return;
-    P.id = e.pointerId; P.ox = e.clientX; P.oy = e.clientY; P.x = P.y = 0; P.t0 = performance.now(); P.maxd = 0; P.sx = e.clientX; P.sy = e.clientY; P.flicked = false;
-    padL.style.left = P.ox + 'px'; padL.style.top = P.oy + 'px'; padL.classList.add('act');
-  } else {
-    looks.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t0: performance.now(), maxd: 0 });
-    lookDot.style.left = e.clientX + 'px'; lookDot.style.top = e.clientY + 'px'; lookDot.classList.add('act');
-  }
+  const now = performance.now(), x = e.clientX, y = e.clientY;
+  const P = { id: e.pointerId, ox: x, oy: y, x: 0, y: 0, sx: x, sy: y, lx: x, ly: y, t0: now, maxd: 0, flicked: false, seen: now };
+  if (x < innerWidth * 0.5) {
+    if (T.L) return;
+    T.L = P; padL.style.left = x + 'px'; padL.style.top = y + 'px'; padL.classList.add('act');
+  } else if (!T.R && y > innerHeight * STICKS.zoneTop) {
+    T.R = P; rPulse = true; padR.style.left = x + 'px'; padR.style.top = y + 'px'; padR.classList.add('act');
+  } else looks.set(e.pointerId, { x, y, sx: x, sy: y, t0: now, maxd: 0, seen: now });
 });
 window.addEventListener('pointermove', e => {
+  if (SW.id === e.pointerId) { SW.x = e.clientX; SW.y = e.clientY; SW.seen = performance.now(); fanHover(e.clientX, e.clientY); return; }
   if (e.pointerType === 'mouse') { mouseMove(e); return; }
+  const now = performance.now();
   const L = looks.get(e.pointerId);
-  if (L) {
-    look.x += e.clientX - L.x; look.y += e.clientY - L.y; L.x = e.clientX; L.y = e.clientY;
-    L.maxd = Math.max(L.maxd, Math.hypot(e.clientX - L.sx, e.clientY - L.sy));
-    lookDot.style.left = e.clientX + 'px'; lookDot.style.top = e.clientY + 'px';
-    return;
-  }
-  const P = padL0; if (e.pointerId !== P.id) return;
-  let dx = e.clientX - P.ox, dy = e.clientY - P.oy; const d = Math.hypot(dx, dy), R = STICKS.R;
-  if (d > R) { dx *= R / d; dy *= R / d; }
-  padL.firstChild.style.transform = `translate(${dx}px,${dy}px)`;
-  P.x = dx / R; P.y = -dy / R; P.maxd = Math.max(P.maxd || 0, Math.hypot(e.clientX - P.sx, e.clientY - P.sy) / R);
-  // LEFT FLICK = DODGE: past FLICK.at of the radius from where the thumb landed, inside FLICK.ms (distance, not a speed estimate)
-  if (!P.flicked && performance.now() - P.t0 < FLICK.ms && P.maxd >= FLICK.at) {
-    const fx = e.clientX - P.sx, fy = e.clientY - P.sy, fd = Math.hypot(fx, fy) || 1;
-    P.flicked = true; input.dodge = { x: fx / fd, y: -fy / fd };
+  if (L) { look.x += e.clientX - L.x; look.y += e.clientY - L.y; L.x = e.clientX; L.y = e.clientY; L.seen = now;
+    L.maxd = Math.max(L.maxd, Math.hypot(e.clientX - L.sx, e.clientY - L.sy)); return; }
+  for (const side of ['L', 'R']) {
+    const P = T[side]; if (!P || P.id !== e.pointerId) continue;
+    P.seen = now; const R = STICKS.R * LAY.k;
+    let dx = e.clientX - P.ox, dy = e.clientY - P.oy; const d = Math.hypot(dx, dy);
+    if (d > R) { dx *= R / d; dy *= R / d; }
+    (side === 'L' ? padL : padR).firstChild.style.transform = `translate(${dx.toFixed(0)}px,${dy.toFixed(0)}px)`;
+    P.x = dx / R; P.y = -dy / R;
+    if (side === 'R') { look.x += (e.clientX - P.lx) * STICKS.dragK; look.y += (e.clientY - P.ly) * STICKS.dragK; }
+    P.lx = e.clientX; P.ly = e.clientY;
+    P.maxd = Math.max(P.maxd, Math.hypot(e.clientX - P.sx, e.clientY - P.sy) / (side === 'L' ? R : 1));
+    // LEFT FLICK = DODGE: past FLICK.at of the radius from where the thumb landed, inside FLICK.ms (distance, not a speed estimate)
+    if (side === 'L' && !P.flicked && now - P.t0 < FLICK.ms && P.maxd >= FLICK.at) {
+      const fx = e.clientX - P.sx, fy = e.clientY - P.sy, fd = Math.hypot(fx, fy) || 1;
+      P.flicked = true; input.dodge = { x: fx / fd, y: -fy / fd };
+    }
   }
 });
-const end = e => {
-  const L = looks.get(e.pointerId);
-  if (L) {   // a quick tap on the right half = JUMP
-    if (e.type === 'pointerup' && performance.now() - L.t0 < LOOK.tapMs && L.maxd < LOOK.tapPx) input.tap = true;
-    looks.delete(e.pointerId); if (!looks.size) lookDot.classList.remove('act');
-    return;
+/** release one pointer (clean = a real pointerup: taps count; anything else is a cancel) */
+function release(id, clean) {
+  if (SW.id === id) swapEnd(clean);
+  if (boostId === id) setBoost(false);
+  const L = looks.get(id);
+  if (L) { if (clean && performance.now() - L.t0 < LOOK.tapMs && L.maxd < LOOK.tapPx) input.tap = true; looks.delete(id); }
+  if (T.L && T.L.id === id) { T.L = null; placeHome(); }
+  if (T.R && T.R.id === id) {
+    const P = T.R; T.R = null; placeHome();
+    if (clean && performance.now() - P.t0 < STICKS.tapMs && P.maxd < STICKS.tapPx) input.rTap = true;
   }
-  const P = padL0; if (e.pointerId !== P.id) return;
-  P.id = null; P.x = P.y = 0; padL.classList.remove('act'); placeHome();
+}
+function releaseAllTouch() {
+  for (const id of [...looks.keys()]) release(id, false);
+  if (T.L) release(T.L.id, false); if (T.R) release(T.R.id, false);
+  if (SW.id !== null && SW.type !== 'mouse') release(SW.id, false);
+  if (boostId !== null) setBoost(false);
+}
+const endEv = e => {
+  if (e.pointerType === 'mouse') { if (SW.id === e.pointerId) release(e.pointerId, e.type === 'pointerup'); if (e.type !== 'lostpointercapture') mouseUp(); return; }
+  release(e.pointerId, e.type === 'pointerup');
 };
-window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) window.addEventListener(ev, endEv, true);
 
-// mouse: drag on the game canvas = LOOK (any button); the LEFT button also FIRES while held
-const mouse = { down: false, fire: false, x: 0, y: 0 };
+// TOUCH-LIST RECONCILIATION + WATCHDOG: the touch events carry the true list of fingers on the glass. A tracked pointer with no finger
+// near it after a touchend (once its pointerup had its chance) is released -- whatever happened to its pointerup.
+const TW = { live: [], lastEnd: -1e9, seen: false };
+const tracked = () => {
+  const a = []; if (T.L) a.push(T.L); if (T.R) a.push(T.R);
+  for (const [id, L] of looks) a.push({ id, lx: L.x, ly: L.y });
+  if (SW.id !== null && SW.type !== 'mouse') a.push({ id: SW.id, lx: SW.x, ly: SW.y });
+  return a.map(p => ({ id: p.id, x: p.lx ?? p.ox, y: p.ly ?? p.oy }));
+};
+function reconcile() {
+  const tr = tracked(); if (tr.length <= TW.live.length) return;
+  // greedy nearest pairs: each live finger claims the tracked pointer nearest it; the unclaimed ones are gone
+  const pairs = []; tr.forEach((p, i) => TW.live.forEach((f, j) => pairs.push([Math.hypot(p.x - f.x, p.y - f.y), i, j])));
+  pairs.sort((a, b) => a[0] - b[0]);
+  const usedP = new Set(), usedF = new Set();
+  for (const [, i, j] of pairs) { if (usedP.has(i) || usedF.has(j)) continue; usedP.add(i); usedF.add(j); }
+  tr.forEach((p, i) => { if (!usedP.has(i)) release(p.id, false); });
+}
+const touchList = e => { TW.seen = true; TW.live = [...e.touches].map(t => ({ x: t.clientX, y: t.clientY })); };
+for (const ev of ['touchstart', 'touchmove']) window.addEventListener(ev, touchList, { passive: true, capture: true });
+for (const ev of ['touchend', 'touchcancel']) window.addEventListener(ev, e => { touchList(e); TW.lastEnd = performance.now();
+  if (!e.touches.length) setTimeout(() => { if (!TW.live.length) releaseAllTouch(); }, 80); }, { passive: true, capture: true });
+// leaving the page / the app / the game drops every finger, key and button
+function releaseEverything() { releaseAllTouch(); keys.clear(); mouseUp(); }
+addEventListener('blur', releaseEverything); addEventListener('pagehide', releaseEverything);
+document.addEventListener('visibilitychange', () => { if (document.hidden) releaseEverything(); });
+
+// ---- mouse (pointer events only: touch-made compat mouse events can't fire): left button = the trigger, any button drag = look ----
+const mouse = { down: false, left: false, x: 0, y: 0 };
+function mouseDown(e) {
+  lastDevice = 'mouse';
+  if (isUI(e.target) || e.target.tagName !== 'CANVAS' || !playing()) return;
+  mouse.down = true; mouse.x = e.clientX; mouse.y = e.clientY; if (e.button === 0) { mouse.left = true; rPulse = true; }
+}
 function mouseMove(e) {
   lastDevice = 'mouse';
+  if (mouse.down && e.buttons === 0) mouseUp();   // the button came up outside the window
   if (mouse.down) { look.x += (e.clientX - mouse.x) * LOOK.mouseK; look.y += (e.clientY - mouse.y) * LOOK.mouseK; }
   mouse.x = e.clientX; mouse.y = e.clientY;
 }
-window.addEventListener('mousedown', e => {
-  if (isUI(e.target) || e.target.tagName !== 'CANVAS') return;
-  mouse.down = true; mouse.x = e.clientX; mouse.y = e.clientY; if (e.button === 0) mouse.fire = true; lastDevice = 'mouse';
-});
-window.addEventListener('mouseup', () => { mouse.down = false; mouse.fire = false; });
+function mouseUp() { mouse.down = false; mouse.left = false; }
 
-// boost button
-const boostEl = document.getElementById('boost');
+// boost button (its finger tracked by id, released with the rest)
 let boostBtn = false;
-if (boostEl) {
-  const on = e => { e.preventDefault(); e.stopPropagation(); boostBtn = true; boostEl.classList.add('on'); };
-  const off = e => { e.preventDefault(); boostBtn = false; boostEl.classList.remove('on'); };
-  boostEl.addEventListener('pointerdown', on); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) boostEl.addEventListener(ev, off);
-}
+function setBoost(on, id = null) { boostBtn = on; boostId = on ? id : null; boostEl?.classList.toggle('on', on); }
+if (boostEl) boostEl.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); setBoost(true, e.pointerId); });
 
-// keyboard: WASD fly / walk, I J K L look, SPACE fire (held), H = gun away / out, 1-4 = a weapon, Q / ] next, [ previous, C dodge
+// keyboard: WASD fly / walk, I J K L look, SPACE = the trigger (fire / hold a drop), 1 / 2 / 3 = PRIMARY / PRESENT / BOMB,
+// Q or ] = next variant, [ = previous, H = unarmed, C dodge
 const keys = new Set();
 window.addEventListener('keydown', e => {
   keys.add(e.code); hideHint(); if (e.code === 'Space') e.preventDefault();
   if (e.repeat) return;
+  if (e.code === 'Space') rPulse = true;
   if (e.code === 'KeyH') input.holster = true;
-  if (e.code === 'KeyQ' || e.code === 'BracketRight') input.dialStep++;
-  if (e.code === 'BracketLeft') input.dialStep--;
-  const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code); if (n >= 0 && dial.items[n]) input.dialPick = dial.items[n];
+  if (e.code === 'KeyQ' || e.code === 'BracketRight') input.swapStep++;
+  if (e.code === 'BracketLeft') input.swapStep--;
+  const n = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (n >= 0) input.catTap = QUICKDRAW.cats[n];
   if (e.code === 'KeyC') { let x = 0, y = 0; if (keys.has('KeyA')) x--; if (keys.has('KeyD')) x++; if (keys.has('KeyW')) y++; if (keys.has('KeyS')) y--; input.dodge = { x, y }; }
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
@@ -305,43 +420,49 @@ window.addEventListener('keyup', e => keys.delete(e.code));
 let hinted = false;
 function hideHint() { if (hinted) return; hinted = true; setTimeout(() => { const h = document.getElementById('hint'); if (h) h.style.opacity = 0; }, 2500); }
 
-// gamepad: left stick flies / walks, right stick = LOOK (rates), RT = fire, LB / RB = turn the dial, Y = gun away / out, A = boost,
-// B = dodge (X / B also drop in the sleigh, X throws a grenade on foot: delivery.js / main.js read the pad themselves)
-let gpLB = false, gpRB = false, gpB = false, gpY = false;
+// gamepad: left stick flies / walks, right stick = camera (rates), RT = the trigger, LB / RB = previous / next variant,
+// Y = PRIMARY, X = PRESENT, B = BOMB, A = boost, LT / L3 = dodge
+const gpPrev = [];
 function gamepad() {
   const gp = navigator.getGamepads?.().find(g => g && g.connected); if (!gp) return null;
-  const dz = v => Math.abs(v) < 0.15 ? 0 : v;
+  const dz = v => Math.abs(v) < 0.15 ? 0 : v, btn = i => !!gp.buttons[i]?.pressed, edge = i => { const b = btn(i), was = gpPrev[i]; gpPrev[i] = b; return b && !was; };
   const g = { lx: dz(gp.axes[0] || 0), ly: -dz(gp.axes[1] || 0), rx: dz(gp.axes[2] || 0), ry: -dz(gp.axes[3] || 0),
-    boost: !!gp.buttons[0]?.pressed, fire: !!gp.buttons[7]?.pressed || (gp.buttons[7]?.value || 0) > 0.3 };
-  const lb = !!gp.buttons[4]?.pressed, rb = !!gp.buttons[5]?.pressed, b = !!gp.buttons[1]?.pressed, y = !!gp.buttons[3]?.pressed;
-  if (rb && !gpRB) input.dialStep++; if (lb && !gpLB) input.dialStep--;
-  if (y && !gpY) input.holster = true;
-  if (b && !gpB) input.dodge = { x: g.lx, y: g.ly };
-  gpLB = lb; gpRB = rb; gpB = b; gpY = y;
-  if (g.lx || g.ly || g.rx || g.ry || g.boost || g.fire || lb || rb || b || y) lastDevice = 'pad';
+    boost: btn(0), fire: btn(7) || (gp.buttons[7]?.value || 0) > 0.3 };
+  if (edge(5)) input.swapStep++; if (edge(4)) input.swapStep--;
+  if (edge(3)) input.catTap = 'gun'; if (edge(2)) input.catTap = 'present'; if (edge(1)) input.catTap = 'bomb';
+  if (edge(6) | edge(10)) input.dodge = { x: g.lx, y: g.ly };
+  if (g.lx || g.ly || g.rx || g.ry || g.boost || g.fire || gp.buttons.some(b => b?.pressed)) lastDevice = 'pad';
   return g;
 }
 
+let lastPlay = false;
 export function pollInput() {
   const curve = v => Math.sign(v) * Math.pow(Math.abs(v), 1.4);
-  const gp = gamepad();
+  const gp = gamepad(), now = performance.now();
+  // the watchdog: a finger missing from the touch list STICKS.watchMs after a touchend is gone
+  if (TW.seen && now - TW.lastEnd > STICKS.watchMs) reconcile();
+  const play = playing(); if (!play && lastPlay) { releaseAllTouch(); mouseUp(); } lastPlay = play;
   let kx = 0, ky = 0;
   if (keys.has('KeyA') || keys.has('ArrowLeft')) kx -= 1;
   if (keys.has('KeyD') || keys.has('ArrowRight')) kx += 1;
   if (keys.has('KeyW') || keys.has('ArrowUp')) ky += 1;
   if (keys.has('KeyS') || keys.has('ArrowDown')) ky -= 1;
-  const L = padL0, now = performance.now();
-  input.steer = Math.max(-1, Math.min(1, curve(L.x) + kx + (gp ? curve(gp.lx) : 0)));
-  input.climb = Math.max(-1, Math.min(1, curve(L.y) + ky + (gp ? curve(gp.ly) : 0)));
-  input.moveHold = L.id !== null && !L.flicked && now - (L.t0 || 0) < FLICK.ms;
-  // the right stick (gamepad) / I J K L: camera RATES
+  const L = T.L, R = T.R;
+  input.steer = Math.max(-1, Math.min(1, curve(L ? L.x : 0) + kx + (gp ? curve(gp.lx) : 0)));
+  input.climb = Math.max(-1, Math.min(1, curve(L ? L.y : 0) + ky + (gp ? curve(gp.ly) : 0)));
+  input.moveHold = !!L && !L.flicked && now - L.t0 < FLICK.ms;
+  // camera RATES: the right stick's deflection (dead zone deadR, rescaled), the gamepad's right stick, I J K L
+  const dzR = v => { const a = Math.abs(v); return a < STICKS.deadR ? 0 : Math.sign(v) * (a - STICKS.deadR) / (1 - STICKS.deadR) * STICKS.rateK; };
   const ckx = (keys.has('KeyL') ? 1 : 0) - (keys.has('KeyJ') ? 1 : 0), cky = (keys.has('KeyI') ? 1 : 0) - (keys.has('KeyK') ? 1 : 0);
-  const rx = Math.max(-1, Math.min(1, (gp ? gp.rx : 0) + ckx)), ry = Math.max(-1, Math.min(1, (gp ? gp.ry : 0) + cky));
+  const rx = Math.max(-1, Math.min(1, (gp ? gp.rx : 0) + ckx + (R ? dzR(R.x) : 0))), ry = Math.max(-1, Math.min(1, (gp ? gp.ry : 0) + cky + (R ? dzR(R.y) : 0)));
   input.rx = input.camX = rx; input.ry = input.camY = ry;
-  // LOOK drags (touch right half, the fire thumb, the mouse): px since the last poll
   input.lookDX = look.x; input.lookDY = look.y; look.x = look.y = 0;
-  input.lookDown = looks.size > 0 || fire.id !== null || mouse.down;
-  input.fire = fire.id !== null || mouse.fire || keys.has('Space') || !!gp?.fire;
+  input.lookDown = looks.size > 0 || !!R || mouse.down;
+  // THE TRIGGER: a level from live pointers only; trigTap = a press that came and went between two polls (a very quick tap)
+  input.trigger = !!R || mouse.left || keys.has('Space') || !!gp?.fire;
+  input.trigTap = rPulse && !input.trigger; rPulse = false;
+  input.fire = input.trigger || input.trigTap;
+  padR.classList.toggle('hot', !!R && QD.state?.cat === 'gun');
   input.boost = boostBtn || keys.has('ShiftLeft') || keys.has('ShiftRight') || !!gp?.boost;
   input.mouse = lastDevice === 'mouse' ? { x: mouse.x, y: mouse.y } : null;
   input.device = lastDevice;
@@ -352,3 +473,5 @@ export function showReticle(x, y, firing) {
   ret.style.left = x + 'px'; ret.style.top = y + 'px';
   ret.style.transform = firing ? `scale(${0.9 + Math.random() * 0.15}) rotate(${Math.random() * 20 - 10}deg)` : '';
 }
+// test hook: what the trigger reads right now (a headless check that lifting always stops the fire)
+window.__inputDbg = () => ({ trigger: input.trigger, fire: input.fire, rStick: !!T.R, looks: looks.size, left: !!T.L });
