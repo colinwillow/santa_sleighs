@@ -416,7 +416,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
   /** a part comes off (non-lethal): hide its range, throw the chunk, cap the wound, flinch */
   function loseRegion(e, r, at, dir) {
     const s = e.reg[r]; if (!s.alive) return; s.alive = false; s.hp = 0;
-    throwChunk(e, r, at, dir, 3.2);
+    throwChunk(e, r, _sp.copy(e.H.position).setY(e.H.position.y + SNOW.height * 0.5), dir, 3.2);   // out from his middle, off his own side
     const R = RG.regions[r], ix = e.mesh.geometry.index; ix.array.fill(0, R.start, R.start + R.count); ix.needsUpdate = true;
     capWound(e, r);
     const n = PARTS[r].name;
@@ -424,7 +424,8 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
     if (n === 'legL' || n === 'legR') e.legs--;
     if (n === 'armR' && e.ball) dropBall(e);
     sfx('snow_puff', { vol: 0.9, rate: 0.75 }); sfx('crunch', { vol: 0.9, rate: 0.7 });
-    e.play('hit', 0.08, true, 1.5); e.hitT = 0.7; e.oneT = 0.7;   // even a committed scoop / heave flinches when a part comes off
+    if (e.role !== 'hit') e.play('hit', 0.08, true, 1.5);   // even a committed scoop / heave flinches (an ongoing flinch isn't rewound: no pop)
+    e.hitT = Math.max(e.hitT, 0.7); e.oneT = Math.max(e.oneT, 0.7);
     if (e.legs <= 0) kill(e, at, dir);
   }
   /** BLOWN APART (his: no die clip): every part still on flies off, a big snow burst */
