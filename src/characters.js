@@ -16,6 +16,7 @@ export const CREW = {
   gunScale: 1.3,
   handGunScale: 0.85, gunTilt: 0.05, handSpread: 0.35,
   blade: 0.3, bladeHead: 0.85, leftGrip: false,
+  hipShare: 0.5,   // b60: share of the side-on turn taken by the hips when standing (0 while walking / running: legs face the run)
   hold: 'pose',   // b58: 'pose' = fixed per-weapon upper body from the Gun Pose sandbox (HOLD poses); 'gunner' = b50 hands-first; 'hand' = b45   // b50 (his: left elbow UP + out, hand in onto the gun, gun inside the right arm): 'gunner' two-handed; 'hand' = b45-49 right-hand carry. Was b47: 'gunner' = side-on body, gun in front of the belly, both hands IK'd with elbows out; 'hand' = b45 gun in the right hand
   gunnerPose: { R: [-0.17, -0.33, 0.3], L: [0.24, -0.25, 0.4], turn: 1, head: 0.8, poleR: [-1.4, -0.3, -0.2], poleL: [0.9, 0.3, 0.1] },   // hand spots from the shoulders' midpoint (his frame); poles from each shoulder   // b45 bladed stance: torso twist (rad, left shoulder forward), share of it the head turns back; left hand IK'd to the front grip   // b44 hand-held gun: size, a touch of muzzle-down, arm spread kept small (it moves the gun hand)
   // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
@@ -317,7 +318,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   const anim = animator('santa', gltf.scene, inst);
   const hat = makeHatSway(B);
   anim.play(role);
-  let idleRole = role, firing = false, kick = 0, flashT = 0, aimWorld = null, aimY = 0, aimP = 0, baseYaw = null, swiv = 0;
+  let idleRole = role, firing = false, kick = 0, flashT = 0, aimWorld = null, aimY = 0, aimP = 0, baseYaw = null, swiv = 0, hipShare = CREW.hipShare;
   const aimQ = Q(), wantQ = Q(), tmp = V(), hq = Q(), sq = Q();
   /** GUNNER (b47, his: "his left arm is completely gone -- it's inside his body"): stubby arms can't reach across that belly, so
    *  his whole body turns side-on from the HIPS (left shoulder leads), the gun is held out in front of the belly in the turned
@@ -372,7 +373,13 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     const ka = 1 - Math.exp(-12 * dt); aimY += (wy - aimY) * ka; aimP += (wp - aimP) * ka;
     const phi = -D(Pz.twist) + aimY;                                    // the body turns; the gun keeps pointing at the aim
     H.getWorldQuaternion(hq); const up = up0.clone().applyQuaternion(hq);
-    twist(['Hips'], Q().setFromAxisAngle(up, phi));
+    // his note (b59): running forward he RAN SIDEWAYS -- the side-on turn came from the hips, so the legs turned too. Now: moving
+    // (walk / run) = the turn lives in the SPINE (legs keep running the way he goes); standing = half of it from the hips (a planted
+    // gunner stance), eased between
+    const moving = anim.role === 'walk' || anim.role === 'run';
+    hipShare += ((moving ? 0 : CREW.hipShare) - hipShare) * (1 - Math.exp(-6 * dt));
+    twist(['Hips'], Q().setFromAxisAngle(up, phi * hipShare));
+    twist(['Spine', 'Spine1', 'Spine2'], Q().setFromAxisAngle(up, phi * (1 - hipShare) / 3));
     twist(['Neck', 'Head'], Q().setFromAxisAngle(up, -phi * Pz.head / 2));
     H.updateMatrixWorld(true);
     const ls = H.worldToLocal(wpos(B.LeftArm)), rs = H.worldToLocal(wpos(B.RightArm)), M = ls.clone().add(rs).multiplyScalar(0.5);
