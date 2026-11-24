@@ -151,7 +151,8 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     // shoots or aims (the gun only fine-aims within a small arc, CREW.footStance.aimYaw). b61: the legs keep the move direction
     // (strafe / backward clips below)
     // he faces the aim only with the gun LOCKED (aiming / shooting); unlocked he runs wherever the left stick goes
-    const aiming = st.dodgeT <= 0 && (st.firing || (input.locked && Math.hypot(input.aimX || 0, input.aimY || 0) > 0.15));
+    // he turns to the crosshair while he SHOOTS (gun locked + thumb on the pad); otherwise he runs where the left stick points
+    const aiming = st.dodgeT <= 0 && st.firing;
     if (aiming) { const a = rig.aimTarget; if (a) st.face = Math.atan2(a.x - st.pos.x, a.z - st.pos.z); }
     const doJump = jumpPress && st.stun <= 0 && st.dodgeT <= 0; jumpPress = false;
     // DODGE: a left flick (input.dodge), on the ground, not knocked down, off cooldown

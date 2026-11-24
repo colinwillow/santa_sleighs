@@ -21,7 +21,7 @@ import { makeDelivery } from './delivery.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 65;
+export const BUILD = 66;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -217,6 +217,8 @@ function updateAim(dt) {
     const wx = input.aimX * reach, wy = -input.aimY * reach, k = 1 - Math.exp(-14 * dt);
     AIM.sx += (wx - AIM.sx) * k; AIM.sy += (wy - AIM.sy) * k;
     px = (rp.x * 0.5 + 0.5) * W + AIM.sx; py = (-rp.y * 0.5 + 0.5) * H + AIM.sy;
+    px = (rp.x * 0.5 + 0.5) * W; py = (-rp.y * 0.5 + 0.5) * H;   // b66: third-person shooter -- the crosshair sits on the aim point ahead
+    // (on foot ~ the middle of the screen; in the sleigh out ahead of the team, not on the sleigh); the right stick moves the CAMERA
   }
   px = THREE.MathUtils.clamp(px, 20, W - 20); py = THREE.MathUtils.clamp(py, 20, H - 20);
   // what's under the reticle: march the camera ray down to the terrain, else a point far along it
