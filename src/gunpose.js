@@ -26,7 +26,7 @@ const css = document.createElement('style'); css.textContent = `
 .gp .b.on { background: #ffd25a; }
 .gp .b.red { background: #e0343c; color: #fff; } .gp .b.green { background: #3fae62; color: #fff; }
 #gpTop { top: calc(env(safe-area-inset-top) + 6px); left: 96px; right: 6px; }
-#gpPanel { left: 0; right: 0; bottom: 0; max-height: 42vh; overflow-y: auto; background: #fff9f0ee; border-top: 2px solid #2a1d16; padding: 6px 10px calc(env(safe-area-inset-bottom) + 8px); }
+#gpPanel { left: 0; right: 0; bottom: 0; max-height: 36vh; overflow-y: auto; background: #fff9f0ee; border-top: 2px solid #2a1d16; padding: 6px 10px calc(env(safe-area-inset-bottom) + 8px); }
 #gpPanel .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 #gpPanel .row label { width: 92px; flex: none; } #gpPanel .row input { flex: 1; } #gpPanel .row span { width: 46px; text-align: right; font-family: ui-monospace, monospace; }
 #gpOut { width: 100%; height: 60px; font: 11px ui-monospace, monospace; }
@@ -126,13 +126,16 @@ renderer.setAnimationLoop(() => {
     if (role === 'fire' && Math.random() < dt * 14) santa.kick();
   }
   // fit: pull the camera back on a narrow (portrait) screen, and centre him in the space the panel leaves
-  const [cp, ct] = VIEWS[view], fit = Math.max(1, 0.95 / camera.aspect), port = innerHeight > innerWidth;
+  const [cp, ct] = VIEWS[view], port = innerHeight > innerWidth;
+  const ph = panel.getBoundingClientRect(), th = top.getBoundingClientRect();
+  const gapTop = port ? th.bottom : 0, gapBot = port ? ph.top : innerHeight, gapH = Math.max(80, gapBot - gapTop);
+  // fit: pull back so he (~2.4 m with the gun) fills ~80% of the free gap, then centre the picture in that gap
+  const fit = Math.max(1, (innerHeight / gapH) * 0.75, 0.95 / camera.aspect);
   const T = new THREE.Vector3(...ct), C = new THREE.Vector3(...cp);
   if (orbit) C.set(Math.sin(orbit.a) * orbit.r, orbit.h, Math.cos(orbit.a) * orbit.r);
   camera.position.copy(T).add(C.sub(T).multiplyScalar(orbit ? 1 : fit)); camera.lookAt(T);
-  const ph = panel.getBoundingClientRect(), th = top.getBoundingClientRect();
-  if (port) camera.setViewOffset(innerWidth, innerHeight, 0, -(ph.height - th.bottom) / 2 + 0, innerWidth, innerHeight);
-  else camera.setViewOffset(innerWidth, innerHeight, -(innerWidth - ph.left) / 2 * 0 + ph.width / 2, 0, innerWidth, innerHeight);
+  const dx = port ? 0 : ph.width / 2, dy = innerHeight / 2 - (gapTop + gapH / 2);
+  camera.setViewOffset(innerWidth, innerHeight, dx, dy, innerWidth, innerHeight);
   drawSkel();
   renderer.render(scene, camera);
 });
