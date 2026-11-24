@@ -29,6 +29,24 @@ export const SNOW = {
   respawn: 20,            // s dead before he's back
   off: 8.2,               // m off the road centre line (just past the sidewalk)
   hide: 220,              // m from the camera: skip animating + hide
+  // b54 (his: "he picks up snow and throws fairly hefty soccer-ball-size snowballs at you... from the ground up at you"): SCOOP
+  // (Mixamo Pick Up Item, the right hand to the snow) -> overhand HEAVE (Mixamo Throw). The ball appears in his right hand at the
+  // scoop's lowest hand point and leaves it at the throw's peak forward hand speed (both measured from the clips at load).
+  fit: { scoop: { spread: 0.65 }, throw: { spread: 0.65 } },   // per-role arm fit over ARMFIT.snowman (snowcheck: 0 flags at .65)
+  ball: {
+    r: 0.3,               // m (a ~0.6 m soccer-ball-size lump)
+    scoopRate: 0.9, throwRate: 1.1,
+    footMin: 6, footMax: 30,   // m: on-foot Santa beyond swipe reach, inside this
+    skyMax: 45, skyAbove: 3,   // m: Santa in the sleigh within this and at least this far above him
+    cd: [5, 8],           // s between one snowman's throws
+    chance: 0.7,          // per s, once allowed
+    g: 14,                // m/s^2 (a hefty ball)
+    speedFoot: 22, speedSky: 28, speedMax: 34,   // m/s: the lob's flight time is the shortest one under the wanted speed
+    splash: 2.2, direct: 1.0, // m from an on-foot Santa: knocked 'small' / 'big'
+    sleighR: 2.6,         // m: a hit on the sleigh
+    shootR: 0.75,         // m: bullets pop it inside this
+    life: 6,
+  },
 };
 /** ARM FIT (his: "his body is very wide, the Mixamo arms swing into it"), run AFTER mixer.update every frame, all in his CHEST
  *  frame (shoulder line + spine, so a punch's body twist carries it): open both upper arms by fit.spread rad round the chest's
@@ -108,8 +126,8 @@ function rayCapsule(o, d, len, a, b, r) {
  * makeSnowmen({ scene, world, groundH, puff(p, color, n, spread, life), onKill(p) }) -> { list, raycast, shoot, blast, update }
  * Loads in the background; until then every call is a no-op.
  */
-export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = () => {}, sfx = () => {}, onHitSanta = null }) {
-  const list = [], clips = {}, gait = { walk: 1.8, run: 5 }, jumpPath = [];
+export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = () => {}, sfx = () => {}, onHitSanta = null, onHitSleigh = null }) {
+  const list = [], clips = {}, gait = { walk: 1.8, run: 5 }, jumpPath = [], ballAt = { grab: 0.3, release: 0.38 };
   let ready = false;
   /** stride speed of the in-place walk / run (2 x the planted foot's sweep a cycle) + the jump attack's forward path (holder m), then
    *  the jump's hips x/z are pinned to frame 0 so the HOLDER carries the travel (no snap back when the clip ends) */
@@ -127,6 +145,22 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       const p0 = H.worldToLocal(par.localToWorld(v.fromArray(tr.values, 0))).clone();
       for (let i = 0; i < n; i++) { const p = H.worldToLocal(par.localToWorld(v.fromArray(tr.values, i * 3))); jumpPath.push(tr.times[i], p.x - p0.x, p.z - p0.z); }
       for (let i = 1; i < n; i++) { tr.values[i * 3] = tr.values[0]; tr.values[i * 3 + 2] = tr.values[2]; }
+    }
+    // the SNOWBALL moments, from the clips themselves: grab = the scoop's lowest right hand, release = the throw's peak FORWARD
+    // right-hand speed (holder frame, +z forward, the game's own arm fit applied)
+    for (const [role, key] of [['scoop', 'grab'], ['throw', 'release']]) {
+      const c = clips[role]; if (!c) continue;
+      const a = mx.clipAction(c); a.play(); const N = 90, fit = { ...ARMFIT.snowman, ...(SNOW.fit[role] || {}) };
+      let best = -1e9, bestF = ballAt[key], prev = null;
+      for (let k = 0; k <= N; k++) {
+        mx.setTime(c.duration * k / N); H.updateMatrixWorld(true); fitSnowArms(P.B, H, fit); H.updateMatrixWorld(true);
+        H.worldToLocal((P.B.weapon_root_right || P.B.RightHand).getWorldPosition(v));
+        if (key === 'grab') { if (-v.y > best) { best = -v.y; bestF = k / N; } }
+        else if (prev) { const sp = (v.z - prev.z) / (c.duration / N); if (sp > best) { best = sp; bestF = (k - 0.5) / N; } }
+        prev = v.clone();
+      }
+      ballAt[key] = bestF; a.stop(); mx.setTime(0);
+      console.log('snowball', key, 'at', bestF.toFixed(3), 'of', role, key === 'grab' ? 'hand y ' + (-best).toFixed(2) : 'fwd hand speed ' + best.toFixed(1) + ' m/s');
     }
     console.log('snowmen gait', gait, 'jump travel', jumpPath.length ? Math.hypot(jumpPath.at(-2), jumpPath.at(-1)).toFixed(2) : '-');
   }
@@ -155,7 +189,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       const mixer = new THREE.AnimationMixer(inst), act = {};
       for (const k in clips) act[k] = mixer.clipAction(clips[k]);
       const e = { H, B: P.B, mixer, act, home: s, r, hp: SNOW.hp, dead: false, deadT: 0, hitT: 0, roarT: 0, near: false, cur: null, yaw: s.ry, pulse: 0,
-        oneT: 0, gapT: 0, jumpCdT: 0, tauntT: 4 + Math.random() * 6, swing: 0, jump0: new THREE.Vector3() };
+        oneT: 0, gapT: 0, jumpCdT: 0, throwCdT: 3 + Math.random() * 4, ball: null, spr: ARMFIT.snowman.spread, fit: { ...ARMFIT.snowman }, tauntT: 4 + Math.random() * 6, swing: 0, jump0: new THREE.Vector3() };
       e.play = (role, fade = 0.2, once = false, speed = 1) => {
         const a = act[role]; if (!a) return;
         a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); a.clampWhenFinished = once; a.timeScale = speed; a.play();
@@ -172,13 +206,14 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
   const _a = new THREE.Vector3(), _b = new THREE.Vector3();
   const capsule = e => { _a.copy(e.H.position); _a.y += e.r * 0.9; _b.copy(e.H.position); _b.y += SNOW.height - e.r * 0.8; };
 
-  const _up = new THREE.Vector3(0, 1, 0);
+  const _up = new THREE.Vector3(0, 1, 0), _zero = new THREE.Vector3();
   /** play a one-shot role to its end (clip length / speed, minus a little so the hand-back blends) */
   function oneShot(e, role, speed = 1, fade = 0.2) {
     const a = e.act[role]; if (!a) return;
     e.play(role, fade, true, speed); e.oneT = a.getClip().duration / speed - 0.2; e.landed = false;
   }
   function kill(e) {
+    if (e.ball) dropBall(e);
     e.dead = true; e.deadT = 0; e.hp = 0;
     e.play('die', 0.15, true, 1.15);
     const c = e.H.position.clone(); c.y += SNOW.height * 0.55;
@@ -190,14 +225,104 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
     if (e.dead || !ready) return;
     e.hp -= n; e.pulse = 1;
     if (e.hp <= 0) { kill(e); return; }
-    if (e.hitT <= 0 && e.role !== 'roar' && e.role !== 'jump') { e.play('hit', 0.08, true, 1.6); e.hitT = 0.75; e.oneT = 0.75; }
+    // a scoop / heave is committed (shoot the BALL instead)
+    if (e.hitT <= 0 && e.role !== 'roar' && e.role !== 'jump' && !((e.role === 'scoop' || e.role === 'throw') && e.oneT > 0)) { e.play('hit', 0.08, true, 1.6); e.hitT = 0.75; e.oneT = 0.75; }
     else if (e.role === 'hit') { e.hitT = Math.max(e.hitT, 0.35); e.oneT = Math.max(e.oneT, 0.35); }
     // a hit makes him look at whoever did it
     if (from) e.wantYaw = Math.atan2(from.x - e.H.position.x, from.z - e.H.position.z);
   }
 
+  // ---- SNOWBALLS: held in his right hand, then ballistic; burst on the ground / a house / Santa / the sleigh, or shot down ----
+  const B_ = SNOW.ball, balls = [];
+  const ballGeo = (() => { const g = new THREE.IcosahedronGeometry(B_.r, 2), p = g.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const n = 1 + 0.09 * Math.sin(v.x * 17 + 1.3) * Math.sin(v.y * 13 + 0.7) * Math.sin(v.z * 15 + 2.1) + 0.05 * Math.sin(v.x * 31 + v.z * 23); v.multiplyScalar(n); p.setXYZ(i, v.x, v.y, v.z); }
+    g.computeVertexNormals(); return g; })();
+  const ballMat = new THREE.MeshStandardMaterial({ color: '#f6f8ff', roughness: 0.9 });
+  // debris: chunks of packed snow (one instanced draw)
+  const CH = 64, chunkMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.13, 0), ballMat, CH), chunks = [];
+  chunkMesh.frustumCulled = false; chunkMesh.count = 0; scene.add(chunkMesh);
+  const _m4 = new THREE.Matrix4(), _q4 = new THREE.Quaternion(), _s4 = new THREE.Vector3(), _e4 = new THREE.Euler();
+  let chunkI = 0;
+  function burst(p, big = true) {
+    puff(p, '#ffffff', big ? 30 : 14, big ? 8 : 4, 1.3); puff(p, '#e4ecff', big ? 16 : 8, big ? 4 : 2.5, 1.6, 0.6);
+    for (let k = 0; k < (big ? 14 : 6); k++) {
+      const c = chunks[chunkI % CH] || (chunks[chunkI % CH] = { p: new THREE.Vector3(), v: new THREE.Vector3(), r: new THREE.Vector3(), life: 0, s: 1 }); chunkI++;
+      c.p.copy(p); c.v.set(Math.random() - 0.5, Math.random() * 0.9 + 0.3, Math.random() - 0.5).multiplyScalar(big ? 9 : 5); c.r.set(Math.random() * 6, Math.random() * 6, 0);
+      c.life = 1.2 + Math.random() * 0.8; c.s = 0.6 + Math.random() * 1.1;
+    }
+    sfx('snow_puff', { vol: big ? 1 : 0.6, rate: 0.6 }); if (big) { sfx('explosion', { vol: 0.35, rate: 0.45 }); sfx('debris', { vol: 0.5, rate: 0.5 }); }
+  }
+  function release(e, target, tvel, sky) {
+    const b = e.ball; e.ball = null; if (!b) return;
+    // LEAD: the shortest flight time t whose launch speed is under the wanted speed, aiming at where he'll be at t
+    const want = sky ? B_.speedSky : B_.speedFoot, d = new THREE.Vector3(), v = new THREE.Vector3();
+    let best = null, bestS = 1e9;
+    for (let t = 0.3; t <= 3.5; t += 0.05) {
+      d.copy(target).addScaledVector(tvel, t).sub(b.m.position);
+      v.copy(d).divideScalar(t); v.y += 0.5 * B_.g * t;
+      const sp = v.length();
+      if (sp <= want) { best = v.clone(); break; }
+      if (sp < bestS) { bestS = sp; best = v.clone(); }
+    }
+    if (best.length() > B_.speedMax) best.setLength(B_.speedMax);
+    b.v.copy(best); b.held = false; b.life = B_.life; b.spin.set(Math.random() * 8 - 4, Math.random() * 4, Math.random() * 8 - 4);
+    sfx('whoosh', { vol: 0.8, rate: 0.55 });
+  }
+  function dropBall(e) { const b = e.ball; if (!b) return; e.ball = null; b.held = false; b.harmless = true; b.v.set(0, 1, 0); b.life = B_.life; }
+  function popBall(b, big) { burst(b.m.position, big); scene.remove(b.m); b.dead = true; }
+  const _hp = new THREE.Vector3(), _hm = new THREE.Vector3(), _bp = new THREE.Vector3();
+  /** where the held ball sits: the palm (weapon_root_right mount) pushed a little out along the hand toward the fingers */
+  function holdPos(e, out) {
+    const m = e.B.weapon_root_right || e.B.RightHand; m.getWorldPosition(out);
+    const f = e.B.RightHandMiddle1; if (f) { f.getWorldPosition(_hm); e.B.RightHand.getWorldPosition(_hp); out.addScaledVector(_hm.sub(_hp).normalize(), B_.r * 0.55); }
+    return out;
+  }
+  function updateBalls(dt, santa, ctx) {
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const b = balls[i];
+      if (b.dead) { balls.splice(i, 1); continue; }
+      if (b.held) { b.grow = Math.min(1, b.grow + dt * 4); b.m.scale.setScalar(0.25 + 0.75 * b.grow); continue; }
+      b.life -= dt; b.trailT -= dt;
+      const steps = 3, h = dt / steps;
+      for (let s = 0; s < steps && !b.dead; s++) {
+        b.v.y -= B_.g * h; b.m.position.addScaledVector(b.v, h);
+        const p = b.m.position;
+        const hitGround = p.y - B_.r * 0.6 < groundH(p.x, p.z), hitHouse = !!world.town?.solidAt(p);
+        let hitSanta = false, hitSleigh = false;
+        if (!b.harmless) {
+          if (ctx.onFoot) { _bp.copy(santa); _bp.y += 1.0; hitSanta = p.distanceTo(_bp) < B_.r + 0.65; }
+          if (ctx.sleigh && p.distanceTo(ctx.sleigh) < B_.sleighR) hitSleigh = true;
+        }
+        if (hitGround || hitHouse || hitSanta || hitSleigh || b.life <= 0) {
+          popBall(b, !b.harmless);
+          if (b.harmless) break;
+          world.town?.blast(p, 1.2, 2);
+          if (ctx.onFoot && onHitSanta) {
+            _bp.copy(santa); _bp.y += 1.0; const dd = p.distanceTo(_bp);
+            if (dd < B_.splash) { const dir = new THREE.Vector3(b.v.x, 0, b.v.z); if (dir.lengthSq() < 1e-4) dir.set(santa.x - p.x, 0, santa.z - p.z); dir.normalize();
+              onHitSanta(dir, hitSanta || dd < B_.direct ? 'big' : 'small', p.clone()); }
+          }
+          if (hitSleigh) onHitSleigh?.(p.clone());
+        }
+      }
+      if (b.dead) continue;
+      b.m.rotation.x += b.spin.x * dt; b.m.rotation.y += b.spin.y * dt; b.m.rotation.z += b.spin.z * dt;
+      if (b.trailT <= 0) { b.trailT = 0.045; puff(b.m.position, '#ffffff', 2, 0.8, 0.5, 0.3); }
+    }
+    // chunks
+    let n = 0;
+    for (const c of chunks) {
+      if (!c || c.life <= 0) continue;
+      c.life -= dt; c.v.y -= 18 * dt; c.p.addScaledVector(c.v, dt);
+      const gy = groundH(c.p.x, c.p.z) + 0.05; if (c.p.y < gy) { c.p.y = gy; c.v.multiplyScalar(Math.exp(-12 * dt)); c.v.y = Math.abs(c.v.y) * 0.2; }
+      c.r.x += dt * 5; c.r.y += dt * 4;
+      _s4.setScalar(c.s * Math.min(1, c.life * 2)); _q4.setFromEuler(_e4.set(c.r.x, c.r.y, 0)); _m4.compose(c.p, _q4, _s4); chunkMesh.setMatrixAt(n++, _m4);
+    }
+    chunkMesh.count = n; chunkMesh.instanceMatrix.needsUpdate = true;
+  }
+
   return {
-    list, SNOW,
+    list, SNOW, balls, ballAt,
     /** first snowman a ray hits: { dist, point, e } or null */
     raycast(o, d, len = 250) {
       if (!ready) return null;
@@ -208,12 +333,18 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         const s = rayCapsule(o, d, len, _a, _b, e.r);
         if (s >= 0 && (!best || s < best.dist)) best = { dist: s, point: o.clone().addScaledVector(d, s), e };
       }
+      for (const b of balls) {   // a snowball in flight can be shot down (a ray vs its sphere, a little generous)
+        if (b.held || b.dead) continue;
+        _w.subVectors(b.m.position, o); const s = _w.dot(d); if (s < 0 || s > len) continue;
+        if (_w.lengthSq() - s * s < B_.shootR * B_.shootR && (!best || s < best.dist)) best = { dist: s, point: o.clone().addScaledVector(d, s), ball: b };
+      }
       return best;
     },
-    shoot(h, n = 1, from = null) { damage(h.e, n, from); },
+    shoot(h, n = 1, from = null) { if (h.ball) { if (!h.ball.dead) popBall(h.ball, false); return; } damage(h.e, n, from); },
     /** area damage: a rocket (r ~3.6, big n) or a snowball */
     blast(p, r, n, from = null) {
       if (!ready) return;
+      for (const b of balls) if (!b.held && !b.dead && b.m.position.distanceTo(p) < r + B_.r) popBall(b, false);
       for (const e of list) {
         if (e.dead) continue;
         capsule(e);
@@ -222,8 +353,11 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       }
     },
     /** dt, the point Santa is at (sleigh or on foot), the camera (to sleep far ones) */
-    update(dt, santa, camera) {
+    update(dt, santa, camera, ctx = {}) {
       if (!ready) return;
+      const tvel = ctx.vel || _zero; let someoneThrowing = list.some(o => !o.dead && (o.role === 'scoop' || o.role === 'throw') && o.oneT > 0);
+      ctx.onFoot = santa.y - groundH(santa.x, santa.z) < 2.5;
+      updateBalls(dt, santa, ctx);
       for (const e of list) {
         const H = e.H;
         if (e.dead) {
@@ -250,7 +384,14 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         const homeD = Math.hypot(P.x - e.home.x, P.z - e.home.z);
         const chase = onFoot && flat < SNOW.aggro && Math.hypot(santa.x - e.home.x, santa.z - e.home.z) < SNOW.leash;
         const near = dist < SNOW.face;
-        e.roarT -= dt; e.jumpCdT -= dt; e.tauntT -= dt; e.gapT -= dt;
+        e.roarT -= dt; e.jumpCdT -= dt; e.tauntT -= dt; e.gapT -= dt; e.throwCdT -= dt;
+        if (e.ball && e.role !== 'scoop' && e.role !== 'throw') dropBall(e);   // a hit knocked it out of his hand
+        // THE SNOWBALL: Santa out of swipe reach on foot (or overhead in the sleigh) -> sometimes scoop + heave instead of walking in
+        const sky = !onFoot && dist < B_.skyMax && santa.y - P.y > B_.skyAbove;
+        if (e.oneT <= 0 && e.gapT <= 0 && e.throwCdT <= 0 && !someoneThrowing && clips.scoop && clips.throw &&
+            ((onFoot && flat > B_.footMin && dist < B_.footMax) || sky) && Math.random() < dt * B_.chance) {
+          oneShot(e, 'scoop', B_.scoopRate, 0.2); someoneThrowing = true; e.throwCdT = B_.cd[0] + Math.random() * (B_.cd[1] - B_.cd[0]); e.wantYaw = null;
+        }
         if (e.hitT > 0) e.hitT -= dt;
         let want = e.home.ry, move = 0;
         if (e.oneT > 0) {                       // a one-shot is playing
@@ -268,7 +409,24 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
               if (flat < SNOW.reach + (e.role === 'jump' ? 1.6 : 0.8) && front > 0.35) onHitSanta?.(new THREE.Vector3(dx, 0, dz).normalize(), e.role === 'jump' ? 'big' : 'small', P.clone());
             }
           }
-          if (e.oneT <= 0) { e.gapT = SNOW.attackGap; e.play('idle', 0.3); }
+          if (e.role === 'scoop' || e.role === 'throw') {   // face Santa the whole way; the ball in at the grab, out at the release
+            want = Math.atan2(dx, dz);
+            const a = e.act[e.role], f = a.time / a.getClip().duration;
+            if (e.role === 'scoop' && !e.ball && f >= ballAt.grab) {
+              const m = new THREE.Mesh(ballGeo, ballMat); m.scale.setScalar(0.25); scene.add(m);
+              e.ball = { m, v: new THREE.Vector3(), spin: new THREE.Vector3(), held: true, grow: 0, life: 0, trailT: 0, owner: e };
+              balls.push(e.ball); holdPos(e, m.position);
+              _bp.copy(P); _bp.y += 0.15; _bp.x += Math.sin(e.yaw) * 0.8; _bp.z += Math.cos(e.yaw) * 0.8; puff(_bp, '#ffffff', 8, 2.5, 0.7); sfx('crunch', { vol: 0.6, rate: 0.7 });
+            }
+            if (e.role === 'throw' && e.ball && f >= ballAt.release) {
+              _bp.copy(santa); if (onFoot) _bp.y += 1.0;
+              release(e, _bp, tvel, !onFoot);
+            }
+          }
+          if (e.oneT <= 0) {
+            if (e.role === 'scoop' && e.ball) oneShot(e, 'throw', B_.throwRate, 0.2);
+            else { if (e.ball) dropBall(e); e.gapT = SNOW.attackGap; e.play('idle', 0.3); }
+          }
         } else if (chase) {
           want = Math.atan2(dx, dz);
           if (!e.near && e.roarT <= 0) { oneShot(e, 'roar', 1.4, 0.25); e.roarT = SNOW.roarCd; sfx('crunch', { vol: 0.5, rate: 0.5 }); }
@@ -310,7 +468,10 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         if (e.grow == null) H.scale.set(1 + e.pulse * 0.06, 1 - e.pulse * 0.07, 1 + e.pulse * 0.06);   // a squash on each hit
         e.mixer.update(dt);
         H.updateMatrixWorld(true);
-        fitSnowArms(e.B, H);   // his round body: Mixamo arms swing into it
+        const ws = SNOW.fit[e.role]?.spread ?? ARMFIT.snowman.spread;   // per-role arm fit, eased (no pop at the crossfade)
+        e.spr += (ws - e.spr) * (1 - Math.exp(-8 * dt)); e.fit.spread = e.spr;
+        fitSnowArms(e.B, H, e.fit);   // his round body: Mixamo arms swing into it
+        if (e.ball?.held) holdPos(e, e.ball.m.position);
       }
     },
   };

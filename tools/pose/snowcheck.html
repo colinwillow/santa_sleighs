@@ -14,7 +14,8 @@ import { CLIPS } from './src/anim.js';
 import { retargetClip } from './src/retarget.js';
 import { SNOW, fitSnowArms } from './src/enemies.js';
 const q = new URLSearchParams(location.search), roles = (q.get('r') || Object.keys(CLIPS.snowman).join(',')).split(','), NS = +(q.get('n') || 16);
-const fit = q.get('fit') === '0' ? null : (q.get('fitj') ? { ...ARMFIT.snowman, ...JSON.parse(q.get('fitj')) } : ARMFIT.snowman);
+// per-role overrides (SNOW.fit[role], b54: scoop / throw open the arms a bit more) exactly as the game applies them
+const fitFor = role => q.get('fit') === '0' ? null : { ...ARMFIT.snowman, ...(SNOW.fit?.[role] || {}), ...(q.get('fitj') ? JSON.parse(q.get('fitj')) : {}) };
 const VW = 360, VH = 400, views = [['front', 0], ['side', Math.PI / 2], ['top', 'top']];
 const W = VW * views.length, H = VH * roles.length;
 const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(W, H); document.body.appendChild(r.domElement); r.setScissorTest(true);
@@ -22,11 +23,11 @@ const L = new GLTFLoader(); const D = new DRACOLoader(); D.setDecoderPath('./ven
 const load = u => new Promise((res, rej) => L.load(u, res, undefined, rej));
 const COL = { L: 0x1e6bff, R: 0xff2a2a, C: 0xf0c000 };
 const side = n => /Left/.test(n) ? 'L' : /Right/.test(n) ? 'R' : 'C';
-const report = { fit };
+const report = {};
 (async () => {
   const g = await load(SNOW.url);
   for (let ri = 0; ri < roles.length; ri++) {
-    const role = roles[ri], stem = CLIPS.snowman[role];
+    const role = roles[ri], stem = CLIPS.snowman[role], fit = fitFor(role); report['fit_' + role] = fit;
     const a = await load(`./models/anims/${stem}.glb`), clip = retargetClip(a.scene, a.animations[0], g.scene, { name: role });
     const inst = skClone(g.scene), P = prep(inst, SNOW.height), Hd = P.holder, Bn = P.B;
     const sc = new THREE.Scene(); sc.background = new THREE.Color(ri % 2 ? '#f6f6f6' : '#ffffff'); sc.add(Hd);
@@ -68,12 +69,14 @@ const report = { fit };
         rep[n + '_in'] = +e.toFixed(2); rep[n + '_torsoHalf'] = [+hx.toFixed(2), +hz.toFixed(2)];
         if (e < 1) flags.push(n + (ar ? ' (its skin)' : '') + ' INSIDE the body (ellipse ' + e.toFixed(2) + ' < 1; |x| ' + Math.abs(x - cx).toFixed(2) + ' vs half-width ' + hx.toFixed(2) + ')');
       }
+      rep.RHh = Hd.worldToLocal(Bn.RightHand.getWorldPosition(new THREE.Vector3())).toArray().map(v => +v.toFixed(2));   // right hand in his HOLDER frame (+z forward)
+      rep.LHy = +Hd.worldToLocal(Bn.LeftHand.getWorldPosition(new THREE.Vector3())).y.toFixed(2);
       rep.flags = flags; return rep;
     };
     const samples = []; for (let k = 0; k < NS; k++) samples.push(measure(clip.duration * k / NS));
     const worst = samples.reduce((m, s) => s.flags.length > m.flags.length ? s : m, samples[NS >> 1]);
     const minIn = {}; for (const n of ['LeftForeArm', 'RightForeArm', 'LeftHand', 'RightHand']) minIn[n] = Math.min(...samples.map(s => s[n + '_in'] ?? 99));
-    report[role] = { stem, flagged: samples.filter(s => s.flags.length).length + '/' + NS, flags: samples.reduce((n, s) => n + s.flags.length, 0), minEllipse: minIn, worst };
+    report[role] = { stem, track: samples.map(s => [s.t, ...s.RHh, s.LHy]), flagged: samples.filter(s => s.flags.length).length + '/' + NS, flags: samples.reduce((n, s) => n + s.flags.length, 0), minEllipse: minIn, worst };
     pose(worst.t);
     inst.traverse(o => { if (o.isMesh) { o.material = new THREE.MeshBasicMaterial({ color: 0xa8b8d0, transparent: true, opacity: 0.2, depthWrite: false }); o.frustumCulled = false; } });
     const Pw = o => o.getWorldPosition(new THREE.Vector3()), top = new THREE.Group(); sc.add(top);
