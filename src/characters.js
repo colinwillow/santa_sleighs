@@ -15,7 +15,9 @@ export const CREW = {
   santaZ: 0.35,                       // where he stands
   gunScale: 1.3,
   handGunScale: 0.85, gunTilt: 0.05, handSpread: 0.35,
-  blade: 0.6, bladeHead: 0.85, leftGrip: true,   // b45 bladed stance: torso twist (rad, left shoulder forward), share of it the head turns back; left hand IK'd to the front grip   // b44 hand-held gun: size, a touch of muzzle-down, arm spread kept small (it moves the gun hand)
+  blade: 0.3, bladeHead: 0.85, leftGrip: false,
+  hold: 'hand',   // b47: 'gunner' = side-on body, gun in front of the belly, both hands IK'd with elbows out; 'hand' = b45 gun in the right hand
+  gunnerPose: { blade: 0.7, head: 0.85, at: [-0.12, -0.3, 0.45], poleR: [-1.6, -0.6, -0.3], poleL: [1.6, -0.9, 0.5] },   // b45 bladed stance: torso twist (rad, left shoulder forward), share of it the head turns back; left hand IK'd to the front grip   // b44 hand-held gun: size, a touch of muzzle-down, arm spread kept small (it moves the gun hand)
   // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
   // arms were inside his body) the gun is held further out and the elbows flare to the sides so the arms read from behind.
   // side = gun pivot x as a multiple of his right hip's x (0.55 = across the belly; bigger = out at his right hip, Rambo carry);
@@ -240,9 +242,9 @@ function makeHatSway(B) {
  *  body, so on a wide one the arms swing INTO the belly. `spread` (rad) opens both upper arms outward after the clip; `fwd` (m)
  *  pushes the held gun out from the belly; `pole` scales how far out to the side the elbows bend under the gun IK. */
 export const ARMFIT = {
-  tough:   { spread: 0.15, fwd: 0.05, pole: 1.15 },
-  nocoat:  { spread: 0.5,  fwd: 0.22, pole: 1.6 },
-  classic: { spread: 0.1,  fwd: 0,    pole: 1 },
+  tough:   { spread: 0.15, fwd: 0.05, pole: 1.15, leftOut: 0.42 },
+  nocoat:  { spread: 0.5,  fwd: 0.22, pole: 1.6, leftOut: 0.46 },
+  classic: { spread: 0.1,  fwd: 0,    pole: 1, leftOut: 0.38 },
   snowman: { spread: 0.6,  fwd: 0.25, pole: 1.7 },
   elf:     { spread: 0.22, fwd: 0,    pole: 1 },
 };
@@ -294,8 +296,8 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   // the gun mounts on his WEAPON bone (mounts.py: weapon_root_right, at the palm) -- his rule: never a wrist guess; the hand
   // bone + a palm offset only for a rig without mounts (classic)
   const mount = B.weapon_root_right || B.RightHand;
-  mount.add(pivot);
-  pivot.scale.setScalar(1 / mount.getWorldScale(V()).x);
+  const GUNNER = CREW.hold === 'gunner';
+  if (GUNNER) H.add(pivot); else { mount.add(pivot); pivot.scale.setScalar(1 / mount.getWorldScale(V()).x); }
   gun.g.scale.setScalar(CREW.gunScale * CREW.handGunScale); pivot.add(gun.g);
   let calib = 0;   // frames of the rifle pose seen; lined up at a few frames in
 
@@ -304,6 +306,37 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   anim.play(role);
   let idleRole = role, firing = false, kick = 0, flashT = 0, aimWorld = null, aimY = 0, aimP = 0, baseYaw = null, swiv = 0;
   const aimQ = Q(), wantQ = Q(), tmp = V(), hq = Q(), sq = Q();
+  /** GUNNER (b47, his: "his left arm is completely gone -- it's inside his body"): stubby arms can't reach across that belly, so
+   *  his whole body turns side-on from the HIPS (left shoulder leads), the gun is held out in front of the belly in the turned
+   *  torso's frame pointing at the aim, and BOTH hands are IK'd onto its grips with the elbows pushed OUT to the sides. */
+  const G = CREW.gunnerPose, up0 = new THREE.Vector3(0, 1, 0);
+  function gunnerPose(dt) {
+    if (self.freeArms) return;
+    for (const k of ['LeftShoulder', 'RightShoulder']) if (B[k]?.userData.bind) B[k].quaternion.copy(B[k].userData.bind);   // no clavicle swing under the gun
+    H.getWorldQuaternion(hq); const up = up0.clone().applyQuaternion(hq);
+    twist(['Hips'], Q().setFromAxisAngle(up, -G.blade));                                   // side-on from the hips (feet too)
+    twist(['Neck', 'Head'], Q().setFromAxisAngle(up, G.blade * G.head / 2));               // eyes back on the target
+    H.updateMatrixWorld(true);
+    // aim in his (unturned) frame
+    let wy = 0, wp = 0;
+    if (aimWorld) {
+      tmp.copy(aimWorld); H.worldToLocal(tmp).sub(H.worldToLocal(wpos(B.Spine2)));
+      wy = THREE.MathUtils.clamp(Math.atan2(tmp.x, tmp.z), -(ST.aimYaw ?? CREW.aimYaw), ST.aimYaw ?? CREW.aimYaw);
+      wp = THREE.MathUtils.clamp(Math.atan2(tmp.y, Math.hypot(tmp.x, tmp.z)), -CREW.aimDown, CREW.aimUp);
+    }
+    const ka = 1 - Math.exp(-12 * dt); aimY += (wy - aimY) * ka; aimP += (wp - aimP) * ka;
+    // rear grip: a point in front of the belly, in the TURNED torso's frame (from Spine2, holder-local units)
+    const s2 = H.worldToLocal(wpos(B.Spine2)), c = Math.cos(-G.blade), sn = Math.sin(-G.blade);
+    const [gx, gy, gz] = G.at, ox = gx * c + gz * sn, oz = -gx * sn + gz * c;
+    pivot.position.set(s2.x + ox, s2.y + gy, s2.z + oz);
+    pivot.quaternion.setFromEuler(new THREE.Euler(-aimP, aimY, 0, 'YXZ'));
+    pivot.updateMatrixWorld(true);
+    ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), local(...G.poleR));
+    const sh = wpos(B.LeftArm), reach = (wpos(B.LeftForeArm).distanceTo(sh) + wpos(B.LeftHand).distanceTo(wpos(B.LeftForeArm))) * 0.97;
+    const gl = gun.grips.left.getWorldPosition(V()), gr = gun.grips.right.getWorldPosition(V()), tgt = gl.clone();
+    if (tgt.distanceTo(sh) > reach) { let lo = 0, hi = 1; for (let k = 0; k < 12; k++) { const m = (lo + hi) / 2; tgt.lerpVectors(gr, gl, m); if (tgt.distanceTo(sh) > reach) hi = m; else lo = m; } tgt.lerpVectors(gr, gl, lo); }
+    ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, local(...G.poleL));
+  }
   /** apply a world rotation `r` to each named bone (additive, after the clip) */
   const twist = (names, r) => { for (const k of names) { const b = B[k]; if (!b) continue; b.getWorldQuaternion(sq); const w = r.clone().multiply(sq); b.parent.getWorldQuaternion(sq).invert(); b.quaternion.copy(sq.multiply(w)); b.updateMatrixWorld(true); } };
   const self = {
@@ -337,6 +370,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
         H.rotation.y = baseYaw + swiv;
       }
       H.updateMatrixWorld(true);
+      if (GUNNER) { gunnerPose(dt); kick *= Math.exp(-18 * dt); gun.g.position.set(0, 0, -kick); gun.g.rotation.x = -kick * 1.4; flashT -= dt; gun.flash.visible = flashT > 0; gun.firing = firing; gun.updBelt(t, dt); cig.ember.scale.setScalar(1 + Math.sin(t * 3) * 0.15); hat(dt); return; }
       // BLADED STANCE (his: "stubby thick arms -- he needs to turn his torso to the side to shoot a two-handed gun"): the torso
       // twists side-on (left shoulder forward) and the neck + head turn back toward the target; the gun is lined up AFTER this,
       // so it still points ahead, and the left hand can now reach the front grip
@@ -364,6 +398,14 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
         H.getWorldQuaternion(hq); const up = new THREE.Vector3(0, 1, 0).applyQuaternion(hq), rt = new THREE.Vector3(1, 0, 0).applyQuaternion(hq);
         const r = Q().setFromAxisAngle(up, aimY / 3).multiply(Q().setFromAxisAngle(rt, -aimP / 3));
         twist(['Spine', 'Spine1', 'Spine2'], r);
+      }
+      // LEFT ARM KEPT OUTSIDE HIS BODY (b47, his: "his left arm is completely gone -- it's inside his body"; measured: in the rifle
+      // clips his left elbow sits at his chest's centre-line). His arms are too short to reach a Gatling's front grip across that
+      // belly, so the left hand follows the clip's motion but is pushed out to his side (never past fit.leftOut from his middle)
+      if (!self.freeArms && fit.leftOut) {
+        const lh = H.worldToLocal(wpos(B.LeftHand)), sh0 = H.worldToLocal(wpos(B.LeftArm));
+        lh.x = Math.max(lh.x, fit.leftOut); lh.z = THREE.MathUtils.clamp(lh.z, -0.15, 0.35); lh.y = Math.min(lh.y, sh0.y - 0.15);
+        ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, H.localToWorld(lh), local(1.6, 0.6, -0.6));   // elbow out + back
       }
       // the support hand on the gun's front grip (slides back along the gun to what his arm can reach)
       if (!self.freeArms && gun.grips?.left && CREW.leftGrip) {

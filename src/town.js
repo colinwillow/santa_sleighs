@@ -71,22 +71,37 @@ function polyDist(p, u, y) {
 
 // ---- the painted ICING ATLAS (b44): regions painted in metres (y up), sampled by the slab fronts ------------------------
 const ICE = '#f2e8de', ICE_SH = 'rgba(70,30,10,0.42)', CANDY = '#d42a36';
-const AT = { W: 1024, H: 2048, pad: 6, x: 16, y: 0, rowH: 16, keys: new Map(), cv: null, g: null };
-const WHITE = [8, 8];
-function region(key, u0, u1, y0, y1, paint) {
+const AT = { W: 1024, pad: 5, list: [], keys: new Map() };
+const WHITE = [-1, 0, 0];   // uv entries are [region id, local px u, local px v]; -1 = the white block (vertex colour only)
+/** b47: regions are only REGISTERED while houses build (local metres 0..w x 0..h, y up) and packed + painted in finish(),
+ *  tallest first, so the atlas is as small as the paint allows. One region per distinct layout (front / back per W x top,
+ *  side per D x top, gable per W, roof per W x D). */
+function region(key, w, h, paint) {
   let r = AT.keys.get(key); if (r) return r;
-  if (!AT.g) { AT.cv = document.createElement('canvas'); AT.cv.width = AT.W; AT.cv.height = AT.H; AT.g = AT.cv.getContext('2d'); AT.g.fillStyle = '#fff'; AT.g.fillRect(0, 0, 16, 16); }
-  const ppm = TOWN.ppm, p = AT.pad, w = Math.ceil((u1 - u0) * ppm) + 2 * p, h = Math.ceil((y1 - y0) * ppm) + 2 * p;
-  if (AT.x + w > AT.W) { AT.y += AT.rowH; AT.x = 0; AT.rowH = 0; }
-  if (AT.y + h > AT.H) console.warn('town atlas full', key);
-  const ox = AT.x + p, oy = AT.y + h - p;           // canvas px of (u0, y0)
-  AT.x += w; AT.rowH = Math.max(AT.rowH, h);
-  r = { u0, y0, ox, oy }; AT.keys.set(key, r);
-  const g = AT.g; g.save(); g.beginPath(); g.rect(ox - p, oy - h + p, w, h); g.clip();
-  g.setTransform(ppm, 0, 0, -ppm, ox - u0 * ppm, oy + y0 * ppm);
-  paint(g, u0 - p / ppm, u1 + p / ppm, y0 - p / ppm, y1 + p / ppm);
-  g.restore();
+  r = { id: AT.list.length, key, w, h, paint, ox: 0, oy: 0 }; AT.list.push(r); AT.keys.set(key, r);
   return r;
+}
+/** shelf-pack + paint every region; returns the canvas (width AT.W, height = what was used, a multiple of 16) */
+function paintAtlas() {
+  const ppm = TOWN.ppm, p = AT.pad, W = AT.W;
+  const rs = AT.list.map(r => ({ r, w: Math.ceil(r.w * ppm) + 2 * p, h: Math.ceil(r.h * ppm) + 2 * p })).sort((a, b) => b.h - a.h);
+  let x = 16, y = 0, rowH = 16;
+  for (const e of rs) {
+    if (x + e.w > W) { y += rowH; x = 0; rowH = 0; }
+    e.x = x; e.y = y; e.r.ox = x + p; e.r.oy = y + e.h - p;   // canvas px of local (0, 0)
+    x += e.w; rowH = Math.max(rowH, e.h);
+  }
+  const H = Math.max(16, Math.ceil((y + rowH) / 16) * 16);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 16, 16);
+  for (const e of rs) {
+    const r = e.r; g.save(); g.beginPath(); g.rect(e.x, e.y, e.w, e.h); g.clip();
+    g.setTransform(ppm, 0, 0, -ppm, r.ox, r.oy);
+    r.paint(g, -p / ppm, r.w + p / ppm, -p / ppm, r.h + p / ppm);
+    g.restore();
+  }
+  AT.size = [W, H];
+  return cv;
 }
 /** a piped line: shadow under, icing, a thin highlight on top */
 function iced(g, path, w) {
@@ -234,11 +249,11 @@ function insetPoly(poly, d) {
 }
 
 export function makeTown(scene) {
-  Object.assign(AT, { x: 16, y: 0, rowH: 16, keys: new Map(), cv: null, g: null });   // a fresh atlas per town
+  Object.assign(AT, { list: [], keys: new Map() });   // a fresh atlas per town
   const chunks = [];       // { h, S, kind, poly, bb, i0, i1, v0, vb, v1, hp, alive, col, lmin, lmax, band, top, ground, up, side, rest }
   const houses = [];
   let built = false, mesh, debrisMesh, wallProxy, roofProxy;
-  const G = { pos: [], nrm: [], col: [], uv: [], idx: [] };
+  const G = { pos: [], nrm: [], col: [], uv: [], idx: [] };   // uv: 3 a vertex (region id, local px) until finish()
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   const V3 = THREE.Vector3;
   const icingC = new THREE.Color(TOWN.icing), crumbC = new THREE.Color(TOWN.crumb);
@@ -250,7 +265,7 @@ export function makeTown(scene) {
     const i = G.pos.length / 3;
     _v.copy(p).applyMatrix4(curH); G.pos.push(_v.x, _v.y, _v.z);
     _n.copy(n).applyQuaternion(curQ).normalize(); G.nrm.push(_n.x, _n.y, _n.z);
-    G.col.push(c.r, c.g, c.b); G.uv.push(uv[0], uv[1]);
+    G.col.push(c.r, c.g, c.b); G.uv.push(uv[0], uv[1], uv[2]);
     return i;
   }
   const tri = (a, b, c) => G.idx.push(a, b, c);
@@ -263,7 +278,7 @@ export function makeTown(scene) {
     const tint = R ? new THREE.Color(col.r / S.base.r, col.g / S.base.g, col.b / S.base.b) : col;
     const cf = tint.clone().multiplyScalar(1.08), cr = tint.clone().multiplyScalar(0.78), cb = col.clone().multiplyScalar(0.6);
     const ci = crumbC.clone().multiply(new THREE.Color(1, 1, 1).lerp(col, 0.25)), ce = col.clone().multiplyScalar(0.82), ck = col.clone().multiplyScalar(0.4);
-    const uv = (u, y) => R ? [R.ox + (u - R.u0) * ppm, R.oy - (y - R.y0) * ppm] : WHITE;
+    const uv = (u, y) => R ? [R.R.id, (u - R.u0) * ppm, (y - R.y0) * ppm] : WHITE;
     const ip = insetPoly(poly, inner.map(s => s ? TOWN.groove : 0));
     // front
     const c0 = vert(FP(S, cu, cy, h + TOWN.bulge), S.N, cf, uv(cu, cy)), rim = [];
@@ -432,11 +447,12 @@ export function makeTown(scene) {
     const surf = (O, A, B, T0, uvr = null, base = TOWN.cookie[0]) => { const S = { O, A, B, N: new V3().crossVectors(A, B), T: T0, chunks: [], hs, uvr, base: new THREE.Color(base) }; hs.surfs.push(S); return S; };
     const [dw, dh] = TOWN.door, [ww, wy0, wy1] = TOWN.win;
     // b44: the painted atlas regions for this house size (shared by every house of the same size)
-    const kz = `${W.toFixed(2)}:${top.toFixed(2)}:${D.toFixed(2)}`, wy1c = Math.min(wy1, top - 0.35);
+    const f2 = v => v.toFixed(2), kz = `${f2(W)}:${f2(top)}`, wy1c = Math.min(wy1, top - 0.35);
     const wallL = (len, wins, door) => ({ len, top, wins, door, ww, wy0, wy1: wy1c, dw, dh });
-    const rFront = region('front:' + kz, 0, W, 0, top, (g, ...b) => paintWall(g, ...b, wallL(W, [W / 2 - W * 0.28, W / 2 + W * 0.28], W / 2)));
-    const rBack = region('back:' + kz, 0, W, 0, top, (g, ...b) => paintWall(g, ...b, wallL(W, [W / 2 - W * 0.28, W / 2 + W * 0.28], null)));
-    const rSide = region('side:' + kz, 0, D - 2 * T, 0, top, (g, ...b) => paintWall(g, ...b, wallL(D - 2 * T, [(D - 2 * T) / 2], null)));
+    const at = (R, u0 = 0, y0 = 0) => ({ R, u0, y0 });   // a surface's view into a region (local origin offset)
+    const rFront = at(region('front:' + kz, W, top, (g, ...b) => paintWall(g, ...b, wallL(W, [W / 2 - W * 0.28, W / 2 + W * 0.28], W / 2))));
+    const rBack = at(region('back:' + kz, W, top, (g, ...b) => paintWall(g, ...b, wallL(W, [W / 2 - W * 0.28, W / 2 + W * 0.28], null))));
+    const rSide = at(region(`side:${f2(D)}:${f2(top)}`, D - 2 * T, top, (g, ...b) => paintWall(g, ...b, wallL(D - 2 * T, [(D - 2 * T) / 2], null))));
     const win = cu => ({ u0: cu - ww / 2, u1: cu + ww / 2, y0: wy0, y1: Math.min(wy1, top - 0.35) });
     const wallIce = { top: 'pipe', hole: 'pipe' }, eaveIce = { top: 'drip', hole: 'pipe' };
     // walls: front (+z, the door) + back run the full width; the sides fit between them
@@ -452,7 +468,7 @@ export function makeTown(scene) {
     }
     // gables front + back: clipped under the roof's underside
     const yU0 = top - 0.15 + rise - (Tr / 2) / Math.cos(pitch) - 0.02, k = rise / run;
-    const rGable = region('gable:' + kz, 0, W, top, yU0, (g, ...b) => paintGable(g, ...b, { W, top, yU0, k }));
+    const rGable = at(region('gable:' + f2(W), W, yU0 - top, (g, ...b) => paintGable(g, ...b, { W, top: 0, yU0: yU0 - top, k })), 0, top);
     for (const s of [1, -1]) {
       const g = surf(new V3(-s * W / 2, 0, s * (D / 2 - T / 2)), new V3(s, 0, 0), new V3(0, 1, 0), T, rGable);
       fracture(hs, g, { kind: 'gable', u0: 0, u1: W, y0: top, y1: yU0, cell: TOWN.cell.gable, ice: { rake: 'pipe', top: 'pipe' },
@@ -460,7 +476,7 @@ export function makeTown(scene) {
     }
     // roof: one chocolate slab per side, eave + ridge capped in icing, drips off the eave
     const RW = D + 1.0, rLen = slope + 0.2;
-    const rRoof = region('roof:' + kz, -RW / 2, RW / 2, 0, rLen, (g, ...b) => paintRoof(g, ...b, rLen));
+    const rRoof = at(region(`roof:${f2(W)}:${f2(D)}`, RW, rLen, (g, ...b) => paintRoof(g, ...b, rLen)), -RW / 2, 0);
     for (const sgn of [1, -1]) {
       const B = new V3(-sgn * run, rise, 0).normalize(), A = new V3(0, 0, -sgn);
       const O = new V3(sgn * run, top - 0.15, 0).addScaledVector(B, -0.1);
@@ -496,12 +512,14 @@ export function makeTown(scene) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(G.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(G.nrm, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(G.col, 3));
-    // the painted atlas: crop the canvas to what was used (power of two), atlas px -> uv
-    const Hf = Math.min(AT.H, Math.max(64, 2 ** Math.ceil(Math.log2(AT.y + AT.rowH))));
-    let cv = AT.cv;
-    if (cv && Hf < AT.H) { const c2 = document.createElement('canvas'); c2.width = AT.W; c2.height = Hf; c2.getContext('2d').drawImage(cv, 0, 0); cv = c2; }
-    for (let i = 0; i < G.uv.length; i += 2) { G.uv[i] /= AT.W; G.uv[i + 1] = 1 - G.uv[i + 1] / Hf; }
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(G.uv, 2));
+    // the painted atlas: pack + paint the registered regions, then (region, local px) -> uv
+    const cv = AT.list.length ? paintAtlas() : null, [AW, AH] = AT.size || [1, 1], UV = new Float32Array(G.uv.length / 3 * 2);
+    for (let i = 0, j = 0; i < G.uv.length; i += 3, j += 2) {
+      const r = AT.list[G.uv[i]];
+      UV[j] = r ? (r.ox + G.uv[i + 1]) / AW : 8 / AW; UV[j + 1] = r ? 1 - (r.oy - G.uv[i + 2]) / AH : 1 - 8 / AH;
+    }
+    if (cv) console.log(`town atlas ${AW}x${AH} (${AT.list.length} regions, ppm ${TOWN.ppm}) ~${(AW * AH * 4 * 4 / 3 / 1048576).toFixed(1)} MB GPU with mips`);
+    g.setAttribute('uv', new THREE.BufferAttribute(UV, 2));
     if (cv) {
       const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
       mat.map = tex; mat.needsUpdate = true;
@@ -511,7 +529,7 @@ export function makeTown(scene) {
     mesh = new THREE.Mesh(g, mat); mesh.name = 'townChunks';
     mesh.castShadow = false; mesh.receiveShadow = true; mesh.userData.noMerge = true;   // the merger must not swallow the index trick
     scene.add(mesh);
-    G.pos = G.nrm = G.col = G.uv = G.idx = null; AT.cv = AT.g = null;
+    G.pos = G.nrm = G.col = G.uv = G.idx = null; AT.list.forEach(r => { r.paint = null; });
     // debris: a snapped-cookie prism (hexagon, jittered), scaled per chunk
     const dg = new THREE.CylinderGeometry(0.5, 0.5, 1, 6, 1).rotateX(Math.PI / 2).toNonIndexed();
     const dp = dg.attributes.position;
