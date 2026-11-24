@@ -2,6 +2,8 @@
 // (~2.6 m) standing on clear spots just off the village road loop. Presence + reaction only, no attack yet: a menacing idle,
 // they turn to face Santa inside SNOW.face m (a roar when he first comes close), flinch when shot, die in a snow burst after
 // SNOW.hp Gatling hits and come back after SNOW.respawn s. One skinned mesh each; clips are retargeted ONCE and shared.
+// b69: shot parts come OFF (SNOW.parts: arms, legs; head / chest / belly are lethal) as rigid chunks baked from his pose, and
+// death BLOWS HIM APART (every part a chunk). No arms = no swipe / punch / throw (he roars + body-slams); no right arm = no throw.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/DRACOLoader.js';
@@ -50,7 +52,63 @@ export const SNOW = {
     shootR: 0.75,         // m: bullets pop it inside this
     life: 6,
   },
+  // b69 DISMEMBERMENT (his: "I want to be able to blow pieces of the snowman off"): his one skinned mesh is split at load into
+  // REGIONS by each triangle's dominant bone (index ranges sorted by region, one draw still). A region's hp runs out -> its range
+  // collapses and its triangles are BAKED in the current skinned pose into a rigid chunk that flies, bounces and settles in the snow.
+  // a..b(..mid) = the bones the hit point is measured against (minus r, m); cut = the joint the wound clumps sit on. lethal = he dies.
+  parts: {
+    head:  { hp: 7,  r: 0.42, a: 'Neck', b: 'HeadTop_End', cut: 'Neck', lethal: true },
+    armL:  { hp: 6,  r: 0.30, a: 'LeftArm', mid: 'LeftForeArm', b: 'LeftHand', cut: 'LeftArm' },
+    armR:  { hp: 6,  r: 0.30, a: 'RightArm', mid: 'RightForeArm', b: 'RightHand', cut: 'RightArm' },
+    chest: { hp: 16, r: 0.75, a: 'Spine2', b: 'Neck', lethal: true },
+    belly: { hp: 20, r: 0.90, a: 'Hips', b: 'Spine1', lethal: true },
+    legL:  { hp: 9,  r: 0.36, a: 'LeftUpLeg', mid: 'LeftLeg', b: 'LeftFoot', cut: 'LeftUpLeg' },
+    legR:  { hp: 9,  r: 0.36, a: 'RightUpLeg', mid: 'RightLeg', b: 'RightFoot', cut: 'RightUpLeg' },
+  },
+  chunkLife: 8,           // s a chunk lies in the snow before it sinks away
+  chunkPool: 4,           // pooled chunk meshes per region (oldest reused)
+  legSlow: 0.6,           // ground speed x this per lost leg (both legs gone = he dies)
 };
+const PARTS = Object.entries(SNOW.parts).map(([name, p]) => ({ name, ...p })), NREG = PARTS.length;
+/** which region a bone's weight belongs to (index into PARTS) */
+function regionOf(name) {
+  const n = name.replace(/^mixamorig[_:]?/, ''), I = k => PARTS.findIndex(p => p.name === k);
+  if (/^(Neck|Head)/.test(n)) return I('head');
+  if (/^Left(Arm|ForeArm|Hand)/.test(n) || /^(weapon_root_left|gun_tip_left|weapon_tip)$/.test(n)) return I('armL');
+  if (/^Right(Arm|ForeArm|Hand)/.test(n) || /^(weapon_root_right|gun_tip_right|weapon_tip_2)$/.test(n)) return I('armR');
+  if (/^(Spine2|LeftShoulder|RightShoulder)$/.test(n)) return I('chest');
+  if (/^Left(UpLeg|Leg|Foot|Toe)/.test(n)) return I('legL');
+  if (/^Right(UpLeg|Leg|Foot|Toe)/.test(n)) return I('legR');
+  return I('belly');
+}
+/** sort his triangles by region (dominant summed weight of its 3 vertices) + each region's compact chunk data */
+function prepRegions(src) {
+  const g = src.geometry, idx = g.index.array, si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+  const boneReg = src.skeleton.bones.map(b => regionOf(b.name)), tris = PARTS.map(() => []), acc = new Float32Array(NREG);
+  for (let t = 0; t < idx.length; t += 3) {
+    acc.fill(0);
+    for (let c = 0; c < 3; c++) { const v = idx[t + c]; for (let k = 0; k < 4; k++) acc[boneReg[si.getComponent(v, k)]] += sw.getComponent(v, k); }
+    let best = 0; for (let r = 1; r < NREG; r++) if (acc[r] > acc[best]) best = r;
+    tris[best].push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  const sorted = new idx.constructor(idx.length); let o = 0;
+  const regions = tris.map(T => {
+    const start = o; sorted.set(T, o); o += T.length;
+    const map = new Map(), verts = [], loc = new Uint16Array(T.length);
+    T.forEach((v, i) => { let j = map.get(v); if (j === undefined) { j = verts.length; map.set(v, j); verts.push(v); } loc[i] = j; });
+    const n = verts.length, P = new Float32Array(n * 3), N = new Float32Array(n * 3), UV = new Float32Array(n * 2), SI = new Uint16Array(n * 4), SW = new Float32Array(n * 4);
+    verts.forEach((v, j) => {
+      P[j * 3] = pos.getX(v); P[j * 3 + 1] = pos.getY(v); P[j * 3 + 2] = pos.getZ(v);
+      if (nor) { N[j * 3] = nor.getX(v); N[j * 3 + 1] = nor.getY(v); N[j * 3 + 2] = nor.getZ(v); }
+      if (uv) { UV[j * 2] = uv.getX(v); UV[j * 2 + 1] = uv.getY(v); }
+      for (let k = 0; k < 4; k++) { SI[j * 4 + k] = si.getComponent(v, k); SW[j * 4 + k] = sw.getComponent(v, k); }
+    });
+    return { start, count: T.length, n, P, N, SI, SW, uv: new THREE.BufferAttribute(UV, 2), index: new THREE.BufferAttribute(loc, 1) };
+  });
+  console.log('snowman regions', PARTS.map((p, r) => p.name + ' ' + regions[r].count / 3 + ' tris').join(', '));
+  return { sorted, regions };
+}
 /** ARM FIT (his: "his body is very wide, the Mixamo arms swing into it"), run AFTER mixer.update every frame, all in his CHEST
  *  frame (shoulder line + spine, so a punch's body twist carries it): open both upper arms by fit.spread rad round the chest's
  *  forward axis; then (fit.elbow > 0) a two-bone IK keeps each hand where the clip put it -- pushed out to at least fit.hand m
@@ -131,7 +189,7 @@ function rayCapsule(o, d, len, a, b, r) {
  */
 export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = () => {}, sfx = () => {}, onHitSanta = null, onHitSleigh = null }) {
   const list = [], clips = {}, gait = { walk: 1.8, run: 5 }, jumpPath = [], ballAt = { grab: 0.3, release: 0.38 };
-  let ready = false;
+  let ready = false, RG = null, chunkMat = null;
   /** stride speed of the in-place walk / run (2 x the planted foot's sweep a cycle) + the jump attack's forward path (holder m), then
    *  the jump's hips x/z are pinned to frame 0 so the HOLDER carries the travel (no snap back when the clip ends) */
   function measureClips(src) {
@@ -190,6 +248,8 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         if (m.emissive) { m.emissive.setRGB(1, 1, 1); m.emissiveMap = m.map || null; m.emissiveIntensity = SNOW.glow; } m.needsUpdate = true; };
       Array.isArray(o.material) ? o.material.forEach(fix) : fix(o.material);
     });
+    { let src = null; gltf.scene.traverse(o => { if (o.isSkinnedMesh && !src) src = o; }); RG = prepRegions(src);
+      chunkMat = src.material.clone(); chunkMat.side = THREE.DoubleSide; }   // b69: the chunk's open side shows its inside
     const makeOne = (s, extra = false) => {
       const inst = skClone(gltf.scene);
       const P = prep(inst, SNOW.height), H = P.holder;
@@ -198,11 +258,15 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       let rad = 0; const wsc = new THREE.Vector3();
       inst.traverse(o => { if (o.isSkinnedMesh) { o.geometry.computeBoundingBox(); const bb = o.geometry.boundingBox; o.getWorldScale(wsc); rad = Math.max(rad, (bb.max.x - bb.min.x) * wsc.x, (bb.max.z - bb.min.z) * wsc.z); } });
       const r = THREE.MathUtils.clamp(rad * 0.5 * 0.8, 0.55, 1.3);   // hit capsule radius (m), from the bind-pose bounds
+      // b69: his own index buffer (sorted by region; the vertex attributes stay shared with every clone = one GPU copy)
+      let mesh = null; inst.traverse(o => { if (o.isSkinnedMesh && !mesh) mesh = o; });
+      { const g0 = mesh.geometry, g = new THREE.BufferGeometry(); for (const k in g0.attributes) g.setAttribute(k, g0.attributes[k]);
+        g.setIndex(new THREE.BufferAttribute(RG.sorted.slice(), 1)); g.boundingBox = g0.boundingBox; g.boundingSphere = g0.boundingSphere; mesh.geometry = g; }
       const mixer = new THREE.AnimationMixer(inst), act = {};
       for (const k in clips) act[k] = mixer.clipAction(clips[k]);
       const e = { H, B: P.B, mixer, act, home: s, r, hp: SNOW.hp, dead: false, deadT: 0, hitT: 0, roarT: 0, near: false, cur: null, yaw: s.ry, pulse: 0,
         oneT: 0, gapT: 0, jumpCdT: 0, throwCdT: 3 + Math.random() * 4, ball: null, spr: ARMFIT.snowman.spread, fit: { ...ARMFIT.snowman }, tauntT: 4 + Math.random() * 6, swing: 0, jump0: new THREE.Vector3(),
-        extra, free: extra, fly: null };
+        extra, free: extra, fly: null, mesh, reg: PARTS.map(p => ({ hp: p.hp, alive: true })), arms: 2, legs: 2, lastAt: null, lastDir: null, nod: 0 };
       e.play = (role, fade = 0.2, once = false, speed = 1) => {
         const a = act[role]; if (!a) return;
         a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); a.clampWhenFinished = once; a.timeScale = speed; a.play();
@@ -229,19 +293,166 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
     const a = e.act[role]; if (!a) return;
     e.play(role, fade, true, speed); e.oneT = a.getClip().duration / speed - 0.2; e.landed = false;
   }
-  function kill(e) {
+  // ---- b69 DISMEMBERMENT: regions lost to hits fly off as rigid chunks baked from his current pose; death blows him apart ----
+  const _sa = new THREE.Vector3(), _sb = new THREE.Vector3(), _sm = new THREE.Vector3(), _sp = new THREE.Vector3();
+  const segD = (p, a, b) => { _sm.subVectors(b, a); const L = _sm.lengthSq(), t = L > 1e-8 ? THREE.MathUtils.clamp(_sp.subVectors(p, a).dot(_sm) / L, 0, 1) : 0; return _sp.copy(a).addScaledVector(_sm, t).distanceTo(p); };
+  /** distance from p to region r's bone line (minus its radius) */
+  function regionD(e, r, p) {
+    const D = PARTS[r], A = e.B[D.a], Bb = e.B[D.b], M = D.mid && e.B[D.mid]; if (!A || !Bb) return 1e9;
+    A.getWorldPosition(_sa);
+    if (M) { M.getWorldPosition(_sb); const d1 = segD(p, _sa, _sb); Bb.getWorldPosition(_sa); return Math.min(d1, segD(p, _sb, _sa)) - D.r; }
+    Bb.getWorldPosition(_sb); return segD(p, _sa, _sb) - D.r;
+  }
+  function pickRegion(e, p) { let best = -1, bd = 1e9; for (let r = 0; r < NREG; r++) { if (!e.reg[r].alive) continue; const d = regionD(e, r, p); if (d < bd) { bd = d; best = r; } } return best; }
+  function restore(e) {
+    const ix = e.mesh.geometry.index; ix.array.set(RG.sorted); ix.needsUpdate = true;
+    e.reg.forEach((s, r) => { s.hp = PARTS[r].hp; s.alive = true; }); e.arms = 2; e.legs = 2; e.nod = 0;
+    for (const c of caps) if (c.e === e) c.e = null;
+  }
+  // chunks: pooled meshes per region (geometry buffers sized for that region, uv + index shared), positions baked per throw
+  const pool = PARTS.map(() => []), live = [], _bmat = [], AX6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(a => new THREE.Vector3(...a));
+  function getChunk(r) {
+    const P = pool[r], R = RG.regions[r];
+    let c = P.find(o => !o.busy);
+    if (!c && P.length < SNOW.chunkPool) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(R.n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(R.n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('uv', R.uv); g.setIndex(R.index);
+      const m = new THREE.Mesh(g, chunkMat); m.castShadow = true; m.receiveShadow = true; m.visible = false; scene.add(m);
+      c = { r, m, g, busy: false, v: new THREE.Vector3(), w: new THREE.Vector3(), corners: Array.from({ length: 8 }, () => new THREE.Vector3()), life: 0, restT: 0, rest: false, born: 0 };
+      P.push(c);
+    }
+    if (!c) c = P.reduce((a, b) => (b.born < a.born ? b : a));   // all out: reuse the oldest
+    c.busy = true; c.born = performance.now(); c.life = 0; c.restT = 0; c.rest = false; c.m.visible = true; c.m.scale.setScalar(1); c.m.quaternion.identity();
+    if (!live.includes(c)) live.push(c);
+    return c;
+  }
+  /** bake region r of snowman e in its CURRENT skinned pose into a pooled chunk; launch it away from `at` */
+  function throwChunk(e, r, at, dir, power) {
+    const R = RG.regions[r], c = getChunk(r), mesh = e.mesh, sk = mesh.skeleton;
+    e.H.updateMatrixWorld(true);
+    for (let k = 0; k < sk.bones.length; k++) (_bmat[k] || (_bmat[k] = new THREE.Matrix4())).multiplyMatrices(sk.bones[k].matrixWorld, sk.boneInverses[k]).multiply(mesh.bindMatrix);
+    const P = c.g.attributes.position.array, N = c.g.attributes.normal.array;
+    let cx = 0, cy = 0, cz = 0;
+    for (let j = 0; j < R.n; j++) {
+      const x = R.P[j * 3], y = R.P[j * 3 + 1], z = R.P[j * 3 + 2], nx = R.N[j * 3], ny = R.N[j * 3 + 1], nz = R.N[j * 3 + 2];
+      let px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0;
+      for (let k = 0; k < 4; k++) {
+        const w = R.SW[j * 4 + k]; if (!w) continue; const m = _bmat[R.SI[j * 4 + k]].elements;
+        px += w * (m[0] * x + m[4] * y + m[8] * z + m[12]); py += w * (m[1] * x + m[5] * y + m[9] * z + m[13]); pz += w * (m[2] * x + m[6] * y + m[10] * z + m[14]);
+        qx += w * (m[0] * nx + m[4] * ny + m[8] * nz); qy += w * (m[1] * nx + m[5] * ny + m[9] * nz); qz += w * (m[2] * nx + m[6] * ny + m[10] * nz);
+      }
+      const ql = Math.hypot(qx, qy, qz) || 1;
+      P[j * 3] = px; P[j * 3 + 1] = py; P[j * 3 + 2] = pz; N[j * 3] = qx / ql; N[j * 3 + 1] = qy / ql; N[j * 3 + 2] = qz / ql;
+      cx += px; cy += py; cz += pz;
+    }
+    cx /= R.n; cy /= R.n; cz /= R.n;
+    let x0 = 1e9, y0 = 1e9, z0 = 1e9, x1 = -1e9, y1 = -1e9, z1 = -1e9;
+    for (let j = 0; j < R.n; j++) {
+      const x = P[j * 3] -= cx, y = P[j * 3 + 1] -= cy, z = P[j * 3 + 2] -= cz;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
+    }
+    let k = 0; for (const sx of [x0, x1]) for (const sy of [y0, y1]) for (const sz of [z0, z1]) c.corners[k++].set(sx * 0.8, sy * 0.8, sz * 0.8);   // sinks a little into the snow
+    c.g.attributes.position.needsUpdate = true; c.g.attributes.normal.needsUpdate = true; c.g.computeBoundingSphere();
+    c.m.position.set(cx, cy, cz);
+    const out = _sa.set(cx, cy, cz).sub(at); out.y = Math.max(out.y, 0); if (out.lengthSq() < 1e-4) out.set(Math.random() - 0.5, 0, Math.random() - 0.5); out.normalize();
+    c.v.copy(out).multiplyScalar(power * (0.7 + Math.random() * 0.6)); if (dir) c.v.addScaledVector(_sb.copy(dir).setY(0), power * 0.3); c.v.y += power * (0.55 + Math.random() * 0.5);
+    c.w.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(3 + Math.random() * power * 0.6);
+    puff(_sb.set(cx, cy, cz), '#ffffff', 14, 4, 0.9); puff(_sb, '#dfe8ff', 6, 2.5, 1.1);
+    return c;
+  }
+  const _cq = new THREE.Quaternion(), _cq2 = new THREE.Quaternion(), _cv = new THREE.Vector3(), _cdn = new THREE.Vector3(0, -1, 0);
+  function updateChunks(dt) {
+    for (let i = live.length - 1; i >= 0; i--) {
+      const c = live[i], m = c.m; c.life += dt;
+      if (!c.rest) {
+        c.v.y -= 20 * dt; m.position.addScaledVector(c.v, dt);
+        const w = c.w.length(); if (w > 1e-4) { _cq.setFromAxisAngle(_cv.copy(c.w).multiplyScalar(1 / w), w * dt); m.quaternion.premultiply(_cq).normalize(); }
+        let pen = 0; for (const k of c.corners) { _cv.copy(k).applyQuaternion(m.quaternion).add(m.position); pen = Math.max(pen, groundH(_cv.x, _cv.z) - _cv.y); }
+        if (pen > 0) {
+          m.position.y += pen;
+          if (c.v.y < -5) { puff(m.position, '#ffffff', 6, 2.5, 0.6); sfx('snow_puff', { vol: 0.35, rate: 0.8 }); }
+          if (c.v.y < 0) c.v.y *= -0.25;
+          const k = Math.exp(-5 * dt); c.v.x *= k; c.v.z *= k; c.w.multiplyScalar(Math.exp(-3 * dt));
+          if (c.v.lengthSq() < 3) {   // settle on whichever side is nearest the ground
+            c.w.multiplyScalar(Math.exp(-6 * dt));
+            let ba = null, by = 2; for (const a of AX6) { const y = _cv.copy(a).applyQuaternion(m.quaternion).y; if (y < by) { by = y; ba = a; } }
+            _cq2.setFromUnitVectors(_cv.copy(ba).applyQuaternion(m.quaternion), _cdn).multiply(m.quaternion); m.quaternion.slerp(_cq2, 1 - Math.exp(-4 * dt));
+            c.restT += dt; if (c.restT > 1.5) { c.rest = true; c.v.set(0, 0, 0); c.w.set(0, 0, 0); }
+          }
+        }
+      }
+      if (c.life > SNOW.chunkLife) {   // sink away into the snow
+        const k = (c.life - SNOW.chunkLife) / 1.2; m.position.y -= dt * 0.5; m.scale.setScalar(Math.max(0.001, 1 - k));
+        if (k >= 1) { m.visible = false; c.busy = false; live.splice(i, 1); }
+      }
+    }
+  }
+  // the WOUND: a few lumpy snow clumps on the joint the part came off (instanced, one draw for every snowman)
+  const CAPN = 128, capMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshStandardMaterial({ color: '#f6f8ff', roughness: 0.9, emissive: '#ffffff', emissiveIntensity: 0.12 }), CAPN), caps = [];
+  capMesh.count = 0; capMesh.frustumCulled = false; capMesh.castShadow = true; scene.add(capMesh);
+  function capWound(e, r) {
+    const D = PARTS[r], bone = e.B[D.cut]; if (!bone) return;
+    const big = /head/.test(D.name) ? 1.4 : 1;
+    for (let k = 0; k < 4; k++) {
+      let c = caps.find(o => !o.e); if (!c) { if (caps.length >= CAPN) return; c = { off: new THREE.Vector3(), q: new THREE.Quaternion() }; caps.push(c); }
+      c.e = e; c.bone = bone; c.s = (k ? 0.13 + Math.random() * 0.09 : 0.24) * big;
+      c.off.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(k ? 0.32 * big : 0.05);
+      c.q.setFromEuler(new THREE.Euler(Math.random() * 6, Math.random() * 6, 0));
+    }
+  }
+  const _cm = new THREE.Matrix4(), _cs = new THREE.Vector3(), _cpq = new THREE.Quaternion();
+  function updateCaps() {
+    let n = 0;
+    for (const c of caps) {
+      if (!c.e || !c.e.H.visible) continue;
+      c.bone.getWorldPosition(_cv); c.bone.parent.getWorldQuaternion(_cpq);
+      _cv.add(_sa.copy(c.off).applyQuaternion(_cpq)); _cs.setScalar(c.s * (c.e.H.scale.x));
+      capMesh.setMatrixAt(n++, _cm.compose(_cv, _cpq.multiply(c.q), _cs));
+    }
+    capMesh.count = n; capMesh.instanceMatrix.needsUpdate = true;
+  }
+  /** a part comes off (non-lethal): hide its range, throw the chunk, cap the wound, flinch */
+  function loseRegion(e, r, at, dir) {
+    const s = e.reg[r]; if (!s.alive) return; s.alive = false; s.hp = 0;
+    throwChunk(e, r, at, dir, 3.2);
+    const R = RG.regions[r], ix = e.mesh.geometry.index; ix.array.fill(0, R.start, R.start + R.count); ix.needsUpdate = true;
+    capWound(e, r);
+    const n = PARTS[r].name;
+    if (n === 'armL' || n === 'armR') e.arms--;
+    if (n === 'legL' || n === 'legR') e.legs--;
+    if (n === 'armR' && e.ball) dropBall(e);
+    sfx('snow_puff', { vol: 0.9, rate: 0.75 }); sfx('crunch', { vol: 0.9, rate: 0.7 });
+    e.play('hit', 0.08, true, 1.5); e.hitT = 0.7; e.oneT = 0.7;   // even a committed scoop / heave flinches when a part comes off
+    if (e.legs <= 0) kill(e, at, dir);
+  }
+  /** BLOWN APART (his: no die clip): every part still on flies off, a big snow burst */
+  function kill(e, at = null, dir = null, big = false) {
     if (e.ball) dropBall(e);
     e.dead = true; e.deadT = 0; e.hp = 0;
-    e.play('die', 0.15, true, 1.15);
     const c = e.H.position.clone(); c.y += SNOW.height * 0.55;
+    const from = at ? at.clone().lerp(c, 0.35) : c.clone().add(_sa.set(Math.random() - 0.5, -0.6, Math.random() - 0.5));
+    for (let r = 0; r < NREG; r++) if (e.reg[r].alive) { e.reg[r].alive = false; throwChunk(e, r, from, dir, big ? 7 : 5); }
+    e.H.visible = false;
+    for (const o of caps) if (o.e === e) o.e = null;
+    burst(c, true);
     puff(c, '#ffffff', 26, 6, 1.2); puff(c, '#dfe8ff', 14, 3.5, 0.9);
-    sfx('snow_puff', { vol: 0.9, rate: 0.7 }); sfx('crunch', { vol: 0.8, rate: 0.6 });
+    sfx('snow_puff', { vol: 1, rate: 0.6 }); sfx('crunch', { vol: 0.9, rate: 0.55 });
     onKill(c);
   }
-  function damage(e, n, from) {
+  /** n hits; `at` = where (picks the region), dir = the shot's direction */
+  function damage(e, n, from, at = null, dir = null, blastAt = null) {
     if (e.dead || !ready) return;
-    e.hp -= n; e.pulse = 1;
-    if (e.hp <= 0) { kill(e); return; }
+    e.pulse = 1;
+    let lethal = false;
+    if (at && n < e.hp) {
+      const r = pickRegion(e, at);
+      if (r >= 0) { const s = e.reg[r]; s.hp -= n; if (s.hp <= 0) { if (PARTS[r].lethal) lethal = true; else loseRegion(e, r, at, dir); } }
+      if (e.dead) return;
+    }
+    e.hp -= n; e.lastAt = at; e.lastDir = dir;
+    if (e.hp <= 0 || lethal) { kill(e, at || blastAt, dir, n >= 30); return; }
     // a scoop / heave is committed (shoot the BALL instead)
     if (e.hitT <= 0 && e.role !== 'roar' && e.role !== 'jump' && !((e.role === 'scoop' || e.role === 'throw') && e.oneT > 0)) { e.play('hit', 0.08, true, 1.6); e.hitT = 0.75; e.oneT = 0.75; }
     else if (e.role === 'hit') { e.hitT = Math.max(e.hitT, 0.35); e.oneT = Math.max(e.oneT, 0.35); }
@@ -360,6 +571,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
     if (!ready) return null;
     const e = list.find(o => o.extra && o.free); if (!e) return null;
     const H = e.H;
+    restore(e);
     e.free = false; e.dead = false; e.poofed = false; e.hp = SNOW.hp; e.hitT = 0; e.oneT = 0; e.grow = null; e.ball = null; e.wantYaw = null;
     H.visible = true; H.scale.setScalar(1); H.position.copy(pos); e.yaw = yaw; H.rotation.set(0, yaw, 0);
     e.fly = { v: vel ? vel.clone() : new THREE.Vector3(Math.sin(yaw) * 5, 9, Math.cos(yaw) * 5), spin: (Math.random() - 0.5) * 6, t: 0, stunned };
@@ -386,7 +598,10 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       }
       return best;
     },
-    shoot(h, n = 1, from = null) { if (h.ball) { if (!h.ball.dead) popBall(h.ball, false); return; } damage(h.e, n, from); },
+    shoot(h, n = 1, from = null) {
+      if (h.ball) { if (!h.ball.dead) popBall(h.ball, false); return; }
+      damage(h.e, n, from, h.point, from && h.point ? h.point.clone().sub(from).normalize() : null);
+    },
     /** area damage: a rocket (r ~3.6, big n) or a snowball */
     blast(p, r, n, from = null) {
       if (!ready) return;
@@ -395,7 +610,13 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         if (e.dead || e.free || e.fly) continue;
         capsule(e);
         const seg = _b.clone().sub(_a), t = THREE.MathUtils.clamp(p.clone().sub(_a).dot(seg) / seg.lengthSq(), 0, 1);
-        if (_a.clone().addScaledVector(seg, t).distanceTo(p) < r + e.r) damage(e, n, from || p);
+        if (_a.clone().addScaledVector(seg, t).distanceTo(p) >= r + e.r) continue;
+        // b69: every part inside the blast takes it too (a part's hp out = it comes off); then the body
+        if (n < e.hp) for (let k = 0; k < NREG && !e.dead; k++) {
+          const s = e.reg[k]; if (!s.alive || regionD(e, k, p) > r) continue;
+          s.hp -= n; if (s.hp <= 0 && !PARTS[k].lethal) loseRegion(e, k, p, null);
+        }
+        if (!e.dead) damage(e, n, from || p, null, null, p);
       }
     },
     /** dt, the point Santa is at (sleigh or on foot), the camera (to sleep far ones) */
@@ -403,18 +624,16 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       if (!ready) return;
       const tvel = ctx.vel || _zero; let someoneThrowing = list.some(o => !o.dead && (o.role === 'scoop' || o.role === 'throw') && o.oneT > 0);
       ctx.onFoot = santa.y - groundH(santa.x, santa.z) < 2.5;
-      updateBalls(dt, santa, ctx);
+      updateBalls(dt, santa, ctx); updateChunks(dt);
       for (const e of list) {
         const H = e.H;
         if (e.free) continue;
         if (e.fly) { flyTick(e, dt); continue; }
-        if (e.dead) {
+        if (e.dead) {   // b69: blown apart (hidden at once); extras go back to the pool, the rest grow back after SNOW.respawn
           e.deadT += dt;
-          if (e.deadT > 2.6 && e.deadT < 3.2) {   // the body crumbles into a poof
-            const k = Math.max(0.001, 1 - (e.deadT - 2.6) / 0.6); H.scale.setScalar(k);
-            if (!e.poofed) { e.poofed = true; const c = H.position.clone(); c.y += 0.8; puff(c, '#ffffff', 22, 5, 1.1); sfx('snow_puff', { vol: 0.7 }); }
-          } else if (e.deadT >= 3.2 && H.visible) { H.visible = false; if (e.extra) { e.free = true; continue; } }
-          if (e.deadT > SNOW.respawn && !e.extra) {   // back, with a puff, growing out of the snow
+          if (e.extra) { if (e.deadT > 1) e.free = true; continue; }
+          if (e.deadT > SNOW.respawn) {   // back, with a puff, growing out of the snow
+            restore(e);
             e.dead = false; e.poofed = false; e.hp = SNOW.hp; e.hitT = 0; e.grow = 0; H.visible = true; H.scale.setScalar(0.001);
             H.position.set(e.home.x, e.home.y, e.home.z); e.yaw = e.home.ry; e.oneT = 0; e.play('idle', 0);
             const c = H.position.clone(); c.y += 0.6; puff(c, '#ffffff', 18, 4, 1.0);
@@ -436,7 +655,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         if (e.ball && e.role !== 'scoop' && e.role !== 'throw') dropBall(e);   // a hit knocked it out of his hand
         // THE SNOWBALL: Santa out of swipe reach on foot (or overhead in the sleigh) -> sometimes scoop + heave instead of walking in
         const sky = !onFoot && dist < B_.skyMax && santa.y - P.y > B_.skyAbove;
-        if (e.oneT <= 0 && e.gapT <= 0 && e.throwCdT <= 0 && !someoneThrowing && clips.scoop && clips.throw &&
+        if (e.oneT <= 0 && e.gapT <= 0 && e.throwCdT <= 0 && !someoneThrowing && clips.scoop && clips.throw && e.reg[2].alive &&
             ((onFoot && flat > B_.footMin && dist < B_.footMax) || sky) && Math.random() < dt * B_.chance) {
           oneShot(e, 'scoop', B_.scoopRate, 0.2); someoneThrowing = true; e.throwCdT = B_.cd[0] + Math.random() * (B_.cd[1] - B_.cd[0]); e.wantYaw = null;
         }
@@ -479,7 +698,10 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
           want = Math.atan2(dx, dz);
           if (!e.near && e.roarT <= 0) { oneShot(e, 'roar', 1.4, 0.25); e.roarT = SNOW.roarCd; sfx('crunch', { vol: 0.5, rate: 0.5 }); }
           else if (flat <= SNOW.reach) {        // in reach: swing (alternating swipe / punch), a breath between
-            if (e.gapT <= 0) { oneShot(e, e.swing++ % 2 ? 'punch' : 'swipe', 1.15, 0.15); sfx('whoosh', { vol: 0.5, rate: 0.6 }); }
+            if (e.gapT <= 0 && e.arms <= 0) {   // b69 no arms: he roars, then throws himself at you (the jump attack as a body slam)
+              if (e.nod++ % 2 === 0) { oneShot(e, 'roar', 1.5, 0.2); sfx('crunch', { vol: 0.5, rate: 0.5 }); }
+              else { e.jumpYaw = want; e.yaw = want; e.jump0.copy(P); oneShot(e, 'jump', 1.1, 0.15); sfx('whoosh', { vol: 0.6, rate: 0.5 }); }
+            } else if (e.gapT <= 0) { oneShot(e, e.swing++ % 2 ? 'punch' : 'swipe', 1.15, 0.15); sfx('whoosh', { vol: 0.5, rate: 0.6 }); }
             else if (e.role !== 'idle') e.play('idle', 0.25);
           } else if (flat > SNOW.jumpMin && flat < SNOW.jumpMax && e.jumpCdT <= 0 && Math.random() < dt * 0.8) {
             e.jumpYaw = want; e.yaw = want; e.jump0.copy(P); oneShot(e, 'jump', 1, 0.15); e.jumpCdT = SNOW.jumpCd;
@@ -487,7 +709,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
           } else {
             const run = flat > SNOW.runAt, role = run ? 'run' : 'walk';
             if (e.role !== role) e.play(role, 0.3, false, run ? SNOW.runRate : SNOW.walkRate);
-            move = gait[role] * (run ? SNOW.runRate : SNOW.walkRate);
+            move = gait[role] * (run ? SNOW.runRate : SNOW.walkRate) * SNOW.legSlow ** (2 - e.legs);
           }
         } else if (homeD > 1.2) {               // back to his spot
           want = Math.atan2(e.home.x - P.x, e.home.z - P.z);
@@ -521,6 +743,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         fitSnowArms(e.B, H, e.fit);   // his round body: Mixamo arms swing into it
         if (e.ball?.held) holdPos(e, e.ball.m.position);
       }
+      updateCaps();
     },
   };
 }

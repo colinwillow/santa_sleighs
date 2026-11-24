@@ -11,12 +11,13 @@
 import * as THREE from 'three';
 import { groundH } from './terrain.js';
 import { BALL, bevBox, softDot } from './util.js';
-import { makeGingerLite } from './gingerfolk.js';
+import { makeGingerLite, gingerCrackKit, FOLK } from './gingerfolk.js';
 
 export const PROPS = {
   car: { hp: 30, pieceHp: 3, launch: 20, reach: 2.8, smokeDt: 0.25, max: 12 },
   tree: { hp: 15, snowHit: 0.14, fall: 0.85, rest: 1.47, gridS: 16 },
   folk: { pool: 10, speed: [4.2, 5.8], runT: [4, 7], hideT: 2.4 },
+  crack: { per: 96, life: 10, fade: 0.6, r: 0.3, crackR: 0.6 },   // b69: shard pool per kind, s on the ground, capsule r, blast reach past r
   gravity: 22,
 };
 
@@ -399,7 +400,7 @@ export function makeProps(scene, world) {
     for (let i = 0; i < PROPS.folk.pool; i++) {
       const p = makeGingerLite({ tint: i % 3, scale: 0.95 + Math.random() * 0.2 });
       p.group.visible = false; p.group.rotation.order = 'YXZ'; scene.add(p.group);
-      folk.push({ p, st: 'gone', pos: new V3(), vel: new V3(), dir: new V3(), t: 0, delay: 0, age: 0, rx: 0, rz: 0, spin: new V3() });
+      folk.push({ tint: i % 3, p, st: 'gone', pos: new V3(), vel: new V3(), dir: new V3(), t: 0, delay: 0, age: 0, rx: 0, rz: 0, spin: new V3() });
     }
   }
   let santaPos = new V3();
@@ -423,6 +424,7 @@ export function makeProps(scene, world) {
     for (const f of folk) {
       if (f.st === 'gone' || f.delay > 0) continue;
       const d = f.pos.distanceTo(p); if (d > r + 3) continue;
+      if (d < r + PROPS.crack.crackR) { crack(f, p, null, true); continue; }   // b69: caught in it = he cracks to bits
       const k = Math.min(1, power / 20) * (1 - d / (r + 3)) + 0.25;
       _v.copy(f.pos).sub(p).setY(0).normalize();
       f.vel.copy(_v).multiplyScalar(4 + 6 * k); f.vel.y = 4 + 6 * k;
@@ -484,17 +486,130 @@ export function makeProps(scene, world) {
     }
   }
 
+  // ============================================ b69 CRACKED GINGERFOLK =======================================================
+  // shot (ray vs a small capsule) or caught in a blast: he's hidden and ~13 jagged cookie shards + his FACE piece + his gumdrop
+  // buttons burst off his body parts (each starts where that part was, in its plane), tumble down and lie flat in the snow,
+  // then shrink away after PROPS.crack.life s. Instanced: 6 draws for every crack in town.
+  const CK = PROPS.crack, ZAX = new V3(0, 0, 1);
+  let crackIM = null; const bits = [];
+  function crackMeshes() {
+    if (crackIM) return;
+    const K = gingerCrackKit();
+    const mk = (g, n, half, rad) => {
+      const im = new THREE.InstancedMesh(g, K.mat, n); im.count = 0; im.frustumCulled = false; im.castShadow = true; im.userData.noMerge = true;
+      im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3); scene.add(im);
+      return { im, n, next: 0, items: [], half, rad };
+    };
+    crackIM = { shards: K.shards.map(g => mk(g, CK.per, 0.065, 0.085)), face: mk(K.face, 16, 0.07, 0.19), button: mk(K.button, 48, 0.025, 0.035) };
+  }
+  function bit(slot, pos, q, sc, col, sz = sc) {   // sc = across, sz = thickness (a cookie keeps its thickness)
+    const i = slot.next++ % slot.n; slot.im.count = Math.max(slot.im.count, i + 1);
+    const b = slot.items[i] || (slot.items[i] = { slot, ix: i, pos: new V3(), q: new THREE.Quaternion(), vel: new V3(), spin: new V3(), s: 1, sz: 1, life: 0, restT: 0, rest: false, live: false });
+    if (!b.live) bits.push(b);
+    b.live = true; b.rest = false; b.life = 0; b.restT = 0; b.pos.copy(pos); b.q.copy(q); b.s = sc; b.sz = sz;
+    slot.im.setColorAt(i, col); slot.im.instanceColor.needsUpdate = true;
+    return b;
+  }
+  const _kq = new THREE.Quaternion(), _kz = new THREE.Quaternion(), _kc = new V3(), _kp = new V3(), _kcol = new THREE.Color();
+  // where the shards come from: [part, local centre y, half width, half height, how many]
+  // [part, local centre y, half width, half height, how many, shard size]
+  const CRACK_PARTS = [['upper', 0.2, 0.12, 0.16, 5, 1.5], ['armL', -0.18, 0.02, 0.1, 2, 1.0], ['armR', -0.18, 0.02, 0.1, 2, 1.0], ['legL', -0.19, 0.02, 0.11, 2, 1.1], ['legR', -0.19, 0.02, 0.11, 2, 1.1]];
+  function crack(f, at, dir, blast = false) {
+    crackMeshes();
+    const P = f.p, g = P.group; g.updateMatrixWorld(true);
+    const s0 = g.userData.s0 ?? g.scale.x, toast = [1, 0.9, 1.08][f.tint % 3];
+    P.body.getWorldPosition(_kc);   // the body middle: shards fly out from it
+    const launch = (b, k = 1) => {
+      _v.copy(b.pos).sub(_kc); if (_v.lengthSq() < 1e-4) _v.set(rnd(-1, 1), 0, rnd(-1, 1)); _v.normalize();
+      b.vel.copy(_v).multiplyScalar(rnd(1.8, 3.6) * k);
+      if (blast) b.vel.addScaledVector(_v2.copy(b.pos).sub(at).setY(0).normalize(), rnd(2, 4));
+      else if (dir) b.vel.addScaledVector(dir, rnd(1.5, 3.5));
+      b.vel.y += rnd(2.2, 4.5) * (blast ? 1.4 : 1);
+      b.spin.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(rnd(6, 14));
+    };
+    let n = 0;
+    for (const [name, cy, hw, hh, cnt, sk] of CRACK_PARTS) {
+      const part = P[name]; part.getWorldQuaternion(_kq);
+      for (let k = 0; k < cnt; k++) {
+        part.localToWorld(_kp.set(rnd(-hw, hw), cy + (cnt > 1 ? (k / (cnt - 1) - 0.5) * 2 * hh : 0) + rnd(-0.03, 0.03), 0));
+        const slot = crackIM.shards[(n++ + f.tint) % 4];
+        launch(bit(slot, _kp, _kz.setFromAxisAngle(ZAX, rnd(0, 6.28)).premultiply(_kq), s0 * sk * rnd(0.85, 1.2), _kcol.setScalar(toast * rnd(0.92, 1.06)), s0));
+      }
+    }
+    // the face piece (his shocked face) + the three gumdrop buttons
+    P.head.getWorldQuaternion(_kq); P.head.getWorldPosition(_kp);
+    launch(bit(crackIM.face, _kp, _kq, s0, _kcol.setScalar(toast)), 0.8);
+    P.upper.getWorldQuaternion(_kq);
+    for (let k = 0; k < 3; k++) {
+      P.upper.localToWorld(_kp.set(0, 0.35 - k * 0.12, 0.09));
+      launch(bit(crackIM.button, _kp, _kq, s0, _kcol.set(FOLK.buttons[(k + f.tint) % FOLK.buttons.length])), 0.9);
+    }
+    f.st = 'gone'; g.visible = false; g.scale.setScalar(s0);
+    puff(_kc, '#c0743a', 14, 3.5, 0.7); puff(_kc, '#e8c090', 10, 2.5, 0.9); puff(_kc, '#fff6ea', 4, 2, 0.5);
+    sfx('crunch', { vol: 0.95, rate: 1.7 }); sfx('crunch', { vol: 0.5, rate: 2.2 });
+  }
+  const _bm = new THREE.Matrix4(), _bs = new V3(), _bz = new V3();
+  function bitsUpdate(dt) {
+    if (!crackIM) return;
+    const dirty = new Set();
+    for (let i = bits.length - 1; i >= 0; i--) {
+      const b = bits[i], sl = b.slot; b.life += dt;
+      if (!b.rest) {
+        b.vel.y -= PROPS.gravity * dt; b.pos.addScaledVector(b.vel, dt);
+        const w = b.spin.length(); if (w > 1e-4) { _qs.setFromAxisAngle(_v.copy(b.spin).multiplyScalar(1 / w), w * dt); b.q.premultiply(_qs).normalize(); }
+        _bz.copy(ZAX).applyQuaternion(b.q); const zy = Math.abs(_bz.y);
+        const h = floorY(b.pos.x, b.pos.z) + (b.sz * sl.half * zy + b.s * sl.rad * Math.sqrt(Math.max(0, 1 - zy * zy)));
+        if (b.pos.y < h) {
+          b.pos.y = h; if (b.vel.y < 0) b.vel.y *= -0.3;
+          const k = Math.exp(-7 * dt); b.vel.x *= k; b.vel.z *= k; b.spin.multiplyScalar(Math.exp(-5 * dt));
+          if (b.vel.lengthSq() < 1.5) {   // lie flat, either face up
+            b.spin.multiplyScalar(Math.exp(-8 * dt));
+            _qr.setFromUnitVectors(_bz, _v.set(0, _bz.y >= 0 ? 1 : -1, 0)).multiply(b.q); b.q.slerp(_qr, 1 - Math.exp(-6 * dt));
+            b.restT += dt; if (b.restT > 1.2) { b.rest = true; b.vel.set(0, 0, 0); b.spin.set(0, 0, 0); }
+          }
+        }
+      }
+      let k = 1;
+      if (b.life > CK.life) { k = 1 - (b.life - CK.life) / CK.fade; if (k <= 0) { b.live = false; sl.im.setMatrixAt(b.ix, ZERO); dirty.add(sl.im); bits.splice(i, 1); continue; } }
+      sl.im.setMatrixAt(b.ix, _bm.compose(b.pos, b.q, _bs.set(b.s * k, b.s * k, b.sz * k))); dirty.add(sl.im);
+    }
+    for (const im of dirty) im.instanceMatrix.needsUpdate = true;
+  }
+  /** nearest visible gingerperson along a ray (a capsule along his body, so a tumbling / lying one is hit where he is) */
+  const _fa = new V3(), _fb = new V3(), _fu = new V3(), _fw = new V3(), _f1 = new V3(), _f2 = new V3();
+  function rayFolk(from, dir, maxD) {
+    let best = null;
+    for (const f of folk) {
+      if (f.st === 'gone' || f.delay > 0 || !f.p.group.visible) continue;
+      const g = f.p.group, s = g.scale.x; _fu.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _fa.copy(f.pos).addScaledVector(_fu, 0.25 * s); _fb.copy(f.pos).addScaledVector(_fu, 0.95 * s);
+      const r = CK.r * s;
+      if (from.distanceToSquared(_fa) > (maxD + 2) ** 2) continue;
+      // closest approach of the ray to the segment
+      _fu.subVectors(_fb, _fa); _fw.subVectors(from, _fa);
+      const B = dir.dot(_fu), C = _fu.dot(_fu), D = dir.dot(_fw), E = _fu.dot(_fw), den = C - B * B;
+      let t = den > 1e-6 ? (B * E - C * D) / den : 0; t = Math.min(Math.max(t, 0), maxD);
+      const u = Math.min(Math.max((E + t * B) / C, 0), 1); t = Math.min(Math.max(B * u - D, 0), maxD);
+      _f1.copy(from).addScaledVector(dir, t); _f2.copy(_fa).addScaledVector(_fu, u);
+      const d = _f1.distanceTo(_f2); if (d > r) continue;
+      const hitT = Math.max(0, t - Math.sqrt(r * r - d * d));
+      if (!best || hitT < best.dist) best = { folk: f, dist: hitT, point: from.clone().addScaledVector(dir, hitT) };
+    }
+    return best;
+  }
+
   // ================================================== API ==================================================================
   return {
-    hooks, cars, trees, folk, addCar, addTree, folkOut,
+    hooks, cars, trees, folk, addCar, addTree, folkOut, crack,
     /** nearest prop along a ray: { kind: 'car' | 'tree', dist, point, ... } */
     raycast(from, dir, maxD = 250) {
-      const a = rayCar(from, dir, maxD), b = rayTree(from, dir, a ? a.dist : maxD);
-      return b ? { kind: 'tree', ...b } : a ? { kind: 'car', ...a } : null;
+      const a = rayCar(from, dir, maxD), b = rayTree(from, dir, a ? a.dist : maxD), c = folkBuilt ? rayFolk(from, dir, b ? b.dist : a ? a.dist : maxD) : null;
+      return c ? { kind: 'folk', ...c } : b ? { kind: 'tree', ...b } : a ? { kind: 'car', ...a } : null;
     },
     /** a bullet hit from raycast (dmg: Gatling 1, rifle 3) */
     shoot(hit, dmg, dir) {
-      if (hit.kind === 'car') chipCar(hit.car, hit.point, dmg, dir);
+      if (hit.kind === 'folk') crack(hit.folk, hit.point, dir);   // b69: one shot cracks him
+      else if (hit.kind === 'car') chipCar(hit.car, hit.point, dmg, dir);
       else { hurtTree(hit.tree, dmg, dir.x, dir.z); puff(hit.point, '#ffffff', 3, 2.5, 0.6); }
     },
     /** a blast at p (power 99 = rocket / crash: flips cars, fells trees; small = snowballs chip) */
@@ -502,7 +617,7 @@ export function makeProps(scene, world) {
     solidAt: p => carInside(p) || treeSolid(p),
     update(dt, santa, rig) {
       if (santa) santaPos.copy(santa);
-      carsUpdate(dt, santaPos); treesUpdate(dt, rig); folkUpdate(dt);
+      carsUpdate(dt, santaPos); treesUpdate(dt, rig); folkUpdate(dt); bitsUpdate(dt);
     },
     get stats() { return { cars: cars.length, wrecks: cars.filter(c => c.mode !== 'idle').length, trees: trees.length, fallen: trees.filter(t => t.st).length, folkOut: folk.filter(f => f.st !== 'gone').length }; },
   };

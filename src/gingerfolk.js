@@ -153,3 +153,49 @@ export function makeGingerLite({ tint = 0, scale = 1 } = {}) {
   self.face('shock');
   return self;
 }
+
+// ---- CRACK (b69, his: "when you shoot the gingerbread men they should crack into lots of gingerbread pieces and fall on the
+// ground"): the shard kit props.js throws. Jagged cookie prisms (toasted faces, a paler CRUMB side), one with a stripe of icing,
+// the FACE piece (his head disc with the icing eyes + the shocked mouth), a gumdrop button. Vertex-coloured, built once; every
+// cracked person shares these (one instanced draw per kind).
+let crackKit = null;
+const _jr = (k, a) => { const x = Math.sin(k * 127.1 + a * 311.7) * 43758.5453; return x - Math.floor(x); };   // fixed noise (no util rand)
+function shardGeo(seed, iced) {
+  const s = new THREE.Shape(), n = 5 + (seed % 3), R = 0.1;
+  for (let i = 0; i < n; i++) {   // a broken-cookie outline: uneven radii + a sharp notch or two
+    const a = (i + _jr(seed, i) * 0.6) / n * Math.PI * 2, r = R * (0.55 + _jr(seed, i + 9) * 0.65) * (i % 3 === 1 ? 0.7 : 1);
+    i ? s.lineTo(Math.cos(a) * r, Math.sin(a) * r * 1.15) : s.moveTo(Math.cos(a) * r, Math.sin(a) * r * 1.15);
+  }
+  const g = new THREE.ExtrudeGeometry(s, { depth: T, bevelEnabled: false });   // non-indexed already g.translate(0, 0, -T / 2); g.computeVertexNormals();
+  const p = g.attributes.position, nr = g.attributes.normal, C = [];
+  const face = new THREE.Color(FOLK.cookie[0]), crumb = new THREE.Color('#dca468'), icing = new THREE.Color(FOLK.icing);
+  for (let i = 0; i < p.count; i++) {
+    const front = Math.abs(nr.getZ(i)) > 0.7;
+    const c = front ? face : crumb;
+    C.push(c.r, c.g, c.b);
+  }
+  if (iced) {   // a piped icing bead across the front
+    const bead = new THREE.CapsuleGeometry(0.022, 0.11, 3, 6).rotateZ(Math.PI / 2).toNonIndexed(); bead.translate(0, 0.01, T / 2 + 0.01);
+    const P2 = [...p.array, ...bead.attributes.position.array], N2 = [...nr.array, ...bead.attributes.normal.array];
+    for (let i = 0; i < bead.attributes.position.count; i++) C.push(icing.r, icing.g, icing.b);
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.Float32BufferAttribute(P2, 3)); out.setAttribute('normal', new THREE.Float32BufferAttribute(N2, 3)); out.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+    return out;
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); g.deleteAttribute('uv');
+  return g;
+}
+/** the shared crack kit: { mat, shards: [geo x3 plain, geo iced], face, button }; colours are baked (the instance colour is a
+ *  toast jitter, or a gumdrop colour for the buttons) */
+export function gingerCrackKit() {
+  if (crackKit) return crackKit;
+  const L = liteGeos(), fz = T / 2 + 0.012;
+  const face = bake([...L.head.map(([g, col, m]) => [g, col === '#ffffff' ? FOLK.cookie[0] : col, m]), [geo.dot, '#2a1610', M4(0, -0.075, fz + 0.01, 0.04, 0.05, 0.012)]]);
+  crackKit = {
+    mat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
+    shards: [shardGeo(1, false), shardGeo(2, false), shardGeo(3, false), shardGeo(4, true)],
+    face,
+    button: (() => { const g = new THREE.SphereGeometry(0.04, 8, 6); g.scale(1, 1, 0.6); g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3)); return g; })(),
+  };
+  return crackKit;
+}
