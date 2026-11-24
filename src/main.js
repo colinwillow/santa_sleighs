@@ -21,7 +21,7 @@ import { makeDelivery, DROPCAM, bombGeo } from './delivery.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 84;
+export const BUILD = 85;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });

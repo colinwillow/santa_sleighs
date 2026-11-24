@@ -62,8 +62,8 @@ function buildPack() {
   bell.add(bb);
   // flames: an outer orange cone + an inner hot core per nozzle (apex down), additive, past 1.0 so the bloom catches them
   const flames = [], nozzles = [];
-  const fmat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 1.25, 0.3), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  const cmat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.6, 3.0, 1.6), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const fmat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.8, 0.16), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const cmat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 2.0, 0.85), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   const cone = (r, h) => { const g = new THREE.ConeGeometry(r, h, 12, 1, true); g.rotateX(Math.PI); g.translate(0, -h / 2, 0); return g; };
   for (const sx of [-1, 1]) {
     const n = new THREE.Group(); n.position.set(sx * CX, -LEN / 2 - R - 0.07, CZ); G.add(n); nozzles.push(n);
@@ -80,7 +80,7 @@ function makeTrail(scene) {
   puffs.instanceMatrix.setUsage(THREE.DynamicDrawUsage); puffs.frustumCulled = false; puffs.count = 0; scene.add(puffs);
   const P = Array.from({ length: N }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), life: 0, max: 1, s: 0.2 }));
   const M = 70, spos = new Float32Array(M * 3), sgeo = new THREE.BufferGeometry(); sgeo.setAttribute('position', new THREE.BufferAttribute(spos, 3));
-  const sparks = new THREE.Points(sgeo, new THREE.PointsMaterial({ color: new THREE.Color(3, 2.2, 0.9), size: 0.09, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  const sparks = new THREE.Points(sgeo, new THREE.PointsMaterial({ color: new THREE.Color(3, 2.2, 0.9), size: 0.06, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
   sparks.frustumCulled = false; scene.add(sparks);
   const Sp = Array.from({ length: M }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), life: 0 }));
   let pi = 0, si = 0; const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
