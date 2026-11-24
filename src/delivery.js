@@ -31,11 +31,11 @@ export const DELIVER = {
 // DROP-CAM (b67, his: "press and hold on it and the camera will tilt so you can see downwards... TAP to quick drop, or PRESS AND
 // HOLD to get the camera to tilt and then let go = release"). PRESENT / BOMB buttons, keys Z / X, pad X / B: released before tapMs
 // = drop now; held past tapMs = the chase camera eases (ease s, smoothstep) to up m over the sleigh, back m behind, looking down at
-// lookK of the way from the sleigh to the LANDING MARKER (a soft ring where it would land if let go now: the drop's own ballistics
+// lookK of the way from the sleigh to the LANDING MARKER (side m off to his right so the team doesn't hide it) (a soft ring where it would land if let go now: the drop's own ballistics
 // + drag at step s, up to maxT s, onto the ground / road / a live roof chunk; it snaps gold over a chimney that would take it);
 // the sleigh keeps flying. Let go = drop + the camera eases back. Slide the finger off the button (slideOff px past its edge) =
 // cancel, nothing drops. camRate = how fast the camera chases the drop-cam pose (1/s, added to the chase's 4).
-export const DROPCAM = { tapMs: 200, ease: 0.35, up: 15, back: 6, lookK: 0.8, fov: 60, step: 1 / 120, maxT: 5, slideOff: 30, ring: 2.6, camRate: 6 };
+export const DROPCAM = { tapMs: 200, ease: 0.35, up: 18, back: 5, side: 5, lookK: 0.85, step: 1 / 120, maxT: 5, slideOff: 30, ring: 2.6, ringView: 0.12, camRate: 6 };
 
 const V3 = THREE.Vector3;
 // ---- geometry: parts merged into one vertex-coloured mesh (baked top-front light so a MeshBasic glow still reads 3D) ---------
@@ -89,7 +89,7 @@ function bombGeo() {
 }
 export const FUSE_TIP = new V3(0.18, 0.56, 0.03);
 
-export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {}, puff = () => {}, onScore = () => {}, onShake = () => {} }) {
+export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = null, sfx = () => {}, puff = () => {}, onScore = () => {}, onShake = () => {} }) {
   const town = world.town;
   if (!town) return { update() {}, drop() { return false; }, street: [], dropCam: null };
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new V3(), _p = new V3(), _e = new THREE.Euler();
@@ -281,12 +281,14 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
   }
   // ---- DROP-CAM: hold a drop button -> look down + the landing marker; release = drop ------------------------------------
   const hold = { kind: null, t: 0, src: null, btn: null, lin: 0, k: 0, land: new V3(), hit: false, chim: false };
-  const ringTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
-    const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(0.1, 'rgba(255,255,255,0.5)'); g.addColorStop(0.18, 'rgba(255,255,255,0)');
-    g.addColorStop(0.62, 'rgba(255,255,255,0)'); g.addColorStop(0.78, 'rgba(255,255,255,1)'); g.addColorStop(0.92, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    x.fillStyle = g; x.fillRect(0, 0, 128, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
-  const ring = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  const ringTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+    const ringAt = (r, w, col) => { x.beginPath(); x.arc(128, 128, r, 0, Math.PI * 2); x.lineWidth = w; x.strokeStyle = col; x.stroke(); };
+    ringAt(104, 22, 'rgba(29,20,32,0.85)'); ringAt(104, 11, '#ffffff');                       // ink-edged ring (reads on white snow)
+    x.setLineDash([16, 14]); ringAt(64, 9, 'rgba(29,20,32,0.7)'); ringAt(64, 4, 'rgba(255,255,255,0.9)'); x.setLineDash([]);
+    x.beginPath(); x.arc(128, 128, 15, 0, Math.PI * 2); x.fillStyle = 'rgba(29,20,32,0.85)'; x.fill();
+    x.beginPath(); x.arc(128, 128, 9, 0, Math.PI * 2); x.fillStyle = '#ffffff'; x.fill();
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const ring = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
   ring.renderOrder = 20; ring.frustumCulled = false; ring.visible = false; ring.userData.noMerge = true; scene.add(ring);
   const _pv = new V3(), _pp = new V3(), _pq = new V3();
   /** where a drop of `kind` released now would land (same launch + integration as drop() / updateItems) -> hold.land, .chim */
@@ -329,9 +331,11 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
     if (aiming) predict(hold.kind);
     ring.visible = aiming && hold.hit;
     if (ring.visible) {
-      const pulse = 1 + Math.sin(performance.now() / 1000 * 7) * 0.08, sc = DROPCAM.ring * (hold.chim ? 1.25 : 1) * pulse * (0.6 + 0.4 * hold.k);
-      ring.position.copy(hold.land); ring.scale.setScalar(sc);
-      ring.material.color.set(hold.chim ? (hold.kind === 'present' ? '#ffe070' : '#9dff4a') : hold.kind === 'present' ? '#ffb848' : '#ff6a4a');
+      // sized on screen: at least `ring` m, else ringView x its distance from the camera (it stays ~4 deg wide from 70 m up)
+      const pulse = 1 + Math.sin(performance.now() / 1000 * 7) * 0.08, dist = cam ? cam.position.distanceTo(hold.land) : 40;
+      const sc = Math.max(DROPCAM.ring, dist * DROPCAM.ringView) * (hold.chim ? 1.3 : 1) * pulse * (0.6 + 0.4 * hold.k);
+      ring.position.copy(hold.land); ring.scale.setScalar(sc); ring.rotation.y += 0.02;
+      ring.material.color.set(hold.chim ? (hold.kind === 'present' ? '#ffe24a' : '#9dff4a') : hold.kind === 'present' ? '#ffffff' : '#ff6a4a');
     }
     document.body.classList.toggle('dropaim', aiming);
   }
@@ -340,7 +344,7 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
     get k() { return hold.k; }, get aiming() { return !!hold.kind && hold.t * 1000 >= DROPCAM.tapMs; }, get land() { return hold.hit ? hold.land : null; },
     pose(pos, look) {
       const f = _pq.set(Math.sin(rig.yaw), 0, Math.cos(rig.yaw));
-      pos.copy(rig.S).addScaledVector(f, -DROPCAM.back); pos.y += DROPCAM.up;
+      pos.copy(rig.S).addScaledVector(f, -DROPCAM.back); pos.x -= f.z * DROPCAM.side; pos.z += f.x * DROPCAM.side; pos.y += DROPCAM.up;   // right = (-fz, fx)
       if (hold.hit || hold.kind) look.copy(rig.S).lerp(hold.land, DROPCAM.lookK); else look.copy(rig.S).addScaledVector(f, 20).setY(rig.S.y - 30);
       return pos;
     },

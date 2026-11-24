@@ -21,7 +21,7 @@ import { makeDelivery, DROPCAM } from './delivery.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 69;
+export const BUILD = 70;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -248,7 +248,7 @@ const snowmen = makeSnowmen({ scene, world, groundH, sfx: (n, o) => sfx(n, o), p
 
 let shake = 0, crashZoom = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
 // b56 THE DELIVERY STREET (src/delivery.js): 3 good houses want a present down the chimney, 1 taken-over house wants an ornament bomb
-const delivery = makeDelivery({ scene, world, rig, foot, snowmen, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a),
+const delivery = makeDelivery({ scene, world, rig, foot, snowmen, camera, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a),
   onScore: n => { cookieCount = Math.max(0, cookieCount + n); if (n > 0) milk = Math.min(100, milk + n * 3); },
   onShake: k => { shake = Math.max(shake, k); crashZoom = Math.max(crashZoom, k * 0.2); } });
 const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
