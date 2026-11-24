@@ -13,8 +13,9 @@ export const CLIPS = {
   elf: {
     idle: 'Idle_14', happy: 'Happy_Idle', walk: 'Walking', run: 'Standard_Run', jump: 'Jumping_5', air: 'Falling_Idle',
     samba: 'Samba_Dancing', hiphop: 'Hip_Hop_Dancing', wave_dance: 'Wave_Hip_Hop_Dance', wave: 'Waving',
-    sit: 'Sitting_Idle_3', cheer: 'Cheering',
+    sit: 'Sitting_Idle_3', cheer: 'Cheering', cheer_sit: 'Cheering_While_Sitting',
   },
+  snowman: { idle: 'Mutant_Breathing_Idle', roar: 'Mutant_Roaring', hit: 'Hit_Reaction', die: 'Mutant_Dying' },
 };
 
 const loader = new GLTFLoader();

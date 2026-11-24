@@ -7,6 +7,7 @@ import { buildRig, FLY } from './sleigh.js';
 import { input, pollInput, showReticle } from './input.js';
 import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
+import { makeSnowmen } from './enemies.js';
 import { makeOnFoot } from './onfoot.js';
 import { fitSleighModel } from './sleighmodel.js';
 import { makeStaticMerger } from './merge.js';
@@ -19,7 +20,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 41;
+export const BUILD = 42;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -224,10 +225,13 @@ function updateAim(dt) {
 
 // ---- WEAPONS: his four guns; switch with the WEAPON button / 1-4 / Q / gamepad Y; fly through a floating gun to grab it -------
 const shots = makeShots(scene, groundH, {
-  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); world.town?.blast(p, 3.6, 99); rig.model?.hit(p, 3.2, 8); },
-  onHit: (p, kind) => { if (kind === 'snowball') world.town?.blast(p, 1.0, 1); },
+  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); world.town?.blast(p, 3.6, 99); rig.model?.hit(p, 3.2, 8); snowmen.blast(p, 3.6, 99); },
+  onHit: (p, kind) => { if (kind === 'snowball') { world.town?.blast(p, 1.0, 1); snowmen.blast(p, 1.0, 3); } },
   solid: p => !!world.town?.solidAt(p),
 });
+// SNOWMAN MONSTERS in the village (src/enemies.js): shootable, face Santa, respawn; a kill makes the sidekick elf cheer
+const snowmen = makeSnowmen({ scene, world, groundH, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a), onKill: () => rig.crew?.react?.('cheer') });
+
 let shake = 0, crashZoom = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
 const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
 wBtn.style.cssText = 'width:auto;height:auto;z-index:7;font-size:12px;left:calc(50% + 6px);top:calc(env(safe-area-inset-top) + 8px)';
@@ -337,7 +341,9 @@ function updateGun(dt, t) {
     // on foot he can shoot his own sleigh to bits
     const mh = out && (W.shot === 'tracer' || W.shot === 'slug') ? rig.model?.raycast(from, _d, 250) : null;
     if (mh && (!hit || mh.dist < hit.dist)) { rig.model.shoot(mh, W.shot === 'slug' ? 3 : 1); shots.puff(mh.point, '#ffd060', 3, 3, 0.4); hit = { dist: mh.dist, sleigh: true }; }
-    if (hit && !hit.sleigh) {
+    const sh = (W.shot === 'tracer' || W.shot === 'slug') ? snowmen.raycast(from, _d, 250) : null;
+    if (sh && (!hit || sh.dist < hit.dist)) { snowmen.shoot(sh, W.shot === 'slug' ? snowmen.SNOW.slug : 1, from); shots.puff(sh.point, '#ffffff', 4, 3, 0.5); hit = { dist: sh.dist, enemy: true }; }
+    if (hit && !hit.sleigh && !hit.enemy) {
       // his: bullets should hit harder -- a Gatling round now takes out the brick it hits + chips its neighbours; the rifle punches a big hole
       if (W.shot === 'slug') world.town.blast(hit.point, 1.7, 99, _d.clone().multiplyScalar(10));
       else { world.town.hitBrick(hit.id, 2, _d.clone().multiplyScalar(6)); world.town.blast(hit.point, 0.7, 1, _d.clone().multiplyScalar(5)); }
@@ -499,13 +505,13 @@ function frame(now) {
     c.o.rotation.y += dt * 1.5;
     if (!c.alive) { c.t += dt; c.o.scale.setScalar(Math.max(0.001, 1 - c.t * 4)); if (c.t > 8) { c.alive = true; c.t = 0; c.o.scale.setScalar(1); } continue; }
     if (c.o.position.distanceToSquared(rig.S) < 16 || c.o.position.distanceToSquared(rig.lead) < 16) {
-      c.alive = false; cookieCount++; milk = Math.min(100, milk + 20); sfx('cookie_pickup');
+      c.alive = false; cookieCount++; milk = Math.min(100, milk + 20); sfx('cookie_pickup'); rig.crew?.react?.('cheer');
     }
   }
   cookies.forEach((c, i) => { c.o.updateMatrixWorld(true); cookieDisc.setMatrixAt(i, c.parts[0].matrixWorld); for (let k = 0; k < 5; k++) cookieChips.setMatrixAt(i * 5 + k, c.parts[k + 1].matrixWorld); });
   cookieDisc.instanceMatrix.needsUpdate = true; cookieChips.instanceMatrix.needsUpdate = true;
   $cookies.textContent = cookieCount; $milk.textContent = Math.round(milk);
-  if (dt > 0) world.tick(t, dt);
+  if (dt > 0) { world.tick(t, dt); snowmen.update(dt, foot.active ? foot.st.pos : rig.S, camera); }
   merger.tick(dt);
   updateCamera(dt);
   world.town?.lodTick(camera, real);   // b33: far houses swap to painted slabs (town.js TOWN.lod)
@@ -560,4 +566,4 @@ function updateSound(dt) {
   let near = 1e9; for (const f of world.fireList) near = Math.min(near, f.p.distanceTo(camera.position));
   L.fire.setVolume(Math.max(0, 1 - near / 28) * 0.8, 0.3);
 }
-window.__game = { rig, scene, camera, FLY, renderer, post, menus, MENU, foot, world, merger, freeCam: () => { camOverride = 'free'; }, get state() { return STATE; } };
+window.__game = { rig, scene, snowmen, camera, FLY, renderer, post, menus, MENU, foot, world, merger, freeCam: () => { camOverride = 'free'; }, get state() { return STATE; } };

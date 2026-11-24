@@ -1,5 +1,5 @@
 {
-"build": 41,
+"build": 42,
 "files": [
 "./src/anim.js",
 "./src/audio.js",
@@ -7,6 +7,7 @@
 "./src/crew.js",
 "./src/destruct.js",
 "./src/destructshow.js",
+"./src/enemies.js",
 "./src/fx.js",
 "./src/gag.js",
 "./src/gingerfolk.js",
