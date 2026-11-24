@@ -263,6 +263,7 @@ export function spreadArms(B, H, a) {
 
 /** cigar placement per Santa (mouth = head bone + fractions of head-bone->HeadTop height; rx/ry = tilt) */
 const RIFLE_ROLES = new Set(['idle', 'fire', 'walk', 'run']);
+const UNARMED = { idle: 'uidle', walk: 'uwalk', run: 'urun', tipsy: 'uidle' };   // b75: role swaps while he holds no gun
 /** HOLD POSES (b58, his call: "sandbox is fine") -- his upper body is a FIXED pose per weapon, set in the Gun Pose sandbox
  *  (?scene=gunpose) and saved to localStorage 'holdpose.v1' { santaKey: { weapon: pose } }; legs keep the clips. Units: metres /
  *  degrees, in his TORSO frame (x = his LEFT, y up, z forward) from the midpoint of his shoulders.
@@ -421,7 +422,10 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       const next = heldGun(scene, key);
       self.baseScale = next.g.scale.x; next.g.scale.multiplyScalar(CREW.handGunScale); pivot.remove(gun.g); gun = next; pivot.add(gun.g); self.pose = null;
     },
-    setIdle(r) { idleRole = r; if (!firing && !self.busy) anim.play(r); },
+    setIdle(r) { if (!self.armed && UNARMED[r]) r = UNARMED[r]; idleRole = r; if (!firing && !self.busy) anim.play(r); },
+    /** b75: armed = holding a gun (the posed hold); unarmed / grenade = his own arms from relaxed clips, the gun hidden */
+    armed: true,
+    setArmed(on) { if (self.armed === !!on) return; self.armed = !!on; pivot.visible = self.armed; const base = Object.keys(UNARMED).find(k => UNARMED[k] === idleRole) || idleRole; self.setIdle(base); },
     /** a one-shot clip (get up...) that owns the body until it ends; arms leave the gun meanwhile */
     playOnce(r, speed = 1) { self.busy = true; self.freeArms = true; anim.play(r, 0.12, { once: true, speed }); },
     endOnce() { self.busy = false; self.freeArms = false; anim.play(idleRole, 0.2); },
@@ -443,7 +447,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
         H.rotation.y = baseYaw + swiv;
       }
       H.updateMatrixWorld(true);
-      if (GUNNER) { if (POSED) heldPose(dt); else gunnerPose(dt); kick *= Math.exp(-18 * dt); gun.g.position.set(0, 0, -kick); gun.g.rotation.x = -kick * 1.4; flashT -= dt; gun.flash.visible = flashT > 0; gun.firing = firing; gun.updBelt(t, dt); cig.ember.scale.setScalar(1 + Math.sin(t * 3) * 0.15); hat(dt); return; }
+      if (GUNNER) { if (!self.armed) { /* unarmed: the clip's own arms */ } else if (POSED) heldPose(dt); else gunnerPose(dt); kick *= Math.exp(-18 * dt); gun.g.position.set(0, 0, -kick); gun.g.rotation.x = -kick * 1.4; flashT -= dt; gun.flash.visible = flashT > 0; gun.firing = firing; gun.updBelt(t, dt); cig.ember.scale.setScalar(1 + Math.sin(t * 3) * 0.15); hat(dt); return; }
       // BLADED STANCE (his: "stubby thick arms -- he needs to turn his torso to the side to shoot a two-handed gun"): the torso
       // twists side-on (left shoulder forward) and the neck + head turn back toward the target; the gun is lined up AFTER this,
       // so it still points ahead, and the left hand can now reach the front grip

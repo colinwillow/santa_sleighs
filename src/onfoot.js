@@ -362,6 +362,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     setHeld(item, isGun) {
       st.held = item; const S = st.santa; if (!S) return;
       if (S.gun?.g) S.gun.g.visible = !!isGun;
+      S.setArmed?.(!!isGun);   // b75: no gun = his own arms (relaxed clips), not the invisible gun's hold
       if (st.handBomb) { const u = st.handBomb.userData; if (u.gone > 0) u.gone -= 1 / 60; st.handBomb.visible = item === 'grenade' && !(u.gone > 0); }
     },
     throwCock, throwGo, throwCancel, get throwing() { return st.throwSt; },
