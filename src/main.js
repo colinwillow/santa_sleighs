@@ -20,7 +20,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 52;
+export const BUILD = 53;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -234,7 +234,10 @@ const shots = makeShots(scene, groundH, {
   solid: p => !!world.town?.solidAt(p),
 });
 // SNOWMAN MONSTERS in the village (src/enemies.js): shootable, face Santa, respawn; a kill makes the sidekick elf cheer
-const snowmen = makeSnowmen({ scene, world, groundH, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a), onKill: () => rig.crew?.react?.('cheer') });
+const snowmen = makeSnowmen({ scene, world, groundH, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a), onKill: () => rig.crew?.react?.('cheer'),
+  onHitSanta: (dir, kind, from) => { if (!foot.knock(dir, kind)) return; const big = kind === 'big'; shake = Math.max(shake, big ? 1.4 : 0.7);
+    sfx('debris', { vol: big ? 1 : 0.7, rate: big ? 0.6 : 0.9 }); sfx('snow_puff', { vol: 0.8, rate: 0.7 });
+    shots.puff(foot.st.pos.clone().setY(foot.st.pos.y + 1.2), '#ffffff', big ? 20 : 10, big ? 7 : 4, 0.9); } });
 
 let shake = 0, crashZoom = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
 const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';

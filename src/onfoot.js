@@ -235,6 +235,17 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam }) 
     /** where the reticle rests when he's on foot: ahead of the camera, at about his height */
     aimRest(out) { const b = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); return out.copy(st.pos).addScaledVector(b, 22).setY(st.pos.y + 1.0); },
     setFiring(on) { st.firing = on; },
+    /** a blow from an enemy: 'small' = knocked back a few metres + a stagger (lands on his feet); 'big' = sent flying, lands on his
+     *  back, gets up. Only on foot (the sleigh shields him). */
+    knock(dir, kind = 'small') {
+      if (!st.ready || st.mode === 'seat' || st.mode === 'deck' || st.stun > 0) return false;
+      const big = kind === 'big';
+      st.vel.set(dir.x * (big ? 12 : 7), big ? 8 : 4.5, dir.z * (big ? 12 : 7));
+      st.mode = 'air'; setMode('air'); st.peakY = st.pos.y; st.jumps = 2; st.noCatch = FOOT.noCatch;
+      if (big) { st.thrown = true; st.tumble = 0.9; st.kick = 0.6; } else st.kick = 0.25;
+      st.face = Math.atan2(-dir.x, -dir.z);   // knocked backwards, facing the brute
+      return true;
+    },
     crashZoom(k) { st.kick = Math.max(st.kick, k); },
   };
 }

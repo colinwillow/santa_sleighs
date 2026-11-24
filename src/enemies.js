@@ -23,6 +23,7 @@ export const SNOW = {
   walkRate: 1.1, runRate: 1.0,   // clip timeScale; ground speed = the clip's own stride speed x this (measured at load, no skating)
   tauntCd: [7, 14],       // s between flex / roar taunts while Santa is near but not chased (sleigh overhead, or out of leash)
   attackGap: 0.35,        // s of idle between swings
+  contact: { swipe: 0.42, punch: 0.38, jump: 0.62 },   // fraction of each attack clip where the blow lands
   turn: 3,                // rad/s-ish smoothing of the turn
   roarCd: 14,             // s between roars
   respawn: 20,            // s dead before he's back
@@ -107,7 +108,7 @@ function rayCapsule(o, d, len, a, b, r) {
  * makeSnowmen({ scene, world, groundH, puff(p, color, n, spread, life), onKill(p) }) -> { list, raycast, shoot, blast, update }
  * Loads in the background; until then every call is a no-op.
  */
-export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = () => {}, sfx = () => {} }) {
+export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = () => {}, sfx = () => {}, onHitSanta = null }) {
   const list = [], clips = {}, gait = { walk: 1.8, run: 5 }, jumpPath = [];
   let ready = false;
   /** stride speed of the in-place walk / run (2 x the planted foot's sweep a cycle) + the jump attack's forward path (holder m), then
@@ -175,7 +176,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
   /** play a one-shot role to its end (clip length / speed, minus a little so the hand-back blends) */
   function oneShot(e, role, speed = 1, fade = 0.2) {
     const a = e.act[role]; if (!a) return;
-    e.play(role, fade, true, speed); e.oneT = a.getClip().duration / speed - 0.2;
+    e.play(role, fade, true, speed); e.oneT = a.getClip().duration / speed - 0.2; e.landed = false;
   }
   function kill(e) {
     e.dead = true; e.deadT = 0; e.hp = 0;
@@ -256,6 +257,17 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
           e.oneT -= dt;
           if (e.role === 'jump') { const a = e.act.jump; jumpAt(a.time, _jv).applyAxisAngle(_up, e.jumpYaw); P.set(e.jump0.x + _jv.x, P.y, e.jump0.z + _jv.z); }
           want = e.role === 'jump' ? e.jumpYaw : (near ? Math.atan2(dx, dz) : e.yaw);
+          // THE HIT LANDS (his: "sure" -- swipes / punches knock Santa back, the jump attack sends him flying): once per swing, at the
+          // clip's contact moment, if he's on foot, in reach and in front of the snowman
+          const ct = SNOW.contact[e.role];
+          if (ct != null && !e.landed && onFoot) {
+            const a = e.act[e.role], f = a.time / a.getClip().duration;
+            if (f >= ct) {
+              e.landed = true;
+              const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw), front = (dx * fx + dz * fz) / Math.max(flat, 1e-3);
+              if (flat < SNOW.reach + (e.role === 'jump' ? 1.6 : 0.8) && front > 0.35) onHitSanta?.(new THREE.Vector3(dx, 0, dz).normalize(), e.role === 'jump' ? 'big' : 'small', P.clone());
+            }
+          }
           if (e.oneT <= 0) { e.gapT = SNOW.attackGap; e.play('idle', 0.3); }
         } else if (chase) {
           want = Math.atan2(dx, dz);
