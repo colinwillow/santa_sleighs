@@ -416,6 +416,9 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     kick() { kick = gun.def?.kick ?? CREW.recoil; flashT = 0.045; gun.flash.rotation.z = Math.random() * 3; },
     aimAt(world) { aimWorld = world ? (aimWorld || V()).copy(world) : null; },
     update(dt, t) {
+      // every bone back to its rest pose first (b61, his: "his upper torso is just rotating in a circle"): the hold twists the spine
+      // each frame, and a bone the clip doesn't key kept last frame's twist -> it spun. Reset, then the clip, then the layers.
+      for (const k in B) { const b = B[k]; if (b.userData.bind) b.quaternion.copy(b.userData.bind); }
       anim.update(dt);
       spreadArms(B, H, fit.spread * CREW.handSpread);
       // seated: he swivels on the seat toward the aim (the spine twist does the rest)
