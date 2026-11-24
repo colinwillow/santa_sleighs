@@ -19,7 +19,8 @@ export const DELIVER = {
   cd: 0.6, g: 16, drag: 0.12,     // s between drops; item gravity (m/s2); a little air drag on the drop (1/s)
   stack: 6, restLife: 10,         // presents on the sack; s a missed present sits in the snow
   resetAfter: 8,                  // s after the street is settled before the next one
-  iconUp: 2.3,                    // m: icon height over the chimney top
+  iconUp: 2.6,                    // m: icon height over the chimney top
+  iconScale: 1.6,                 // icons are modelled ~1 m; drawn at this (they must read from the sleigh at 30-40 m)
   seed: [0, -45],                 // the first street starts at the house nearest this point (just up the road from the start)
   reach: 46,                      // m: next house of a street must be within this of the last one
   wreck: 0.75,                    // a waiting house under this share of its chunks is LOST (can't take a present any more)
@@ -44,7 +45,7 @@ function part(geo, col, mul = 1, shade = true) {
 const at = (g, x, y, z, rx = 0, ry = 0, rz = 0, s = 1) => g.applyMatrix4(new THREE.Matrix4().compose(new V3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new V3(s, s, s)));
 /** a wrapped present, ~0.9 m: red box, gold ribbon both ways, a bow */
 function presentGeo(hdr) {
-  const box = hdr ? ['#ff3448', 1.7] : ['#d42438', 1], rib = hdr ? ['#ffd25a', 2.6] : ['#f4c040', 1];
+  const box = hdr ? ['#ff3448', 1.12] : ['#d42438', 1], rib = hdr ? ['#ffd25a', 1.7] : ['#f4c040', 1];
   const P = [part(bevBox(0.9, 0.72, 0.9, 0.06, 1), ...box), part(new THREE.BoxGeometry(0.93, 0.74, 0.17), ...rib), part(new THREE.BoxGeometry(0.17, 0.74, 0.93), ...rib)];
   for (const s of [-1, 1]) P.push(part(at(new THREE.TorusGeometry(0.15, 0.05, 6, 12), s * 0.13, 0.47, 0, 0, s * 0.35, s * 0.55), ...rib));
   P.push(part(at(new THREE.SphereGeometry(0.075, 8, 6), 0, 0.42, 0), ...rib));
@@ -52,7 +53,7 @@ function presentGeo(hdr) {
 }
 /** the taken-over house's sign: a dark red glass bauble, glowing green eye holes, a jagged grin and a crack down its brow */
 function skullGeo() {
-  const R = 0.5, glow = ['#9dff4a', 2.8, false];
+  const R = 0.5, glow = ['#9dff4a', 2.2, false];
   const P = [part(new THREE.SphereGeometry(R, 16, 12), '#5e0c18', 1), part(at(new THREE.CylinderGeometry(0.15, 0.17, 0.16, 10), 0, R + 0.03, 0), '#2e2a30'),
     part(at(new THREE.TorusGeometry(0.09, 0.03, 6, 10), 0, R + 0.17, 0), '#2e2a30')];
   for (const s of [-1, 1]) { const e = new THREE.SphereGeometry(0.12, 10, 6); e.scale(1, 1.15, 0.45); P.push(part(at(e, s * 0.18, 0.06, R * 0.9), ...glow)); }
@@ -95,7 +96,7 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
   // a soft halo behind each icon (gold = wants a present, green = taken over)
   const haloG = new THREE.BufferGeometry(), haloP = new Float32Array(N * 3).fill(-999), haloC = new Float32Array(N * 3);
   haloG.setAttribute('position', new THREE.BufferAttribute(haloP, 3)); haloG.setAttribute('color', new THREE.BufferAttribute(haloC, 3));
-  const halo = new THREE.Points(haloG, new THREE.PointsMaterial({ size: 5, map: softDot(), vertexColors: true, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  const halo = new THREE.Points(haloG, new THREE.PointsMaterial({ size: 6, map: softDot(), vertexColors: true, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
   halo.frustumCulled = false; scene.add(halo);
   // wreaths on the doors: full + bowed (good), broken + dead (taken over)
   const wreathGeo = mergeGeometries([part(new THREE.TorusGeometry(0.34, 0.11, 6, 16), '#2f7a3a'), part(at(new THREE.SphereGeometry(0.1, 8, 6), 0, -0.34, 0.08), '#e8263a'),
@@ -399,18 +400,18 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
       _q.setFromAxisAngle(new V3(0, 1, 0), t * 1.1 + i);
       const want = h.state === 'wait';
       iconPresent.setMatrixAt(i, ZERO); iconSkull.setMatrixAt(i, ZERO); iconStar.setMatrixAt(i, ZERO);
-      if (want && !h.bad) iconPresent.setMatrixAt(i, _m.compose(_p.set(c.x, y, c.z), _q, _s.setScalar(1)));
-      if (want && h.bad) iconSkull.setMatrixAt(i, _m.compose(_p.set(c.x, y, c.z), _q.setFromAxisAngle(new V3(0, 1, 0), Math.sin(t * 1.3 + i) * 0.6 + Math.atan2(h.f.front.x, h.f.front.z)), _s.setScalar(1.15)));
+      if (want && !h.bad) iconPresent.setMatrixAt(i, _m.compose(_p.set(c.x, y, c.z), _q, _s.setScalar(DELIVER.iconScale)));
+      if (want && h.bad) iconSkull.setMatrixAt(i, _m.compose(_p.set(c.x, y, c.z), _q.setFromAxisAngle(new V3(0, 1, 0), Math.sin(t * 1.3 + i) * 0.6 + Math.atan2(h.f.front.x, h.f.front.z)), _s.setScalar(DELIVER.iconScale * 1.1)));
       if (h.state === 'ruined') {   // a broken present: dark, squashed, tipped, slowly sinking onto the wreck
         h.brokenT += dt;
-        iconPresent.setMatrixAt(i, _m.compose(_p.set(c.x, y - Math.min(1, h.brokenT * 0.5) * 0.8, c.z), _q.setFromEuler(_e.set(0.5, t * 0.3, 0.35)), _s.set(1, 0.6, 1)));
+        iconPresent.setMatrixAt(i, _m.compose(_p.set(c.x, y - Math.min(1, h.brokenT * 0.5) * 0.8, c.z), _q.setFromEuler(_e.set(0.5, t * 0.3, 0.35)), _s.set(1, 0.6, 1).multiplyScalar(DELIVER.iconScale)));
         iconPresent.setColorAt(i, _t.setRGB(0.12, 0.1, 0.12));
       } else iconPresent.setColorAt(i, _t.setRGB(1, 1, 1));
       if (h.starT >= 0 && h.starT < 2.2) {
         h.starT += dt; const u = h.starT / 2.2;
-        iconStar.setMatrixAt(i, _m.compose(_p.set(c.x, y + u * 2.5, c.z), _q.setFromAxisAngle(new V3(0, 1, 0), t * 5), _s.setScalar(Math.sin(Math.min(1, u * 4) * Math.PI / 2) * (1 - u * u) * 1.3 + 0.001)));
+        iconStar.setMatrixAt(i, _m.compose(_p.set(c.x, y + u * 2.5, c.z), _q.setFromAxisAngle(new V3(0, 1, 0), t * 5), _s.setScalar(Math.sin(Math.min(1, u * 4) * Math.PI / 2) * (1 - u * u) * 1.3 * DELIVER.iconScale + 0.001)));
       }
-      const hal = want ? (h.bad ? [0.25, 1.1, 0.3] : [1.4, 1.0, 0.45]) : null;
+      const hal = want ? (h.bad ? [0.2, 0.9, 0.25] : [0.85, 0.55, 0.22]) : null;
       haloP[i * 3] = c.x; haloP[i * 3 + 1] = hal ? y : -999; haloP[i * 3 + 2] = c.z;
       if (hal) haloC.set(hal, i * 3);
       // a delivered house: its windows flash bright and settle back
