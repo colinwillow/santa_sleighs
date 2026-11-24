@@ -84,7 +84,7 @@ const CAR_PARTS = [
 const KIND_N = {}; CAR_PARTS.forEach(([k]) => { KIND_N[k] = (KIND_N[k] || 0) + 1; });
 const FROSTING = ['#ff9cc0', '#a8e8c8', '#fff0a0', '#fff6ea', '#b8d4ff', '#ffc890'];
 const GUMDROP = ['#e8303a', '#3aa85a', '#ffd23a', '#ff7ab8', '#8a5ae0'];
-const BOX_C = new V3(0, 0.85, -0.05), BOX_H = new V3(0.97, 0.78, 2.25);   // the car's hit box (car frame)
+const BOX_C = new V3(0, 0.95, -0.05), BOX_H = new V3(0.97, 0.7, 2.25);   // the car's hit box (car frame)
 
 export function makeProps(scene, world) {
   const hooks = { puff: null, shake: null };
@@ -436,7 +436,8 @@ export function makeProps(scene, world) {
     for (const f of folk) {
       if (f.st === 'gone') continue;
       const g = f.p.group; f.age += dt;
-      if (f.delay > 0) { f.delay -= dt; if (f.delay > 0) continue; g.visible = true; }
+      if (f.delay > 0) { f.delay -= dt; if (f.delay > 0) continue; }
+      g.visible = true;
       f.t += dt;
       if (f.st === 'out' || f.st === 'run') {
         if (f.st === 'out' && f.t > 0.45) { f.st = 'run'; f.t = 0; f.p.pose('run'); }
