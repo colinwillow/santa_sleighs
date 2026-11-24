@@ -15,7 +15,7 @@ export async function loadCrew(rig, scene) {
   const M = await loadModels();
   const sl = rig.sleigh.g;
 
-  const santa = makeSanta(M.santa, { role: 'tipsy' });   // milk-drunk Bad Santa: swaying even at rest
+  const santa = makeSanta(M.santa, { role: 'idle' });   // b44: the RIFLE idle (it poses his arms round the gun)
   santa.holder.position.set(0, CREW.floorY, CREW.santaZ); sl.add(santa.holder);
   const driver = makeElf(M.elf, { role: 'sit', seat: 0 });
   driver.holder.position.set(0.1, 1.55, 1.85);   // on the front dash, feet in the footwell

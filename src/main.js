@@ -20,7 +20,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 43;
+export const BUILD = 44;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -83,7 +83,7 @@ async function buildMenuCrew() {
   if (MODE === 'kit') return;
   const M = await loadModels();
   const ry = Math.atan2(MENU.dir.x, MENU.dir.z), side = new THREE.Vector3(MENU.dir.z, 0, -MENU.dir.x);
-  const santa = makeSanta(M.santa, { role: 'tipsy' });
+  const santa = makeSanta(M.santa, { role: 'idle' });   // b44: rifle idle holds the gun properly
   santa.holder.position.copy(MENU.spot); santa.holder.rotation.y = ry;
   const a = makeElf(M.elf, { role: 'happy' }), b = makeElf(M.elf, { role: 'wave' });
   a.holder.position.copy(MENU.spot).addScaledVector(side, 1.6).addScaledVector(MENU.dir, -0.4); a.holder.rotation.y = ry - 0.35;
