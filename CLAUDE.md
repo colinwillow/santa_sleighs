@@ -28,9 +28,14 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
 - Look: bloom (`src/post.js`, `?bloom=0` = raw A/B) + lavender FogExp2 haze; glowing things use the `L` batch (past 1.0 so they bloom).
 - Budget: report tris/draws when they move (b3: village solid batch ~260k tris, ~70 draws). Small details use `BALL` / `CYL6`, not `BLOB` / `CYL`.
 - Design notes: `DESIGN.md`. **It is a SHOOTER** ("Santa Slays"): Rambo-size gun + cigar.
-- **The crew** (`src/crew.js`): his GLBs posed in code, no clips yet. Santa's hands are two-bone IK'd onto the gun's grip sockets
-  (never a world-position guess); the cigar hangs off the Head bone. Elves = one model cloned (`SkeletonUtils.clone`).
-  Tuning in `CREW`. `?cam=crew` = the close-up for checking poses.
+- **The crew** (`src/crew.js`): his GLBs. HOW SANTA HOLDS A GUN (b44-45, his: "his arms are completely gone"): the gun rides his
+  `weapon_root_right` MOUNT bone (hand bone + palm offset only for a rig without mounts) and the Mixamo RIFLE clips (idle / walk /
+  run / fire) pose BOTH arms -- never IK both fists onto a gun pinned to the body (it fought every clip). The gun is lined up with his
+  facing from the rifle-idle pose (first frames, `RIFLE_ROLES`), then rides the hand. BLADED STANCE (`CREW.blade` .6 rad torso twist,
+  left shoulder forward; `bladeHead` turns the head back) because his arms are stubby; the LEFT hand alone is IK'd to the front grip
+  (slides back to what it reaches). AIM = additive yaw/pitch through Spine/Spine1/Spine2 (+ a swivel on the sleigh seat). Per-character
+  `ARMFIT` (spread arms out of wide bellies) and `CIGAR` (mouth offset per Santa). Elves = one model cloned (`SkeletonUtils.clone`);
+  driver on the dash with the reins, sidekick on the sack (`SIDEKICK`: waves, leans, cheers). Tuning in `CREW`. `?cam=crew` = close-up.
 - **Animation** (b7): Mixamo clips from `colinwillow/retarget-anims` (Y Bot, `library/clips/*.glb`) are COPIED into
   `models/anims/` and retargeted at load (`src/retarget.js` = a copy of that repo's layer 1, patched to read plain nodes).
   Roles per character in `CLIPS` (`src/anim.js`); add a role = copy the GLB + one line. Code layers run AFTER the clip:
