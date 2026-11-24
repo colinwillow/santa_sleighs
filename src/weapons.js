@@ -148,7 +148,9 @@ export function makeShots(scene, groundH, hooks = {}) {
 // is at 2.05 s): COCK plays it from `from` s and HOLDS it at `cockAt` (the wind-up, arm back) while he aims; RELEASE runs it on at
 // animSpeed x, the bomb leaves his hand at `releaseAt`, he is back in his stance by `endAt`. arcStep / arcMaxT / arcDots = the
 // dotted THROW ARC (simulated with the same physics up to the first touch) + the landing ring.
-export const THROW = { speed: 21, g: 18, fuse: 1.35, bounce: 0.32, roll: 0.55, blast: 4.4, size: 0.42, minLoft: 0.12,
+// b81 (his: "the bomb is not that destructive... less than the machine gun -- should take down half a house and the rest collapse"):
+// blast 4.4 -> 6.5 m (houses count a chunk inside r*.45 of its outline / r*.85 of its middle, so 4.4 only bit 2-3.7 m in)
+export const THROW = { speed: 21, g: 18, fuse: 1.35, bounce: 0.32, roll: 0.55, blast: 6.5, size: 0.42, minLoft: 0.12,
   clip: 'Grenade_Throw_2', from: 1.3, cockAt: 1.9, releaseAt: 2.05, endAt: 2.55, animSpeed: 2.4, cockSpeed: 1.6,
   arcStep: 1 / 60, arcMaxT: 4, arcDots: 34, dot: 0.34, ring: 1.6, ringView: 0.06 };
 
