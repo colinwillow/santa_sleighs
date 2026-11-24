@@ -20,6 +20,7 @@ export const SNOW = {
   // b52 (his: "rig him up with some of the mutant animations"): ON FOOT Santa inside `aggro` m gets chased -- RUN while farther
   // than `runAt`, WALK in, stop at `reach` and SWIPE / PUNCH (animation only, no damage yet); a JUMP ATTACK now and then from
   // `jumpMin..jumpMax` m (the clip's own forward travel moves him); FLEX / ROAR now and then while he watches; back home past `leash`.
+  bright: 1.12, glow: 0.32,   // b67: snow colour boost + self-glow from his texture (he read grey at dusk)
   aggro: 25, runAt: 12, reach: 3.0, leash: 45, jumpMin: 5, jumpMax: 8.5, jumpCd: 9,
   walkRate: 1.1, runRate: 1.0,   // clip timeScale; ground speed = the clip's own stride speed x this (measured at load, no skating)
   tauntCd: [7, 14],       // s between flex / roar taunts while Santa is near but not chased (sleigh overhead, or out of leash)
@@ -180,6 +181,15 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       clips[role] = retargetClip(g.scene, g.animations[0], gltf.scene, { name: role });
     }));
     measureClips(gltf.scene);
+    // SNOW READS WHITE (b67, his: "the snowman's not as bright... supposed to be white like snow"): the matte Tripo material went grey
+    // under the dusk light with nothing to reflect -- no metalness, a touch brighter, + a soft self-glow from his own texture (shared
+    // by every clone, so it costs nothing)
+    gltf.scene.traverse(o => {
+      if (!o.isMesh) return;
+      const fix = m => { m.metalness = 0; m.roughness = Math.min(m.roughness ?? 0.9, 0.85); if (m.color) m.color.multiplyScalar(SNOW.bright);
+        if (m.emissive) { m.emissive.setRGB(1, 1, 1); m.emissiveMap = m.map || null; m.emissiveIntensity = SNOW.glow; } m.needsUpdate = true; };
+      Array.isArray(o.material) ? o.material.forEach(fix) : fix(o.material);
+    });
     const makeOne = (s, extra = false) => {
       const inst = skClone(gltf.scene);
       const P = prep(inst, SNOW.height), H = P.holder;
