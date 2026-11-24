@@ -359,8 +359,20 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, H.localToWorld(rot(ls.clone().add(V().fromArray(G.poleL)))));
   }
   /** POSED HOLD: fixed upper body per weapon (HOLD poses), legs from the clip; aim = gun yaw / pitch on top */
+  // TUMBLES CARRY THE GUN (b68, his: "he does the roll and the gun doesn't rotate with him"): during a roll / back hop / get-up /
+  // landing the clip owns his arms, so the gun stops being posed and RIDES HIS RIGHT HAND (the hand->gun offset is captured the
+  // moment the move starts), then eases back into the posed hold when it's over
+  const FREE_ROLES = new Set(['roll', 'dodgeBack', 'getup', 'land']), _rel = new THREE.Matrix4(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
+  let riding = false;
+  function rideHand() {
+    H.updateMatrixWorld(true);
+    if (!riding) { riding = true; _rel.copy(B.RightHand.matrixWorld).invert().multiply(pivot.matrixWorld); }
+    _m1.multiplyMatrices(B.RightHand.matrixWorld, _rel); _m2.copy(H.matrixWorld).invert().multiply(_m1);
+    _m2.decompose(pivot.position, pivot.quaternion, tmp); pivot.updateMatrixWorld(true);
+  }
   function heldPose(dt) {
-    if (self.freeArms) return;
+    if (self.freeArms || FREE_ROLES.has(anim.role)) { rideHand(); return; }
+    riding = false;
     const Pz = self.pose || (self.pose = holdPose(cigarKey, self.weapon || 'gatling')), D = THREE.MathUtils.degToRad;
     for (const k of ['LeftShoulder', 'RightShoulder']) if (B[k]?.userData.bind) B[k].quaternion.copy(B[k].userData.bind);
     H.updateMatrixWorld(true);
