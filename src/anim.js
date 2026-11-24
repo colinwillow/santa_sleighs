@@ -15,7 +15,8 @@ export const CLIPS = {
     samba: 'Samba_Dancing', hiphop: 'Hip_Hop_Dancing', wave_dance: 'Wave_Hip_Hop_Dance', wave: 'Waving',
     sit: 'Sitting_Idle_3', cheer: 'Cheering', cheer_sit: 'Cheering_While_Sitting',
   },
-  snowman: { idle: 'Mutant_Breathing_Idle', roar: 'Mutant_Roaring', hit: 'Hit_Reaction', die: 'Mutant_Dying' },
+  snowman: { idle: 'Mutant_Breathing_Idle', roar: 'Mutant_Roaring', hit: 'Hit_Reaction', die: 'Mutant_Dying',
+    walk: 'Mutant_Walking', run: 'Mutant_Run', swipe: 'Mutant_Swiping', punch: 'Mutant_Punch', jump: 'Mutant_Jump_Attack', flex: 'Mutant_Flexing_Muscles_1' },
 };
 
 const loader = new GLTFLoader();

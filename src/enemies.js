@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/DRACOLoader.js';
 import { clone as skClone } from 'three/addons/SkeletonUtils.js';
-import { prep, spreadArms, ARMFIT } from './characters.js';
+import { prep, spreadArms, ik2, ARMFIT } from './characters.js';
 import { CLIPS } from './anim.js';
 import { retargetClip } from './retarget.js';
 
@@ -23,6 +23,27 @@ export const SNOW = {
   hide: 220,              // m from the camera: skip animating + hide
 };
 // the village road loop (a copy of village.js LOOP -- keep in sync); spots are picked along it
+/** ARM FIT (his: "his body is very wide, the Mixamo arms swing into it"): after the clip, open both upper arms by fit.spread rad,
+ *  then (fit.elbow > 0) a two-bone IK keeps each hand where the clip put it -- pushed out by fit.hand m from his centre line --
+ *  with the elbow bending toward a pole far out to that side. Run AFTER mixer.update every frame; tools/pose/snowcheck.html
+ *  measures exactly this function. */
+const _fp = new THREE.Vector3(), _fh = new THREE.Vector3(), _fo = new THREE.Vector3();
+export function fitSnowArms(B, H, fit = ARMFIT.snowman) {
+  if (!fit) return;
+  H.updateMatrixWorld(true);
+  spreadArms(B, H, fit.spread);
+  if (!fit.elbow) return;
+  for (const [s, a, f, h] of [[1, B.LeftArm, B.LeftForeArm, B.LeftHand], [-1, B.RightArm, B.RightForeArm, B.RightHand]]) {
+    if (!a || !f || !h) continue;
+    h.getWorldPosition(_fh); H.worldToLocal(_fh);
+    if (fit.hand) _fh.x = s > 0 ? Math.max(_fh.x, fit.hand) : Math.min(_fh.x, -fit.hand);   // the hand stays on its own side, clear of the belly
+    H.localToWorld(_fh);
+    a.getWorldPosition(_fo); H.worldToLocal(_fo);
+    _fp.set(_fo.x + s * fit.elbow, _fo.y - fit.elbow * 0.35, _fo.z - fit.elbow * 0.25); H.localToWorld(_fp);   // far out, a bit down + back
+    ik2(a, f, h, _fh, _fp);
+  }
+}
+
 const LOOP = [[-50, -30], [-20, -46], [14, -36], [44, -52], [62, -22], [40, 4], [56, 30], [36, 54], [2, 40], [-24, 58], [-58, 38], [-42, 6]];
 
 const loader = new GLTFLoader();
@@ -187,7 +208,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
         if (e.grow == null) H.scale.set(1 + e.pulse * 0.06, 1 - e.pulse * 0.07, 1 + e.pulse * 0.06);   // a squash on each hit
         e.mixer.update(dt);
         H.updateMatrixWorld(true);
-        spreadArms(e.B, H, ARMFIT.snowman.spread * 0.5);   // his round body: Mixamo arms swing into it
+        fitSnowArms(e.B, H);   // his round body: Mixamo arms swing into it
       }
     },
   };

@@ -42,7 +42,10 @@ L.load(MODELS[key], async g => {
     const mk = (o, col) => { if (!o) return; const m = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: col, depthTest: false })); m.position.copy(P(o)); m.renderOrder = 4; top.add(m); };
     mk(s.gun.grips.right, 0x00c040); mk(s.gun.grips.left, 0x00d0d0); mk(s.muzzle, 0xd000d0);
     // numbers in his frame
-    const loc = o => s.holder.worldToLocal(P(o)).toArray().map(v => +v.toFixed(2)), Bn = s.B, rep = {}, flags = [];
+    // measure in his CHEST's frame (x = through the shoulders, + = his LEFT; z = chest forward) so a side-on stance doesn't read as crossed arms
+    const Bn = s.B, o0 = P(Bn.Spine2), xa = P(Bn.LeftArm).sub(P(Bn.RightArm)).setY(0).normalize(), ya = new THREE.Vector3(0, 1, 0), za = new THREE.Vector3().crossVectors(xa, ya).negate();
+    const hy = s.holder.getWorldPosition(new THREE.Vector3()).y;
+    const loc = o => { const d = P(o).sub(o0); return [d.dot(xa), P(o).y - hy, d.dot(za)].map(v => +v.toFixed(2)); }, rep = {}, flags = [];
     for (const n of ['LeftArm', 'LeftForeArm', 'LeftHand', 'RightArm', 'RightForeArm', 'RightHand', 'Spine2']) if (Bn[n]) rep[n] = loc(Bn[n]);
     for (const n of ['LeftForeArm', 'LeftHand']) if (rep[n] && rep[n][0] < 0.02) flags.push(n + ' crosses to his RIGHT (x ' + rep[n][0] + ')');
     for (const n of ['RightForeArm', 'RightHand']) if (rep[n] && rep[n][0] > -0.02) flags.push(n + ' crosses to his LEFT (x ' + rep[n][0] + ')');
@@ -52,9 +55,15 @@ L.load(MODELS[key], async g => {
     const torsoJ = new Set(); skin.skeleton.bones.forEach((bn, i) => { if (/Hips|Spine/.test(bn.name)) torsoJ.add(i); });
     const halfW = y => { const pos = skin.geometry.attributes.position, sk = skin.geometry.attributes.skinIndex, sw = skin.geometry.attributes.skinWeight, v = new THREE.Vector3(); let m = 0;
       for (let i = 0; i < pos.count; i += 3) { let bi = 0, bw = -1; for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; bi = sk.getComponent(i, k); } } if (!torsoJ.has(bi)) continue;
-        skin.getVertexPosition(i, v); skin.localToWorld(v); s.holder.worldToLocal(v); if (Math.abs(v.y - y) < 0.06) m = Math.max(m, Math.abs(v.x)); } return +m.toFixed(2); };
+        skin.getVertexPosition(i, v); skin.localToWorld(v); if (Math.abs(v.y - hy - y) < 0.06) m = Math.max(m, Math.abs(v.clone().sub(o0).dot(xa))); } return +m.toFixed(2); };
     for (const n of ['LeftForeArm', 'RightForeArm']) if (rep[n]) { const hw = halfW(rep[n][1]); rep[n + '_torsoHalfWidth'] = hw; if (Math.abs(rep[n][0]) < hw && Math.abs(rep[n][2]) < 0.45) flags.push(n + ' (elbow) INSIDE the body: |x| ' + Math.abs(rep[n][0]) + ' < torso half-width ' + hw); }
     rep.gripR = s.gun.grips.right ? loc(s.gun.grips.right) : null; rep.gripL = s.gun.grips.left ? loc(s.gun.grips.left) : null;
+    // his targets: left upper arm ~45 deg from vertical (+-10), elbow raised; both hands ON the gun (distance to the gun's axis)
+    { const sh = P(Bn.LeftArm), el = P(Bn.LeftForeArm), up = new THREE.Vector3(0, 1, 0).applyQuaternion(s.holder.getWorldQuaternion(new THREE.Quaternion()));
+      rep.leftUpperArmDeg = +THREE.MathUtils.radToDeg(el.clone().sub(sh).normalize().angleTo(up.clone().negate())).toFixed(0);
+      if (s.gun.grips.right) { const a0 = P(s.gun.grips.right), ax = new THREE.Vector3(0, 0, 1).applyQuaternion(s.gun.g.getWorldQuaternion(new THREE.Quaternion()));
+        const toAxis = p => { const d = p.clone().sub(a0); return +d.sub(ax.clone().multiplyScalar(d.dot(ax))).length().toFixed(2); };
+        rep.handToGun = { L: toAxis(P(Bn.LeftHand)), R: +P(Bn.RightHand).distanceTo(a0).toFixed(2) }; } }
     rep.flags = flags; report[role] = rep;
     // views
     for (let vi = 0; vi < views.length; vi++) {

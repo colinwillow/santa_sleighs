@@ -16,8 +16,8 @@ export const CREW = {
   gunScale: 1.3,
   handGunScale: 0.85, gunTilt: 0.05, handSpread: 0.35,
   blade: 0.3, bladeHead: 0.85, leftGrip: false,
-  hold: 'hand',   // b47: 'gunner' = side-on body, gun in front of the belly, both hands IK'd with elbows out; 'hand' = b45 gun in the right hand
-  gunnerPose: { blade: 0.7, head: 0.85, at: [-0.12, -0.3, 0.45], poleR: [-1.6, -0.6, -0.3], poleL: [1.6, -0.9, 0.5] },   // b45 bladed stance: torso twist (rad, left shoulder forward), share of it the head turns back; left hand IK'd to the front grip   // b44 hand-held gun: size, a touch of muzzle-down, arm spread kept small (it moves the gun hand)
+  hold: 'gunner',   // b50 (his: left elbow UP + out, hand in onto the gun, gun inside the right arm): 'gunner' two-handed; 'hand' = b45-49 right-hand carry. Was b47: 'gunner' = side-on body, gun in front of the belly, both hands IK'd with elbows out; 'hand' = b45 gun in the right hand
+  gunnerPose: { R: [-0.17, -0.33, 0.3], L: [0.24, -0.25, 0.4], turn: 1, head: 0.8, poleR: [-1.4, -0.3, -0.2], poleL: [0.9, 0.3, 0.1] },   // hand spots from the shoulders' midpoint (his frame); poles from each shoulder   // b45 bladed stance: torso twist (rad, left shoulder forward), share of it the head turns back; left hand IK'd to the front grip   // b44 hand-held gun: size, a touch of muzzle-down, arm spread kept small (it moves the gun hand)
   // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
   // arms were inside his body) the gun is held further out and the elbows flare to the sides so the arms read from behind.
   // side = gun pivot x as a multiple of his right hip's x (0.55 = across the belly; bigger = out at his right hip, Rambo carry);
@@ -313,11 +313,8 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   function gunnerPose(dt) {
     if (self.freeArms) return;
     for (const k of ['LeftShoulder', 'RightShoulder']) if (B[k]?.userData.bind) B[k].quaternion.copy(B[k].userData.bind);   // no clavicle swing under the gun
-    H.getWorldQuaternion(hq); const up = up0.clone().applyQuaternion(hq);
-    twist(['Hips'], Q().setFromAxisAngle(up, -G.blade));                                   // side-on from the hips (feet too)
-    twist(['Neck', 'Head'], Q().setFromAxisAngle(up, G.blade * G.head / 2));               // eyes back on the target
     H.updateMatrixWorld(true);
-    // aim in his (unturned) frame
+    // aim (his unturned frame)
     let wy = 0, wp = 0;
     if (aimWorld) {
       tmp.copy(aimWorld); H.worldToLocal(tmp).sub(H.worldToLocal(wpos(B.Spine2)));
@@ -325,17 +322,27 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       wp = THREE.MathUtils.clamp(Math.atan2(tmp.y, Math.hypot(tmp.x, tmp.z)), -CREW.aimDown, CREW.aimUp);
     }
     const ka = 1 - Math.exp(-12 * dt); aimY += (wy - aimY) * ka; aimP += (wp - aimP) * ka;
-    // rear grip: a point in front of the belly, in the TURNED torso's frame (from Spine2, holder-local units)
-    const s2 = H.worldToLocal(wpos(B.Spine2)), c = Math.cos(-G.blade), sn = Math.sin(-G.blade);
-    const [gx, gy, gz] = G.at, ox = gx * c + gz * sn, oz = -gx * sn + gz * c;
-    pivot.position.set(s2.x + ox, s2.y + gy, s2.z + oz);
+    // HANDS FIRST (b50, his: left elbow UP and out, hand in onto the gun ~45 deg; gun INSIDE the right arm): the two spots his short
+    // arms reach comfortably, from the shoulders' midpoint in his own frame; the gun runs through both, and his whole body turns
+    // (from the hips) until that line points at the target -- a side-on heavy-gun stance
+    const ls = H.worldToLocal(wpos(B.LeftArm)), rs = H.worldToLocal(wpos(B.RightArm)), M = ls.clone().add(rs).multiplyScalar(0.5);
+    const Rp = M.clone().add(V().fromArray(G.R)), Lp = M.clone().add(V().fromArray(G.L)), d = Lp.clone().sub(Rp);
+    const theta = Math.atan2(d.x, d.z) * G.turn;                 // how far the line points to his left
+    const phi = aimY - theta;                                      // body turn so the gun line points at the aim
+    H.getWorldQuaternion(hq); const up = up0.clone().applyQuaternion(hq);
+    twist(['Hips'], Q().setFromAxisAngle(up, phi));
+    twist(['Neck', 'Head'], Q().setFromAxisAngle(up, -phi * G.head / 2));   // eyes stay on the target
+    H.updateMatrixWorld(true);
+    const hip = H.worldToLocal(wpos(B.Hips)), rot = v => { const o = v.clone().sub(hip); o.applyAxisAngle(up0, phi); return o.add(hip); };
+    const R2 = rot(Rp), L2 = rot(Lp);
+    pivot.position.copy(R2);
     pivot.quaternion.setFromEuler(new THREE.Euler(-aimP, aimY, 0, 'YXZ'));
     pivot.updateMatrixWorld(true);
-    ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), local(...G.poleR));
-    const sh = wpos(B.LeftArm), reach = (wpos(B.LeftForeArm).distanceTo(sh) + wpos(B.LeftHand).distanceTo(wpos(B.LeftForeArm))) * 0.97;
-    const gl = gun.grips.left.getWorldPosition(V()), gr = gun.grips.right.getWorldPosition(V()), tgt = gl.clone();
-    if (tgt.distanceTo(sh) > reach) { let lo = 0, hi = 1; for (let k = 0; k < 12; k++) { const m = (lo + hi) / 2; tgt.lerpVectors(gr, gl, m); if (tgt.distanceTo(sh) > reach) hi = m; else lo = m; } tgt.lerpVectors(gr, gl, lo); }
-    ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, local(...G.poleL));
+    // right hand on the rear grip (elbow out, back, down); left hand onto the gun where it passes his left hand's spot (elbow UP, out)
+    ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), H.localToWorld(rot(rs.clone().add(V().fromArray(G.poleR)))));
+    const a0 = gun.grips.right.getWorldPosition(V()), ax = V().set(0, 0, 1).applyQuaternion(pivot.getWorldQuaternion(Q())), Lw = H.localToWorld(L2.clone());
+    const tgt = a0.clone().addScaledVector(ax, Math.max(0.05, Lw.clone().sub(a0).dot(ax)));
+    ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, H.localToWorld(rot(ls.clone().add(V().fromArray(G.poleL)))));
   }
   /** apply a world rotation `r` to each named bone (additive, after the clip) */
   const twist = (names, r) => { for (const k of names) { const b = B[k]; if (!b) continue; b.getWorldQuaternion(sq); const w = r.clone().multiply(sq); b.parent.getWorldQuaternion(sq).invert(); b.quaternion.copy(sq.multiply(w)); b.updateMatrixWorld(true); } };
