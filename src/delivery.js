@@ -35,7 +35,13 @@ export const DELIVER = {
 // + drag at step s, up to maxT s, onto the ground / road / a live roof chunk; it snaps gold over a chimney that would take it);
 // the sleigh keeps flying. Let go = drop + the camera eases back. Slide the finger off the button (slideOff px past its edge) =
 // cancel, nothing drops. camRate = how fast the camera chases the drop-cam pose (1/s, added to the chase's 4).
-export const DROPCAM = { tapMs: 200, ease: 0.35, up: 18, back: 5, side: 5, lookK: 0.85, step: 1 / 120, maxT: 5, slideOff: 30, ring: 2.6, ringView: 0.12, camRate: 6 };
+export const DROPCAM = { tapMs: 200, ease: 0.35, up: 18, back: 5, side: 5, lookK: 0.85, step: 1 / 120, maxT: 5, slideOff: 30, ring: 2.6, ringView: 0.12, camRate: 6,
+  aimRate: 24, aimSide: 16, aimFwd: 12, aimCurve: 1.4 };
+// b74 AIM THE DROP WITH THE RIGHT THUMB (his: "when you press and hold the drop and the aimer comes out, you're supposed to be able
+// to AIM AROUND WITH YOUR RIGHT THUMB, then let go to drop"): while a drop is held (a PRESENT / BOMB button, or the draw gesture
+// with the present / bomb equipped on the weapon ring), the right stick pushes the release velocity sideways / forward in the
+// sleigh's frame -- aimRate m/s per s at full stick (curved by aimCurve), held within +-aimSide (his right +) and +-aimFwd (ahead +)
+// m/s -- so the landing ring slides where the thumb pushes and STAYS when the thumb centres. The drop flies with it.
 
 const V3 = THREE.Vector3;
 // ---- geometry: parts merged into one vertex-coloured mesh (baked top-front light so a MeshBasic glow still reads 3D) ---------
@@ -80,7 +86,7 @@ function starGeo() {
   const g = new THREE.ExtrudeGeometry(s, { depth: 0.12, bevelEnabled: true, bevelSize: 0.04, bevelThickness: 0.04, bevelSegments: 1 }); g.translate(0, 0, -0.06);
   return part(g, '#ffd25a', 3);
 }
-function bombGeo() {
+export function bombGeo() {
   const P = [part(new THREE.SphereGeometry(0.36, 14, 10), '#e8263a'), part(at(new THREE.CylinderGeometry(0.11, 0.13, 0.13, 10), 0, 0.37, 0), '#f4c040'),
     part(at(new THREE.SphereGeometry(0.08, 8, 6), -0.13, 0.13, 0.3), '#ffd6dc', 1, false)];   // a glass highlight
   const pts = [new V3(0, 0.42, 0), new V3(0.04, 0.52, 0), new V3(0.12, 0.58, 0.02), new V3(0.18, 0.56, 0.03)];
@@ -265,7 +271,7 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     puff(p, '#ffb050', 16, 9, 0.5); puff(p, '#3a3440', 12, 5, 1.6); puff(p, '#ffffff', 12, 8, 1.1); spark(p, '#ff9a3a', 36, 10, 0.8, { up: 4, grav: 12, size: 2.4 });
     sfx('explosion', { vol: 0.9 }); onShake(0.8);
   }
-  function drop(kind) {
+  function drop(kind, off = { x: 0, z: 0 }) {
     if (cd > 0 || foot.active || !document.body.classList.contains('play')) return false;
     if (kind === 'present' && stack <= 0) { sfx('ui_back', { vol: 0.5, rate: 1.4 }); return false; }
     if (items.filter(i => i.kind === kind).length >= (kind === 'present' ? NI : NB)) items.splice(items.findIndex(i => i.kind === kind), 1);
@@ -274,13 +280,15 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     let from;
     if (kind === 'present') { stack--; const s = STACK[stack]; from = rig.sleigh.g.localToWorld(new V3(s[0], s[1], s[2])); }
     else from = rig.sleigh.g.localToWorld(new V3(0.6, 2.4, -2.3));
-    const v = rig.SV.clone(); v.y -= 1.2;
+    const v = addOff(rig.SV.clone(), off); v.y -= 1.2;
     items.push({ kind, p: from, v, rot: new V3(Math.random() * 6, Math.random() * 6, 0), spin: new V3(Math.random() * 8 - 4, Math.random() * 6 - 3, Math.random() * 8 - 4), state: 'fly', life: 14, trailT: 0 });
     sfx('whoosh', { vol: 0.6, rate: kind === 'bomb' ? 1.0 : 1.4 }); if (kind === 'bomb') sfx('casing', { vol: 0.5, rate: 0.6 });
     return true;
   }
   // ---- DROP-CAM: hold a drop button -> look down + the landing marker; release = drop ------------------------------------
-  const hold = { kind: null, t: 0, src: null, btn: null, lin: 0, k: 0, land: new V3(), hit: false, chim: false };
+  const hold = { kind: null, t: 0, src: null, btn: null, lin: 0, k: 0, land: new V3(), hit: false, chim: false, off: { x: 0, z: 0 } };
+  /** the drop's extra release velocity (his right x, ahead z, sleigh frame) added to `v` */
+  const addOff = (v, off = hold.off) => { const f = Math.sin(rig.yaw), c = Math.cos(rig.yaw); v.x += -c * off.x + f * off.z; v.z += f * off.x + c * off.z; return v; };
   const ringTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
     const ringAt = (r, w, col) => { x.beginPath(); x.arc(128, 128, r, 0, Math.PI * 2); x.lineWidth = w; x.strokeStyle = col; x.stroke(); };
     ringAt(104, 22, 'rgba(29,20,32,0.85)'); ringAt(104, 11, '#ffffff');                       // ink-edged ring (reads on white snow)
@@ -296,7 +304,7 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     rig.sleigh.g.updateMatrixWorld();
     if (kind === 'present') { const s = STACK[Math.max(0, stack - 1)]; rig.sleigh.g.localToWorld(_pp.set(s[0], s[1], s[2])); }
     else rig.sleigh.g.localToWorld(_pp.set(0.6, 2.4, -2.3));
-    _pv.copy(rig.SV); _pv.y -= 1.2;
+    _pv.copy(rig.SV); addOff(_pv); _pv.y -= 1.2;
     const h = DROPCAM.step, k = Math.exp(-DELIVER.drag * h);
     hold.chim = false; hold.hit = false;
     for (let t = 0; t < DROPCAM.maxT; t += h) {
@@ -315,12 +323,20 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
   const holdBtn = kind => kind === 'present' ? bP : bB;
   function holdStart(kind, src) {
     if (hold.kind || foot.active || !document.body.classList.contains('play')) return;
-    hold.kind = kind; hold.src = src; hold.t = 0; holdBtn(kind)?.classList.add('on');
+    hold.kind = kind; hold.src = src; hold.t = 0; hold.off.x = hold.off.z = 0; holdBtn(kind)?.classList.add('on');
   }
   function holdEnd(fire) {
     if (!hold.kind) return;
     const k = hold.kind; hold.kind = null; holdBtn(k)?.classList.remove('on');
-    if (fire) drop(k);
+    if (fire) drop(k, { ...hold.off });
+    hold.off.x = hold.off.z = 0;
+  }
+  /** the right stick while a drop is held: push the landing point (x = his right, y = ahead; -1..1) */
+  function aimDrop(x, y, dt) {
+    if (!hold.kind) return;
+    const c = v => Math.sign(v) * Math.pow(Math.abs(v), DROPCAM.aimCurve), r = DROPCAM.aimRate * dt;
+    hold.off.x = THREE.MathUtils.clamp(hold.off.x + c(x) * r, -DROPCAM.aimSide, DROPCAM.aimSide);
+    hold.off.z = THREE.MathUtils.clamp(hold.off.z + c(y) * r, -DROPCAM.aimFwd, DROPCAM.aimFwd);
   }
   function updateHold(dt) {
     if (hold.kind && (foot.active || !document.body.classList.contains('play'))) holdEnd(false);
@@ -410,9 +426,9 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
   #deliv svg { width: 20px; height: 20px; display: block; } #deliv .sk { margin-left: 6px; } #deliv .ok { color: #2a9a50; } #deliv .no { color: var(--candy); }
   #deliv.win { background: var(--gold); }
   .dropb { width: 62px; height: 62px; z-index: 7; } .dropb svg { width: 36px; height: 36px; display: block; }
-  #dropPresent { right: calc(env(safe-area-inset-right) + 100px); bottom: calc(env(safe-area-inset-bottom) + 240px); transform: rotate(4deg);
+  #dropPresent { right: calc(env(safe-area-inset-right) + 104px); bottom: calc(env(safe-area-inset-bottom) + 262px); transform: rotate(4deg);
     border-radius: 52% 48% 47% 53% / 47% 53% 47% 53%; background: radial-gradient(circle at 34% 28%, #fff6dc 0 14%, transparent 15%), var(--gold); box-shadow: inset 0 0 0 3px #ffe39a, 3px 4px 0 var(--ink); }
-  #dropBomb { right: calc(env(safe-area-inset-right) + 22px); bottom: calc(env(safe-area-inset-bottom) + 316px); transform: rotate(-4deg);
+  #dropBomb { right: calc(env(safe-area-inset-right) + 178px); bottom: calc(env(safe-area-inset-bottom) + 250px); transform: rotate(-4deg);
     border-radius: 48% 52% 53% 47% / 53% 47% 53% 47%; background: radial-gradient(circle at 34% 28%, #9d8ad8 0 14%, transparent 15%), #5a3d96; box-shadow: inset 0 0 0 3px #8a74c8, 3px 4px 0 var(--ink); }
   #dropPresent.on { transform: rotate(4deg) translate(2px, 3px) scale(.94); box-shadow: 1px 1px 0 var(--ink); }
   #dropBomb.on { transform: rotate(-4deg) translate(2px, 3px) scale(.94); box-shadow: 1px 1px 0 var(--ink); }
@@ -546,5 +562,5 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     sparkG.attributes.position.needsUpdate = sparkG.attributes.color.needsUpdate = true;
     updateHud();
   }
-  return { update, drop, dropCam, hold, predict, get street() { return street; }, get items() { return items; }, get stack() { return stack; }, facts, DELIVER, begin, end };
+  return { update, drop, dropCam, hold, predict, aimDrop, aimStart: kind => holdStart(kind, 'draw'), aimEnd: fire => { if (hold.src === 'draw') holdEnd(fire); }, get street() { return street; }, get items() { return items; }, get stack() { return stack; }, facts, DELIVER, begin, end };
 }

@@ -1,21 +1,33 @@
-// TWIN STICKS (his, Nov 23): LEFT stick FLIES the sleigh, RIGHT stick AIMS + SHOOTS (push it = the reticle moves that way and
-// the gun fires; let go = it stops). Both pads FLOAT: each half of the screen is a zone and the pad appears under the thumb
-// (Korajin's STICK.dyn); they rest faintly in their corners. BOOST is its own button. A gamepad drives the same values;
-// on a desktop the mouse IS the reticle and the left button fires.
-// GUN LOCK (b61, his: "a button above the right stick that looks like a gun -- drag it into the centre, it LOCKS, the gun
-// starts shooting and now you can aim; if you don't drag it in, the right joystick just controls the CAMERA"): the right pad is
-// the CAMERA until the gun sticker is dragged onto it (snaps + padlock), then it is the FIRE pad. LEFT-PAD FLICK = DODGE.
-// Output each frame: input.steer, input.climb (left, -1..1, + = right / up), input.aimX, input.aimY (right pad when LOCKED),
-// input.camX, input.camY (right pad when UNLOCKED: + = turn right / look up), input.locked, input.fire, input.boost,
-// input.mouse (reticle in px when the mouse is aiming, else null), input.dodge ({x, y} pad direction once per flick, the game
-// clears it), input.moveHold (the first FLICK.ms of a left touch: a flick must not also start a walk).
+// TWIN STICKS (his, Nov 23): LEFT stick FLIES the sleigh / walks him, RIGHT stick = the CAMERA + THE DRAW. Both pads FLOAT: each
+// half of the screen is a zone and the pad appears under the thumb (Korajin's STICK.dyn); they rest faintly in their corners.
+// BOOST is its own button. A gamepad drives the same values; on a desktop the mouse is the reticle.
+// b74 THE DRAW (his: "port Korajin's bow draw to all the guns"): with something EQUIPPED (the WEAPON RING round the right stick),
+// thumb down in the middle of the right stick -> push UP to the top (`padUp`: past DRAW.upAt of the radius, within DRAW.arc of
+// straight up, held DRAW.armT s) = COCKED (rack / spin-up / pin pulled) -> bring it back DOWN to the centre (inside DRAW.downAt)
+// = DRAWN: now the stick is a full 3D AIM (yaw + pitch RATES, the game turns the aim + camera with it) -> LIFT the thumb = RELEASE
+// (single shot / throw / drop; the Gatling fires the whole time it is DRAWN and stops on the lift). Released while only COCKED =
+// a quick shot straight down the current aim. Not drawing, the right stick is the CAMERA; a quick tap = JUMP. Unarmed: camera only.
+// A string through the knob follows the thumb while it draws (the bow string), gold when cocked, red when drawn.
+// WEAPON RING (replaces b61's drag-to-lock gun sticker): the items as arc-segment buttons round the right stick's home; tap one =
+// equip it (input.ringPick = its key, the game decides: equip / put away when it is already out). `setRing(items, sel)` lays it out.
+// Output each frame: input.steer, input.climb (left, -1..1, + = right / up), input.camX, input.camY (right pad, not drawing),
+// input.aimX, input.aimY (right pad while COCKED / DRAWN), input.draw ('idle' | 'cock' | 'drawn'), input.drawEv (events since the
+// game last cleared it: 'cock' | 'drawn' | 'release' | 'cancel'), input.rx, input.ry (the raw right stick), input.rDown,
+// input.boost, input.mouse, input.dodge, input.moveHold, input.tap. The game sets input.armed (something is equipped) and
+// input.drawLock (a drop button is held: the right stick aims the drop, no draw).
 
-export const input = { steer: 0, climb: 0, aimX: 0, aimY: 0, camX: 0, camY: 0, locked: false, fire: false, boost: false, mouse: null, dodge: null, moveHold: false };
-export const STICKS = { R: 58, fireAt: 0.35, tapR: 0.35, tapMs: 180, deadL: 0.06 };   // right pad: inside tapR = the middle (jump tap, no fire)
-// GUNLOCK: snapAt = the gun locks the moment it arrives this close to the pad centre (fraction of the pad's 68 px radius);
-// dropAt = let go this close and it still snaps; outR = locked, the thumb dragged this far (x STICKS.R) from the pad's centre
-// pulls the gun back out (unlocks); park = where the gun sticker rests (px from the right / bottom edges, its centre)
-export const GUNLOCK = { snapAt: 0.25, dropAt: 0.6, outR: 2.3, park: { right: 196, bottom: 204 }, size: 60 };
+export const input = { steer: 0, climb: 0, aimX: 0, aimY: 0, camX: 0, camY: 0, rx: 0, ry: 0, rDown: false, boost: false, mouse: null, dodge: null, moveHold: false,
+  draw: 'idle', drawEv: [], armed: false, drawLock: false, ringPick: null, fire: false };
+export const STICKS = { R: 58, tapR: 0.35, tapMs: 180, deadL: 0.06 };   // right pad: a quick tap under tapR of travel = jump
+// DRAW (Korajin's padUp, his numbers' shape): upAt = the thumb past this x STICKS.R, pointing within `arc` rad of straight up, held
+// armT s = COCKED; downAt = back inside this x STICKS.R of where it landed = DRAWN. yawRate / pitchRate = rad/s of aim at full
+// stick (curved by `curve`: fine near the middle). sleigh*: the sleigh's aim (pitch0 rest a little down, pitchMin..pitchMax, the
+// aim point dist m out along it); footPitch* = the on-foot camera pitch the aim drives (onfoot.js CAMERA range).
+export const DRAW = { upAt: 0.78, downAt: 0.32, armT: 0.04, arc: 0.6, yawRate: 1.5, pitchRate: 0.95, curve: 1.6,
+  sleighPitch0: -0.2, sleighPitchMin: -1.25, sleighPitchMax: 0.55, sleighDist: 45, sleighCamK: 0.55 };
+// RING: arc segments round the right pad's home (x px from the right edge, y px from the bottom = the pad's resting centre):
+// r0..r1 px radius, from a0 to a1 degrees (0 = right, 90 = up, screen-math), gap deg between segments, shadow = the baked offset
+export const RING = { x: 110, y: 120, r0: 78, r1: 126, a0: 86, a1: 214, gap: 2.4, shadow: [3, 4] };
 // FLICK (left pad): the thumb travels past `at` x STICKS.R from where it landed within `ms` = a DODGE that way
 export const FLICK = { at: 0.9, ms: 150 };
 
@@ -64,47 +76,32 @@ css.textContent = `
   background: ${KN_L} center/100% 100% no-repeat; box-shadow: 2px 3px 0 ${INK}; }
 #padR { background-image: ${PAD_R}; } #padR .kn { background-image: ${KN_R}; }
 #padR.firing { box-shadow: 0 0 0 4px #ff3d7f, 3px 4px 0 4px ${INK}; }
+#padR .str { position: absolute; left: -3px; top: -3px; width: 136px; height: 136px; display: none; overflow: visible; }
+#padR.cock .str, #padR.drawn .str { display: block; }
+#padR.cock { box-shadow: 0 0 0 4px ${GOLD}, 3px 4px 0 4px ${INK}; }
+#padR.drawn { box-shadow: 0 0 0 5px ${CANDY}, 3px 4px 0 5px ${INK}; }
+#wring { position: fixed; z-index: 6; pointer-events: none; overflow: visible; }
+#wring .wseg { pointer-events: auto; cursor: pointer; }
+#wring .wseg.on .fill { fill: ${GOLD}; } #wring .wseg .fill { fill: ${CREAM}; fill-opacity: .9; }
+#wring .wseg.press { transform: translate(2px, 3px); }
+body:not(.play) #wring { display: none; }
 #reticle { position: fixed; width: 46px; height: 46px; margin: -23px 0 0 -23px; pointer-events: none; z-index: 5; display: none; }
 body.play:not(.ret3d) #reticle { display: block; }
 body:not(.play) .pad { display: none; }
 `;
 document.head.appendChild(css);
-// the GUN sticker (b61): a stubby candy-red Gatling on a gold badge, ink outline + solid offset shadow (b27 style, no filters);
-// LOCKED it rides in the right knob and a padlock badge sits on the pad's rim (tap it = unlock)
-const GUN_SVG = `<svg viewBox='0 0 40 40'><path d='M10 12q4-6 9 0' fill='none' stroke='${INK}' stroke-width='3.4' stroke-linecap='round'/>
-<rect x='17' y='13.5' width='18' height='8' rx='2' fill='#cfd3de' stroke='${INK}' stroke-width='2.2'/><path d='M19 16.2h14M19 18.8h14' stroke='${INK}' stroke-width='1.3'/>
-<rect x='33.5' y='12.2' width='4' height='10.6' rx='1.2' fill='${GOLD}' stroke='${INK}' stroke-width='2'/>
-<path d='M10 22l-2.6 9.5h5.4l2.6-9.5z' fill='#8a5230' stroke='${INK}' stroke-width='2.2' stroke-linejoin='round'/>
-<rect x='5' y='11' width='15' height='12.5' rx='3.4' fill='${CANDY}' stroke='${INK}' stroke-width='2.4'/>
-<path d='M8 14.3h9' stroke='#ff98a2' stroke-width='1.8' stroke-linecap='round'/><circle cx='12.5' cy='19' r='1.8' fill='${GOLD}' stroke='${INK}' stroke-width='1.2'/></svg>`;
-const LOCK_SVG = `<svg viewBox='0 0 24 24'><path d='M7.5 11V8.2a4.5 4.5 0 0 1 9 0V11' fill='none' stroke='${INK}' stroke-width='4.4' stroke-linecap='round'/>
-<path d='M7.5 11V8.2a4.5 4.5 0 0 1 9 0V11' fill='none' stroke='#d9dbe4' stroke-width='1.8' stroke-linecap='round'/>
-<rect x='4.5' y='10.3' width='15' height='11' rx='2.6' fill='${GOLD}' stroke='${INK}' stroke-width='2.2'/>
-<circle cx='12' cy='14.6' r='1.7' fill='${INK}'/><path d='M12 15.4v3' stroke='${INK}' stroke-width='1.8' stroke-linecap='round'/></svg>`;
-const gunUrl = `url("data:image/svg+xml,${encodeURIComponent(GUN_SVG.replace('<svg ', "<svg xmlns='http://www.w3.org/2000/svg' "))}")`;
-const css2 = document.createElement('style');
-css2.textContent = `
-#gunBtn { position: fixed; z-index: 8; width: ${GUNLOCK.size}px; height: ${GUNLOCK.size}px; margin: -${GUNLOCK.size / 2}px 0 0 -${GUNLOCK.size / 2}px;
-  border-radius: 52% 48% 50% 50% / 47% 53% 47% 53%; border: 3px solid ${INK}; box-shadow: 3px 4px 0 ${INK};
-  background: ${gunUrl} center/82% no-repeat, radial-gradient(circle at 34% 28%, #fff6dc 0 13%, transparent 14%), ${GOLD};
-  transform: rotate(-6deg); pointer-events: auto; touch-action: none; transition: left .28s cubic-bezier(.3,1.5,.5,1), top .28s cubic-bezier(.3,1.5,.5,1), transform .2s; }
-#gunBtn.drag { transition: none; transform: rotate(-14deg) scale(1.12); box-shadow: 5px 7px 0 ${INK}; }
-#gunBtn.gone { display: none; }
-#padR.locked .kn { background: ${gunUrl} center/78% no-repeat, radial-gradient(circle, #fff6dc 0 60%, ${GOLD} 61%); }
-#padR .lockb { position: absolute; right: -8px; top: -8px; width: 32px; height: 32px; border-radius: 50%; display: none; pointer-events: auto;
-  background: ${CREAM} center/72% no-repeat url("data:image/svg+xml,${encodeURIComponent(LOCK_SVG.replace('<svg ', "<svg xmlns='http://www.w3.org/2000/svg' "))}");
-  border: 2.5px solid ${INK}; box-shadow: 2px 3px 0 ${INK}; }
-#padR.locked .lockb { display: block; }
-#padR.locked { opacity: .62; } #padR.locked.act { opacity: 1; }
-#padR.pop .lockb { animation: lockpop .35s cubic-bezier(.3,1.8,.5,1); }
-@keyframes lockpop { 0% { transform: scale(.2) rotate(-40deg); } 100% { transform: scale(1) rotate(0); } }
-body:not(.play) #gunBtn { display: none; }
-`;
-document.head.appendChild(css2);
 const mkPad = id => { const p = document.createElement('div'); p.className = 'pad'; p.id = id; p.innerHTML = '<div class="kn"></div>'; document.body.appendChild(p); return p; };
 const padEl = { L: mkPad('padL'), R: mkPad('padR') };
-const lockB = document.createElement('div'); lockB.className = 'lockb'; padEl.R.appendChild(lockB);
-const gunEl = document.createElement('div'); gunEl.id = 'gunBtn'; gunEl.className = 'gunbtn'; document.body.appendChild(gunEl);
+// the bow STRING on the right pad: rim to rim through the knob (a quadratic whose curve passes through the thumb)
+padEl.R.insertAdjacentHTML('beforeend', `<svg class="str" viewBox="0 0 136 136"><path d="" fill="none" stroke="${INK}" stroke-width="7" stroke-linecap="round"/><path d="" fill="none" stroke="${GOLD}" stroke-width="3.4" stroke-linecap="round"/></svg>`);
+const strP = padEl.R.querySelectorAll('.str path');
+function drawString(dx, dy) {
+  const ax = 68 - 60, bx = 68 + 60, ay = 68 + 12, kx = 68 + dx, ky = 68 + dy;
+  const cx = 2 * kx - (ax + bx) / 2, cy = 2 * ky - ay;   // control so the curve's midpoint IS the knob
+  const d = `M${ax} ${ay}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${bx} ${ay}`;
+  strP[0].setAttribute('d', d); strP[1].setAttribute('d', d);
+  strP[1].setAttribute('stroke', draw.st === 'drawn' ? CANDY : GOLD);
+}
 const ret = document.createElement('div'); ret.id = 'reticle';
 // the crosshair: an ink-outlined candy-cane ring + four icing ticks + a red pip (src/main.js RET3 paints the same on a canvas)
 ret.innerHTML = `<svg viewBox="0 0 46 46" width="46" height="46"><g fill="none" stroke-linecap="round">
@@ -114,74 +111,74 @@ ret.innerHTML = `<svg viewBox="0 0 46 46" width="46" height="46"><g fill="none" 
 <circle cx="23" cy="23" r="3.6" fill="${CANDY}" stroke="${INK}" stroke-width="2"/></svg>`;
 document.body.appendChild(ret);
 
+// ---- WEAPON RING ----------------------------------------------------------------------------------------------------
+// icons (30 x 30, ink-outlined, flat colours: the b27 sticker style)
+const ICON = {
+  gatling: `<path d='M6 10q4-6 9 0' fill='none' stroke='${INK}' stroke-width='3' stroke-linecap='round'/><rect x='13' y='11' width='14' height='7' rx='2' fill='#cfd3de' stroke='${INK}' stroke-width='2'/><path d='M15 13.4h11M15 15.8h11' stroke='${INK}' stroke-width='1.1'/><rect x='26' y='10' width='3.4' height='9' rx='1' fill='${GOLD}' stroke='${INK}' stroke-width='1.8'/><path d='M7 19l-2.2 7.5h4.6l2.2-7.5z' fill='#8a5230' stroke='${INK}' stroke-width='2' stroke-linejoin='round'/><rect x='2.5' y='9' width='13' height='11' rx='3' fill='${CANDY}' stroke='${INK}' stroke-width='2.2'/>`,
+  rifle: `<path d='M2 16h6l3-3h17v3.4H12l-2.5 2.6v5.5H5.5L4 19H2z' fill='#8a5230' stroke='${INK}' stroke-width='2' stroke-linejoin='round'/><rect x='11' y='9.5' width='9' height='3.2' rx='1.4' fill='#cfd3de' stroke='${INK}' stroke-width='1.8'/><path d='M27 13v3.4' stroke='${GOLD}' stroke-width='2.4'/>`,
+  rocket: `<path d='M4 18l4-4h14l5 2-5 2H8z' fill='#d8282e' stroke='${INK}' stroke-width='2' stroke-linejoin='round'/><path d='M8 14l-4-4v4M8 18l-4 4v-4' fill='${GOLD}' stroke='${INK}' stroke-width='1.8' stroke-linejoin='round'/><path d='M22 14l5 2-5 2z' fill='#f6efe2' stroke='${INK}' stroke-width='1.6' stroke-linejoin='round'/><path d='M1.5 16h2' stroke='#ffb050' stroke-width='3' stroke-linecap='round'/>`,
+  snowball: `<circle cx='15' cy='16' r='9' fill='#f6f8ff' stroke='${INK}' stroke-width='2.4'/><path d='M10 13a5.5 5.5 0 0 1 4-3' fill='none' stroke='#fff' stroke-width='2.4' stroke-linecap='round'/><circle cx='18' cy='19' r='1.4' fill='#b8c8e8'/><circle cx='12.5' cy='19.5' r='1' fill='#b8c8e8'/>`,
+  grenade: `<circle cx='14' cy='18' r='9' fill='${CANDY}' stroke='${INK}' stroke-width='2.4'/><ellipse cx='10.8' cy='14.8' rx='2.4' ry='1.7' fill='#ffd0d6' transform='rotate(-35 10.8 14.8)'/><rect x='10.5' y='6.8' width='7' height='4' rx='1.2' fill='${GOLD}' stroke='${INK}' stroke-width='1.9'/><path d='M14 6.8c0-3 2.5-4 5-3.2' fill='none' stroke='${INK}' stroke-width='2' stroke-linecap='round'/><circle cx='20.5' cy='3.4' r='2.2' fill='#ffe14a' stroke='${INK}' stroke-width='1.2'/>`,
+  present: `<rect x='5' y='12' width='20' height='14' rx='2.4' fill='${CANDY}' stroke='${INK}' stroke-width='2.2'/><rect x='3.5' y='8.5' width='23' height='5' rx='2' fill='#ff4a5c' stroke='${INK}' stroke-width='2.2'/><path d='M15 8.5V26' stroke='${INK}' stroke-width='6'/><path d='M15 8.5V26' stroke='${GOLD}' stroke-width='2.8'/><path d='M15 8.5c-2-4-7-4.5-6.8-1.5.3 1.8 4.2 1.5 6.8 1.5zM15 8.5c2-4 7-4.5 6.8-1.5-.3 1.8-4.2 1.5-6.8 1.5z' fill='${GOLD}' stroke='${INK}' stroke-width='1.8' stroke-linejoin='round'/>`,
+  bomb: `<circle cx='14' cy='18' r='9' fill='#5a3d96' stroke='${INK}' stroke-width='2.4'/><circle cx='14' cy='18' r='4.2' fill='#9dff4a' stroke='${INK}' stroke-width='1.6'/><rect x='10.5' y='6.8' width='7' height='4' rx='1.2' fill='${GOLD}' stroke='${INK}' stroke-width='1.9'/><path d='M14 6.8c0-3 2.5-4 5-3.2' fill='none' stroke='${INK}' stroke-width='2' stroke-linecap='round'/><circle cx='20.5' cy='3.4' r='2.2' fill='#ffe14a' stroke='${INK}' stroke-width='1.2'/>`,
+};
+const LABEL = { gatling: 'GATLING', rifle: 'RIFLE', rocket: 'ROCKET', snowball: 'SNOW', grenade: 'BOMB', present: 'GIFT', bomb: 'BOMB' };
+const ringEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); ringEl.id = 'wring'; document.body.appendChild(ringEl);
+let ringKey = '';
+/** lay the ring out: items = keys in order (first sits at the top), sel = the equipped key or null */
+export function setRing(items, sel) {
+  const key = items.join(',') + '|' + sel; if (key === ringKey) return; ringKey = key;
+  const R = RING, S = R.r1 + 12, n = items.length, span = (R.a1 - R.a0) / Math.max(1, n), D = Math.PI / 180;
+  ringEl.setAttribute('viewBox', `${-S} ${-S} ${2 * S} ${2 * S}`); ringEl.setAttribute('width', 2 * S); ringEl.setAttribute('height', 2 * S);
+  ringEl.style.left = `calc(100% - ${R.x + S}px)`; ringEl.style.top = `calc(100% - ${R.y + S}px)`;
+  const pt = (r, a) => `${(Math.cos(a * D) * r).toFixed(1)} ${(-Math.sin(a * D) * r).toFixed(1)}`;
+  ringEl.innerHTML = items.map((k, i) => {
+    const a = R.a0 + i * span + R.gap / 2, b = R.a0 + (i + 1) * span - R.gap / 2, m = (a + b) / 2, rm = (R.r0 + R.r1) / 2;
+    const d = `M${pt(R.r1, a)}A${R.r1} ${R.r1} 0 0 0 ${pt(R.r1, b)}L${pt(R.r0, b)}A${R.r0} ${R.r0} 0 0 1 ${pt(R.r0, a)}Z`;
+    const cx = Math.cos(m * D) * rm, cy = -Math.sin(m * D) * rm, lx = Math.cos(m * D) * (R.r1 + 9), ly = -Math.sin(m * D) * (R.r1 + 9);
+    return `<g class="wseg${k === sel ? ' on' : ''}" data-k="${k}"><path d="${d}" transform="translate(${R.shadow[0]} ${R.shadow[1]})" fill="${INK}"/>
+<path class="fill" d="${d}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
+<g transform="translate(${(cx - 13).toFixed(1)} ${(cy - 15).toFixed(1)}) scale(.88)">${ICON[k] || ''}</g>
+<text class="lab" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="900" font-style="italic" font-family="ui-rounded, system-ui, sans-serif" fill="${CREAM}" stroke="${INK}" stroke-width="2.6" paint-order="stroke" transform="rotate(${(90 - m).toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})">${k === sel ? LABEL[k] || '' : ''}</text></g>`;
+  }).join('');
+}
+ringEl.addEventListener('pointerdown', e => {
+  const g = e.target.closest?.('.wseg'); if (!g) return;
+  e.preventDefault(); e.stopPropagation(); input.ringPick = g.dataset.k; lastDevice = e.pointerType === 'mouse' ? 'mouse' : 'touch';
+  g.classList.add('press'); setTimeout(() => g.classList.remove('press'), 120);
+});
+
 const pads = { L: { id: null, ox: 0, oy: 0, x: 0, y: 0 }, R: { id: null, ox: 0, oy: 0, x: 0, y: 0 } };
-const home = side => ({ x: side === 'L' ? 110 : innerWidth - 110, y: innerHeight - 120 });
-const park = () => ({ x: innerWidth - GUNLOCK.park.right, y: innerHeight - GUNLOCK.park.bottom });
+const home = side => ({ x: side === 'L' ? 110 : innerWidth - RING.x, y: innerHeight - RING.y });
 function placeHome() {
   for (const s of ['L', 'R']) if (pads[s].id === null) { const h = home(s); padEl[s].style.left = h.x + 'px'; padEl[s].style.top = h.y + 'px'; padEl[s].firstChild.style.transform = ''; }
-  if (!gunDrag) { const g = gun.locked ? home('R') : park(); gunEl.style.left = g.x + 'px'; gunEl.style.top = g.y + 'px'; }
 }
-
-// ---- GUN LOCK -------------------------------------------------------------------------------------------------
-const gun = { locked: false };
-let gunDrag = null;   // { id } while a finger carries the gun sticker
-try { gun.locked = localStorage.getItem('gunLock') === '1'; } catch (e) {}
-const snd = (n, o) => window.sfx?.play(n, o);
-function setLocked(on, quiet) {
-  gun.locked = on; input.locked = on;
-  try { localStorage.setItem('gunLock', on ? '1' : '0'); } catch (e) {}
-  padEl.R.classList.toggle('locked', on); gunEl.classList.toggle('gone', on && !gunDrag);
-  if (!quiet) {
-    if (on) { snd('casing', { vol: 0.9, rate: 1.7 }); snd('ui_tap', { vol: 0.7, rate: 0.7 }); padEl.R.classList.remove('pop'); void padEl.R.offsetWidth; padEl.R.classList.add('pop'); }
-    else snd('ui_back', { vol: 0.6, rate: 1.2 });
-  }
-}
-setLocked(gun.locked, true);
-/** lock while a finger is still down: that same finger now holds the FIRE pad (it starts shooting at once -- his words) */
-function lockWith(e) {
-  gunDrag = null; gunEl.classList.remove('drag'); setLocked(true);
-  const P = pads.R, h = home('R');
-  if (P.id === null) {
-    P.id = e.pointerId; P.ox = h.x; P.oy = h.y; P.t0 = performance.now() - STICKS.tapMs - 1; P.maxd = 1; P.sx = e.clientX; P.sy = e.clientY;
-    const dx = e.clientX - h.x, dy = e.clientY - h.y; P.x = dx / STICKS.R; P.y = -dy / STICKS.R;
-    padEl.R.style.left = h.x + 'px'; padEl.R.style.top = h.y + 'px'; padEl.R.classList.add('act');
-  }
-  placeHome();
-}
-function gunMove(e) {
-  gunEl.style.left = e.clientX + 'px'; gunEl.style.top = e.clientY + 'px';
-  const h = home('R');
-  if (Math.hypot(e.clientX - h.x, e.clientY - h.y) < GUNLOCK.snapAt * 68) lockWith(e);
-}
-gunEl.addEventListener('pointerdown', e => {
-  e.preventDefault(); e.stopPropagation(); if (gun.locked || gunDrag) return;
-  gunDrag = { id: e.pointerId }; gunEl.classList.add('drag'); snd('ui_tap', { vol: 0.4, rate: 1.4 }); lastDevice = e.pointerType === 'mouse' ? 'mouse' : 'touch';
-  gunMove(e);
-});
-lockB.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (gun.locked) { setLocked(false); placeHome(); } });
 placeHome(); addEventListener('resize', placeHome);
 
-const isUI = t => t.closest?.('.btn, .mn .b, #pauseBtn, a, .info, .col, .gunbtn, .lockb');
+// ---- THE DRAW (state machine; touch, gamepad LT, Space, mouse button all drive it) ---------------------------------------
+const draw = { st: 'idle', upT: 0, src: null };
+const snd = (n, o) => window.sfx?.play(n, o);
+function setDraw(st, ev) {
+  draw.st = st; input.draw = st; if (ev) input.drawEv.push(ev);
+  padEl.R.classList.toggle('cock', st === 'cock'); padEl.R.classList.toggle('drawn', st === 'drawn');
+  if (st === 'idle') { draw.upT = 0; draw.src = null; }
+}
+/** Korajin's padUp: the thumb pushed UP past `upAt`, within `arc` of vertical */
+const padUp = P => P.y > 0 && Math.abs(Math.atan2(P.x, P.y)) < DRAW.arc && Math.hypot(P.x, P.y) > DRAW.upAt;
+/** a non-touch source (key / gamepad / mouse) starts a draw: cocked and drawn at once (the stick or mouse aims) */
+function drawNow(src) { if (draw.st !== 'idle' || !input.armed || input.drawLock) return; draw.src = src; setDraw('cock', 'cock'); setDraw('drawn', 'drawn'); }
+function drawLift(src) { if (draw.st === 'idle' || draw.src !== src) return; setDraw('idle', 'release'); }
+
+const isUI = t => t.closest?.('.btn, .mn .b, #pauseBtn, a, .info, .col, .wseg');
 window.addEventListener('pointerdown', e => {
   if (isUI(e.target) || e.pointerType === 'mouse') return;
   const side = e.clientX < innerWidth * 0.5 ? 'L' : 'R', P = pads[side];
   if (P.id !== null) return;
   P.id = e.pointerId; P.ox = e.clientX; P.oy = e.clientY; P.x = P.y = 0; P.t0 = performance.now(); P.maxd = 0; P.sx = e.clientX; P.sy = e.clientY; P.flicked = false;
-  // RIGHT pad (his): a touch ON the resting stick but off its middle shoots straight away, that way; the middle is the
-  // jump tap. So a touch inside the resting pad keeps the pad where it is and reads the offset at once.
-  if (side === 'R' && gun.locked) {
-    const h = home('R'), dx = e.clientX - h.x, dy = e.clientY - h.y, R = STICKS.R;
-    if (Math.hypot(dx, dy) < R * 1.25) {
-      P.ox = h.x; P.oy = h.y; const d = Math.hypot(dx, dy), k = d > R ? R / d : 1;
-      P.x = dx * k / R; P.y = -dy * k / R;
-      padEl.R.firstChild.style.transform = `translate(${dx * k}px,${dy * k}px)`;
-    }
-  }
   padEl[side].style.left = P.ox + 'px'; padEl[side].style.top = P.oy + 'px'; padEl[side].classList.add('act');
   lastDevice = 'touch'; hideHint();
 });
 window.addEventListener('pointermove', e => {
-  if (gunDrag && e.pointerId === gunDrag.id) { gunMove(e); return; }
   if (e.pointerType === 'mouse') { input.mouse = { x: e.clientX, y: e.clientY }; lastDevice = 'mouse'; return; }
   for (const s of ['L', 'R']) {
     const P = pads[s]; if (e.pointerId !== P.id) continue;
@@ -194,33 +191,24 @@ window.addEventListener('pointermove', e => {
       const fx = e.clientX - P.sx, fy = e.clientY - P.sy, fd = Math.hypot(fx, fy) || 1;
       P.flicked = true; input.dodge = { x: fx / fd, y: -fy / fd };
     }
-    // LOCKED: dragging the thumb well outside the pad pulls the gun back OUT (it follows the finger; let go = it flies home)
-    if (s === 'R' && gun.locked && d > GUNLOCK.outR * R) {
-      P.id = null; P.x = P.y = 0; padEl.R.classList.remove('act', 'firing');
-      setLocked(false); gunDrag = { id: e.pointerId }; gunEl.classList.remove('gone'); gunEl.classList.add('drag'); placeHome(); gunMove(e);
-    }
+    if (s === 'R' && draw.st !== 'idle' && draw.src === 'touch') drawString(dx, dy);
   }
 });
 const end = e => {
-  if (gunDrag && e.pointerId === gunDrag.id) {   // let go of the gun: close enough = it snaps in, else it flies back to its spot
-    const h = home('R');
-    if (Math.hypot(e.clientX - h.x, e.clientY - h.y) < GUNLOCK.dropAt * 68) { gunDrag = null; gunEl.classList.remove('drag'); setLocked(true); }
-    else { gunDrag = null; gunEl.classList.remove('drag'); }
-    placeHome(); return;
-  }
   for (const s of ['L', 'R']) {
     const P = pads[s]; if (e.pointerId !== P.id) continue;
-    // a quick tap ANYWHERE on the RIGHT pad = JUMP (his: any quick tap, not just the middle; holding = shooting)
-    if (s === 'R' && performance.now() - P.t0 < STICKS.tapMs && (P.maxd || 0) < STICKS.tapR) input.tap = true;
+    if (s === 'R' && draw.src === 'touch' && draw.st !== 'idle') setDraw('idle', e.type === 'pointercancel' ? 'cancel' : 'release');   // LIFT = release
+    // a quick tap ANYWHERE on the RIGHT pad = JUMP (not drawing)
+    else if (s === 'R' && performance.now() - P.t0 < STICKS.tapMs && (P.maxd || 0) < STICKS.tapR) input.tap = true;
     P.id = null; P.x = P.y = 0; padEl[s].classList.remove('act', 'firing'); placeHome();
   }
 };
 window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
 
-// mouse: the reticle follows it, left button fires (only on the game canvas, not on menus)
-let mouseDown = false, lastDevice = 'touch';
-window.addEventListener('mousedown', e => { if (e.button === 0 && !isUI(e.target) && e.target.tagName === 'CANVAS') mouseDown = true; });
-window.addEventListener('mouseup', () => { mouseDown = false; });
+// mouse: the reticle follows it; the left button on the game canvas = a draw (down = cocked + drawn, up = release)
+let lastDevice = 'touch';
+window.addEventListener('mousedown', e => { if (e.button === 0 && !isUI(e.target) && e.target.tagName === 'CANVAS') drawNow('mouse'); });
+window.addEventListener('mouseup', () => drawLift('mouse'));
 
 // boost button
 const boostEl = document.getElementById('boost');
@@ -232,30 +220,31 @@ if (boostEl) {
 }
 
 const keys = new Set();
-window.addEventListener('keydown', e => { keys.add(e.code); hideHint(); if (e.code === 'Space') e.preventDefault();
-  if (e.code === 'KeyC' && !e.repeat) { let x = 0, y = 0; if (keys.has('KeyA')) x--; if (keys.has('KeyD')) x++; if (keys.has('KeyW')) y++; if (keys.has('KeyS')) y--; input.dodge = { x, y }; }   // C = dodge
-  if (e.code === 'KeyG' && !e.repeat) { setLocked(!gun.locked); placeHome(); } });   // G = gun lock
-window.addEventListener('keyup', e => keys.delete(e.code));
+window.addEventListener('keydown', e => { keys.add(e.code); hideHint(); if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) drawNow('key'); }
+  if (e.code === 'KeyC' && !e.repeat) { let x = 0, y = 0; if (keys.has('KeyA')) x--; if (keys.has('KeyD')) x++; if (keys.has('KeyW')) y++; if (keys.has('KeyS')) y--; input.dodge = { x, y }; } });   // C = dodge
+window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') drawLift('key'); });
 
 let hinted = false;
 function hideHint() { if (hinted) return; hinted = true; setTimeout(() => { const h = document.getElementById('hint'); if (h) h.style.opacity = 0; }, 2500); }
 
-// gamepad: left stick flies / walks, right stick = CAMERA (unlocked) or AIM + fire past the threshold (locked); RB toggles the
-// GUN LOCK, LT fires, RT / A boosts, B dodges (the left stick's way)
-let gpRB = false, gpB = false;
+// gamepad: left stick flies / walks, right stick = CAMERA (or the AIM while drawn); LT held = a draw (release = fire); RB = next
+// ring item (input.ringNext); RT / A boosts, B dodges (the left stick's way)
+let gpRB = false, gpB = false, gpLT = false;
 function gamepad() {
   const gp = navigator.getGamepads?.().find(g => g && g.connected); if (!gp) return null;
   const dz = v => Math.abs(v) < 0.15 ? 0 : v;
   const g = { lx: dz(gp.axes[0] || 0), ly: -dz(gp.axes[1] || 0), rx: dz(gp.axes[2] || 0), ry: -dz(gp.axes[3] || 0),
-    boost: !!(gp.buttons[7]?.pressed || gp.buttons[0]?.pressed), fire: !!gp.buttons[6]?.pressed };
-  const rb = !!gp.buttons[5]?.pressed, b = !!gp.buttons[1]?.pressed;
-  if (rb && !gpRB) { setLocked(!gun.locked); placeHome(); }
+    boost: !!(gp.buttons[7]?.pressed || gp.buttons[0]?.pressed) };
+  const rb = !!gp.buttons[5]?.pressed, b = !!gp.buttons[1]?.pressed, lt = !!gp.buttons[6]?.pressed;
+  if (rb && !gpRB) input.ringNext = true;
   if (b && !gpB) input.dodge = { x: g.lx, y: g.ly };
-  gpRB = rb; gpB = b;
-  if (g.lx || g.ly || g.rx || g.ry || g.boost || g.fire || rb || b) lastDevice = 'pad';
+  if (lt && !gpLT) drawNow('pad'); if (!lt && gpLT) drawLift('pad');
+  gpRB = rb; gpB = b; gpLT = lt;
+  if (g.lx || g.ly || g.rx || g.ry || g.boost || lt || rb || b) lastDevice = 'pad';
   return g;
 }
 
+let lastPoll = performance.now();
 export function pollInput() {
   const curve = v => Math.sign(v) * Math.pow(Math.abs(v), 1.4);
   const gp = gamepad();
@@ -264,26 +253,28 @@ export function pollInput() {
   if (keys.has('KeyD') || keys.has('ArrowRight')) kx += 1;
   if (keys.has('KeyW') || keys.has('ArrowUp')) ky += 1;
   if (keys.has('KeyS') || keys.has('ArrowDown')) ky -= 1;
-  const L = pads.L, R = pads.R, now = performance.now();
+  const L = pads.L, R = pads.R, now = performance.now(), dt = Math.min(0.1, (now - lastPoll) / 1000); lastPoll = now;
   input.steer = Math.max(-1, Math.min(1, curve(L.x) + kx + (gp ? curve(gp.lx) : 0)));
   input.climb = Math.max(-1, Math.min(1, curve(L.y) + ky + (gp ? curve(gp.ly) : 0)));
   input.moveHold = L.id !== null && !L.flicked && now - (L.t0 || 0) < FLICK.ms;
-  // right stick: touch pad > gamepad right stick. LOCKED = aim + fire, UNLOCKED = the camera (the mouse aims as a screen point)
+  // the right stick: touch pad > gamepad right stick; I J K L on a keyboard
   let rx = R.x, ry = R.y;
   if (R.id === null && gp) { rx = gp.rx; ry = gp.ry; }
-  const locked = gun.locked; input.locked = locked;
-  // b66 THIRD-PERSON SHOOTER (his): the right stick is ALWAYS the camera; the crosshair stays in the middle of the screen; with the
-  // gun LOCKED it fires at whatever is under the crosshair while you look around
-  input.aimX = 0; input.aimY = 0;
-  // camera keys for a keyboard: J / L turn, I / K tilt
   const ckx = (keys.has('KeyL') ? 1 : 0) - (keys.has('KeyJ') ? 1 : 0), cky = (keys.has('KeyI') ? 1 : 0) - (keys.has('KeyK') ? 1 : 0);
-  input.camX = Math.max(-1, Math.min(1, rx + ckx)); input.camY = Math.max(-1, Math.min(1, ry + cky));
-  const push = Math.hypot(rx, ry);
-  // his: the whole right stick shoots -- off-centre at once, the middle once it's held past a tap (a quick tap = jump)
-  const heldR = locked && R.id !== null && now - (R.t0 || 0) > STICKS.tapMs;
-  const padFire = locked && ((R.id !== null && push > STICKS.fireAt) || heldR || (R.id === null && gp && push > STICKS.fireAt));
-  input.fire = padFire || mouseDown || keys.has('Space') || !!gp?.fire;
-  padEl.R.classList.toggle('firing', locked && R.id !== null && (push > STICKS.fireAt || heldR));
+  rx = Math.max(-1, Math.min(1, rx + ckx)); ry = Math.max(-1, Math.min(1, ry + cky));
+  input.rx = rx; input.ry = ry; input.rDown = R.id !== null;
+  // THE DRAW on the touch pad: up = cock, back to the middle = drawn
+  if (!input.armed || input.drawLock) { if (draw.st !== 'idle') setDraw('idle', 'cancel'); }
+  else if (R.id !== null) {
+    if (draw.st === 'idle') {
+      draw.upT = padUp(R) ? draw.upT + dt : 0;
+      if (draw.upT >= DRAW.armT) { draw.src = 'touch'; setDraw('cock', 'cock'); drawString(R.x * STICKS.R, -R.y * STICKS.R); }
+    } else if (draw.st === 'cock' && draw.src === 'touch' && Math.hypot(R.x, R.y) < DRAW.downAt) { setDraw('drawn', 'drawn'); drawString(R.x * STICKS.R, -R.y * STICKS.R); }
+  }
+  const drawing = draw.st !== 'idle';
+  input.camX = drawing ? 0 : rx; input.camY = drawing ? 0 : ry;
+  // aim: only once DRAWN (cocked, the thumb is on its way back down -- that travel must not swing the aim)
+  input.aimX = draw.st === 'drawn' ? rx : 0; input.aimY = draw.st === 'drawn' ? ry : 0;
   input.boost = boostBtn || keys.has('ShiftLeft') || keys.has('ShiftRight') || !!gp?.boost;
   if (lastDevice !== 'mouse') input.mouse = null;
   input.device = lastDevice;

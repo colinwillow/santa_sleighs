@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { buildWorld, groundH, softDot } from './world.js';
 import { MENU_SPOT } from './terrain.js';
 import { buildRig, FLY } from './sleigh.js';
-import { input, pollInput, showReticle } from './input.js';
+import { input, pollInput, showReticle, DRAW, setRing } from './input.js';
 import { makePost } from './post.js';
 import { loadCrew } from './crew.js';
 import { makeSnowmen } from './enemies.js';
@@ -13,15 +13,15 @@ import { fitSleighModel } from './sleighmodel.js';
 import { makeStaticMerger } from './merge.js';
 import { applyLook, addInk, LOOK, initialLook } from './look.js';
 import { makeMenus } from './menu.js';
-import { WEAPONS, ORDER, makeShots, loadGuns, heldGun } from './weapons.js';
+import { WEAPONS, ORDER, makeShots, loadGuns, heldGun, makeGrenades, makeAimArc, solveThrow, THROW } from './weapons.js';
 import { CONTENT } from './gag.js';
 import { loadModels, makeSanta, makeElf } from './characters.js';
-import { makeDelivery, DROPCAM } from './delivery.js';
+import { makeDelivery, DROPCAM, bombGeo } from './delivery.js';
 // sound is optional: if src/audio.js is missing or fails, the game stays silent instead of blank
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 73;
+export const BUILD = 74;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -80,7 +80,7 @@ setTimeout(hideBoot, 12000);   // never hold the game hostage to a slow model lo
 Promise.all([loadCrew(rig, scene), buildMenuCrew(), fitSleighModel(rig, scene, groundH).then(m => {
   rig.model = m;
   m.onBoosterLost = () => { shake = Math.max(shake, 1.2); crashZoom = Math.max(crashZoom, 0.8); foot.eject(0.9, rig.S.clone()); };
-}).catch(e => console.warn('sleigh model', e))]).then(([c]) => { rig.crew = c; setWeapon(weapon, false); addInk(rig.sleigh.g); for (const d of rig.deer) addInk(d.g); setLook(initialLook('lit')); setTimeout(hideBoot, 300); }).catch(e => { hideBoot(); document.getElementById('build').textContent += ' crew: ' + e.message; });
+}).catch(e => console.warn('sleigh model', e))]).then(([c]) => { rig.crew = c; MENU.crew?.santa.setWeapon(lastGun.ride); addInk(rig.sleigh.g); for (const d of rig.deer) addInk(d.g); setLook(initialLook('lit')); setTimeout(hideBoot, 300); }).catch(e => { hideBoot(); document.getElementById('build').textContent += ' crew: ' + e.message; });
 
 // ---- THE START SCREEN SCENE: Santa + two elves in the plaza by the big tree, fire pit glow, snow, bloom --------------
 const MENU = { spot: new THREE.Vector3(MENU_SPOT.x, 0, MENU_SPOT.z), crew: null, burstT: 3, firing: false, fireCd: 0 };
@@ -203,11 +203,18 @@ function updateCasings(dt) {
 
 // ---- AIM: the right stick moves a reticle round a rest point ahead of the sleigh; the gun shoots at what's under it --------
 const AIM = { rest: new THREE.Vector3(), reach: 0.42, sx: 0, sy: 0, target: new THREE.Vector3(), ray: new THREE.Raycaster() };
+// b74 SLEIGH AIM (his bug: "in the sleigh the RIGHT stick is not controlling where I shoot -- the LEFT stick is"): a world yaw / pitch.
+// Not drawing it follows the chase camera (yaw = the sleigh's + the orbit's, pitch = DRAW.sleighPitch0); DRAWN the right stick turns
+// it (DRAW rates) and the chase camera follows IT (CHASE_ORBIT is slaved), so steering the team never moves the shot.
+const SAIM = { yaw: 0, pitch: DRAW.sleighPitch0 };
 const _ndc = new THREE.Vector2();
 function updateAim(dt) {
   // rest: where the gun points with the stick centred -- ahead of the team, a little down
   if (foot.active) foot.aimRest(AIM.rest);
-  else { AIM.rest.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.rest.y -= 8; }
+  else {   // b74: the sleigh's aim is its OWN world yaw / pitch (SAIM: the right stick while drawn) from the sleigh, never the team's heading
+    const cp = Math.cos(SAIM.pitch);
+    AIM.rest.set(rig.S.x + Math.sin(SAIM.yaw) * cp * DRAW.sleighDist, rig.S.y + 1.5 + Math.sin(SAIM.pitch) * DRAW.sleighDist, rig.S.z + Math.cos(SAIM.yaw) * cp * DRAW.sleighDist);
+  }
   const rp = AIM.rest.clone().project(camera);
   let px, py;
   const W = innerWidth, H = innerHeight, reach = AIM.reach * Math.min(W, H);
@@ -251,21 +258,37 @@ let shake = 0, crashZoom = 0, weapon = (() => { try { const w = localStorage.get
 const delivery = makeDelivery({ scene, world, rig, foot, snowmen, camera, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a),
   onScore: n => { cookieCount = Math.max(0, cookieCount + n); if (n > 0) milk = Math.min(100, milk + n * 3); },
   onShake: k => { shake = Math.max(shake, k); crashZoom = Math.max(crashZoom, k * 0.2); } });
-const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
-wBtn.style.cssText = 'width:auto;height:auto;z-index:7;font-size:12px;left:calc(50% + 6px);top:calc(env(safe-area-inset-top) + 8px)';
-document.getElementById('hud').appendChild(wBtn);
-function setWeapon(key, announce = true) {
-  weapon = key; try { localStorage.setItem('weapon', key); } catch (e) {}
-  wBtn.textContent = '⟳ ' + WEAPONS[key].name;
-  rig.crew?.setWeapon(key); MENU.crew?.santa.setWeapon(key); foot.santa?.setWeapon(key);
-  if (announce) sfx('cookie_pickup', { rate: 0.75 });
+// ---- b74 THE WEAPON RING (input.js RING): what he has out, per seat. Tap a segment = pull it out; tap it again = put it away
+// (unarmed: the right stick is only the camera). In the sleigh: the 4 guns + PRESENT + BOMB (the draw gesture drops them, aimed with
+// the right thumb); on foot: the 4 guns + the GRENADE (the ornament bomb). `lastGun` = the gun Santa still holds when the selection
+// is not a gun (or the one he pulls back out).
+const RING_ITEMS = { ride: [...ORDER, 'present', 'bomb'], foot: [...ORDER, 'grenade'] };
+const SEL = { ride: weapon, foot: weapon }, lastGun = { ride: weapon, foot: weapon };
+try { const v = JSON.parse(localStorage.getItem('ring') || 'null'); if (v) for (const m of ['ride', 'foot']) { if (v[m] === null || RING_ITEMS[m].includes(v[m])) SEL[m] = v[m]; if (WEAPONS[v.gun?.[m]]) lastGun[m] = v.gun[m]; } } catch (e) {}
+const saveRing = () => { try { localStorage.setItem('ring', JSON.stringify({ ...SEL, gun: lastGun })); localStorage.setItem('weapon', lastGun.ride); } catch (e) {} };
+const ringMode = () => foot.active ? 'foot' : 'ride';
+function equip(mode, key, toggle = true) {
+  if (toggle && SEL[mode] === key) { SEL[mode] = null; sfx('ui_back', { vol: 0.55, rate: 1.25 }); }   // put it away
+  else { SEL[mode] = key; if (WEAPONS[key]) lastGun[mode] = key; sfx('casing', { vol: 0.7, rate: 0.8 }); sfx('ui_tap', { vol: 0.5, rate: 0.9 }); }   // he pulls it out
+  saveRing();
 }
-const nextWeapon = d => setWeapon(ORDER[(ORDER.indexOf(weapon) + d + ORDER.length) % ORDER.length]);
-wBtn.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); nextWeapon(1); });
-addEventListener('keydown', e => { const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code); if (n >= 0) setWeapon(ORDER[n]); if (e.code === 'KeyQ') nextWeapon(1); });
+/** the old entry point (crew load, the floating gun pickups): this gun, out, in the sleigh */
+function setWeapon(key, announce = true) { weapon = key; equip('ride', key, false); if (announce) sfx('cookie_pickup', { rate: 0.75 }); }
+const nextItem = d => { const m = ringMode(), L = RING_ITEMS[m]; equip(m, L[(L.indexOf(SEL[m]) + d + L.length) % L.length], false); };
+addEventListener('keydown', e => { const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code); if (n >= 0 && RING_ITEMS[ringMode()][n]) equip(ringMode(), RING_ITEMS[ringMode()][n]); if (e.code === 'KeyQ') nextItem(1); });
 let gpY = false;
-function pollWeaponPad() { const gp = navigator.getGamepads?.().find(g => g && g.connected); const y = !!gp?.buttons[3]?.pressed; if (y && !gpY) nextWeapon(1); gpY = y; }
-wBtn.textContent = '⟳ ' + WEAPONS[weapon].name;
+function pollWeaponPad() { const gp = navigator.getGamepads?.().find(g => g && g.connected); const y = !!gp?.buttons[3]?.pressed; if (y && !gpY) nextItem(1); gpY = y; }
+// one writer for what each Santa holds: the crew Santa (sleigh) and the on-foot Santa follow lastGun / SEL every frame
+function syncHeld() {
+  const cs = rig.crew?.debug?.santa; if (cs && cs.weapon !== lastGun.ride) cs.setWeapon(lastGun.ride);
+  if (cs?.gun?.g) cs.gun.g.visible = SEL.ride !== null;
+  const fs = foot.santa; if (fs && fs.weapon !== lastGun.foot) fs.setWeapon(lastGun.foot);
+  foot.setHeld?.(SEL.foot, !!WEAPONS[SEL.foot]);
+}
+// GRENADES (weapons.js THROW) + the throw / lob arc (snowballs and grenades)
+const grenades = makeGrenades(scene, groundH, bombGeo(), { puff: (...a) => shots?.puff(...a), solid: p => !!world.town?.solidAt(p) || !!world.props?.solidAt(p),
+  onBlast: (p, r) => { shake = Math.max(shake, 0.7 * Math.max(0, 1 - p.distanceTo(camera.position) / 80)); world.town?.blast(p, r, 99); world.props?.blast(p, r, 99); rig.model?.hit(p, r * 0.9, 8); snowmen.blast(p, r, 99); } });
+const aimArc = makeAimArc(scene);
 // pickups: each gun floats over the village on a glowing ring
 const pickups = [];
 loadGuns().then(gs => {
@@ -283,7 +306,7 @@ function updatePickups(dt, t) {
     p.g.rotation.y += dt * 1.2; p.g.position.y += Math.sin(t * 2 + p.g.position.x) * dt * 0.6;
     p.cd -= dt;
     if (p.cd <= 0 && STATE === 'play' && (p.g.position.distanceToSquared(rig.S) < 25 || p.g.position.distanceToSquared(rig.lead) < 25)) {
-      p.cd = 3; if (weapon !== p.key) setWeapon(p.key);
+      p.cd = 3; if (SEL.ride !== p.key && !foot.active) setWeapon(p.key);
     }
   }
 }
@@ -307,50 +330,54 @@ const RET3 = (() => {
   g.beginPath(); g.arc(23, 23, 3.6, 0, Math.PI * 2); g.fillStyle = '#e8263a'; g.fill(); g.strokeStyle = '#1d1420'; g.lineWidth = 2; g.stroke();
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, sizeAttenuation: false, depthTest: false, depthWrite: false, toneMapped: false, transparent: false, alphaTest: 0.35 }));
-  s.renderOrder = 10; s.visible = false; s.frustumCulled = false; scene.add(s); return s;
+  s.material.transparent = true; s.renderOrder = 10; s.visible = false; s.frustumCulled = false; scene.add(s); return s;
 })();
-function updateGun(dt, t) {
-  const firing = STATE === 'play' && input.fire;
-  const scr = STATE === 'play' ? updateAim(dt) : null;
-  if (scr) {
-    // on foot the crosshair is a sprite in the world just past Santa, so HE draws over it (his note: drawn on top of him it
-    // looked wrong); in the sleigh it stays the screen overlay
-    // the crosshair is drawn after the world (over houses / trees) but BEFORE the player's own things (renderOrder 11):
-    // Santa on foot, or the sleigh + crew + team when riding, so they cover it (his note: it was drawn on top of them)
-    const onFoot = foot.active;
-    document.body.classList.add('ret3d'); RET3.visible = true;
-    if ((retFrame++ % 20) === 0) { const mark = o => { o.renderOrder = 11; }; foot.santa?.holder.traverse(mark); rig.sleigh.g.traverse(mark); for (const d of rig.deer) d.g.traverse(mark); }
-    {
-      const d = onFoot ? camera.position.distanceTo(foot.st.pos) + 1.5 : camera.position.distanceTo(rig.S) + 3.5;
-      RET3.position.copy(AIM.ray.ray.origin).addScaledVector(AIM.ray.ray.direction, d);
-      const s = 46 / innerHeight / 0.866 * (firing ? 0.9 + Math.random() * 0.15 : 1);
-      RET3.scale.set(s, s, 1); RET3.material.rotation = firing ? (Math.random() - 0.5) * 0.35 : 0;
-    }
-  } else { RET3.visible = false; AIM.target.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.target.y -= 8; }
-  if (firing !== wasFiring) { sfx(firing ? 'gun_spinup' : 'gun_spindown', { vol: 0.5 }); wasFiring = firing; }
-  rig.aimTarget = AIM.target;
-  const out = foot.active;
-  const crew = out ? footShooter : rig.crew;
-  // aim ahead of the team, a little down toward the ground
-  _p.copy(AIM.target);
-  let muzzle, ready = true;
-  if (out) { rig.crew?.setFiring(false); rig.crew?.update(dt, t); }
-  if (crew && crew.muzzle) { crew.setFiring(firing); crew.aim(_p); crew.update(dt, t); muzzle = crew.muzzle; }
-  else if (out) { muzzle = null; ready = false; }
-  else {   // stand-in rail minigun until his models load
-    spin += ((firing ? 28 : 0) - spin) * (1 - Math.exp(-(firing ? 4 : 1.5) * dt));
-    rig.sleigh.barrels.rotation.z += spin * dt;
-    rig.sleigh.mount.updateMatrixWorld(); rig.sleigh.gun.lookAt(_p);
-    muzzle = rig.sleigh.muzzle; ready = spin > 18;
+// ---- b74 THE DRAW (input.js DRAW): consume the gesture's events + feed the aims -------------------------------------------
+// RACK = the single-shot guns' cock: t s, the gun rolls `roll` rad and slides back `back` m and returns (+ a clack)
+const RACK = { t: 0.28, roll: 0.55, back: 0.07 };
+const DR = { rackT: 0, shotQ: 0, spin: false };
+const curveA = v => Math.sign(v) * Math.pow(Math.abs(v), DRAW.curve);
+function heldSanta() { return foot.active ? foot.santa : rig.crew?.debug?.santa; }
+function updateDraw(dt) {
+  const mode = ringMode(), item = STATE === 'play' ? SEL[mode] : null, W = item && WEAPONS[item];
+  if (input.ringPick) { if (STATE === 'play') equip(mode, input.ringPick); input.ringPick = null; }
+  if (input.ringNext) { input.ringNext = false; nextItem(1); }
+  setRing(RING_ITEMS[mode], SEL[mode]);
+  const hk = delivery.hold?.kind;
+  input.armed = !!item && !(foot.active && foot.st.mode === 'deck' && !W);   // grenades from the ground / air only
+  input.drawLock = !!hk && delivery.hold.src !== 'draw';                       // a drop BUTTON is held: the right stick aims the drop
+  for (const ev of input.drawEv) {
+    if (ev === 'cock') {
+      if (W?.spin) { sfx('gun_spinup', { vol: 0.5 }); DR.spin = true; }
+      else if (W) { DR.rackT = RACK.t; sfx('casing', { vol: 0.9, rate: 0.55 }); sfx('ui_tap', { vol: 0.6, rate: 0.45 }); setTimeout(() => sfx('casing', { vol: 0.7, rate: 0.75 }), 140); }
+      else if (item === 'grenade') foot.throwCock();
+      else if (item === 'present' || item === 'bomb') delivery.aimStart?.(item);
+    } else if (ev === 'drawn') { if (W && !W.spin) sfx('ui_tap', { vol: 0.35, rate: 1.7 }); }
+    else if (ev === 'release') {
+      if (W && !W.spin) DR.shotQ = 1;
+      else if (item === 'grenade') foot.throwGo();
+      else if (item === 'present' || item === 'bomb') delivery.aimEnd?.(true);
+      DR.spin = false;
+    } else if (ev === 'cancel') { foot.throwCancel?.(); delivery.aimEnd?.(false); DR.spin = false; }
   }
-  fireCd -= dt;
-  flash.intensity *= Math.exp(-30 * dt);
-  const W = crew?.def || WEAPONS.gatling;
-  if (firing && ready && fireCd <= 0) {
-    fireCd = crew ? crew.rate : 0.05;
-    if (crew) { crew.kick(); if (W.shot === 'tracer' || W.shot === 'slug') casing(crew.eject); }
-    sfx(W.snd, { vol: W.vol, rate: W.sndRate || 1 }); if (W.shot === 'tracer' && Math.random() < 0.3) sfx('casing', { vol: 0.25 });
-    if (!muzzle) return;
+  input.drawEv.length = 0;
+  const drawing = input.draw !== 'idle';
+  // the sleigh's aim: drawn = the right stick turns it; otherwise it rides the chase camera
+  if (!foot.active) {
+    if (drawing && W) { SAIM.yaw -= curveA(input.aimX) * DRAW.yawRate * dt; SAIM.pitch = THREE.MathUtils.clamp(SAIM.pitch + curveA(input.aimY) * DRAW.pitchRate * dt, DRAW.sleighPitchMin, DRAW.sleighPitchMax); }
+    else { SAIM.yaw = rig.yaw + CHASE_ORBIT.yaw; SAIM.pitch = DRAW.sleighPitch0; }
+  }
+  // a drop being held: the right thumb moves its landing ring (button held: the raw stick; the draw: its drawn aim) -- not the camera
+  if (hk) {
+    const viaDraw = delivery.hold.src === 'draw';
+    delivery.aimDrop?.(viaDraw ? input.aimX : input.rx, viaDraw ? input.aimY : input.ry, dt);
+    input.camX = input.camY = 0; input.aimX = input.aimY = 0;
+  }
+  foot.setAiming?.(foot.active && drawing && (!!W || item === 'grenade'));
+}
+
+// one shot of gun W from `muzzle` at the crosshair's point (hitscan for the fast guns, a projectile for the rest)
+function fireShot(W, muzzle, out) {
     const from = muzzle.getWorldPosition(new THREE.Vector3());
     _d.subVectors(AIM.target, from).normalize();   // straight at the reticle's point (the gun swings after it)
     _d.x += (Math.random() - 0.5) * W.spread; _d.y += (Math.random() - 0.5) * W.spread; _d.normalize();
@@ -374,12 +401,91 @@ function updateGun(dt, t) {
       // no inherited sleigh speed: the tracer flies down the aim line (on foot it was adding the SLEIGH's velocity)
       tr.p.copy(from); tr.v.copy(_d).multiplyScalar(W.speed); tr.life = hit ? hit.dist / W.speed : 1.2;
     } else {
-      if (W.shot === 'snowball') _d.y += 0.12;      // lob it a little
+      if (W.shot === 'snowball') _d.y += SNOWLOB;      // lob it a little
       shots.fire(W, from, _d.normalize(), (out ? foot.st.vel : rig.SV).clone().multiplyScalar(0.6));
       if (W.shot === 'rocket') shots.puff(from, '#d8d6e0', 6, 3, 0.8);
     }
     flash.position.copy(from); flash.intensity = W.shot === 'snowball' ? 6 : 25;
+}
+// THE ARC while drawing: a grenade (from his hand, solved onto the crosshair's point) or a snowball (the cannon's own lob from the
+// muzzle) shows its dotted trajectory + the landing ring; the release takes the same numbers
+const SNOWLOB = 0.12, _av = new THREE.Vector3(), _af = new THREE.Vector3();
+function updateArc(dt, item, W, muzzle, out, drawing) {
+  // a grenade that just left his hand
+  const tp = out ? foot.takeThrow?.() : null;
+  if (tp) { solveThrow(tp, AIM.target, THROW.speed, THROW.g, _av); _av.addScaledVector(foot.st.vel, 0.5); grenades.throw(tp, _av); }
+  if (STATE !== 'play' || !drawing) { aimArc.hide(); return; }
+  if (item === 'grenade' && out) {
+    foot.handPos(_af); solveThrow(_af, AIM.target, THROW.speed, THROW.g, _av); _av.addScaledVector(foot.st.vel, 0.5);
+    const r = grenades.predict(_af, _av, aimArc.pts); aimArc.show(r.n, r.hit ? r.land : null, '#ffd0d6', camera); return;
   }
+  if (item === 'snowball' && muzzle && W.shot === 'snowball') {
+    muzzle.getWorldPosition(_af); _av.subVectors(AIM.target, _af).normalize(); _av.y += SNOWLOB; _av.normalize().multiplyScalar(W.speed).addScaledVector(out ? foot.st.vel : rig.SV, 0.6);
+    // the cannon's ball flies under W.gravity with no drag: the grenade predictor with the ball's own gravity
+    const g0 = THROW.g; THROW.g = W.gravity || 16; const r = grenades.predict(_af, _av, aimArc.pts); THROW.g = g0;
+    aimArc.show(r.n, r.hit ? r.land : null, '#ffffff', camera); return;
+  }
+  aimArc.hide();
+}
+
+function updateGun(dt, t) {
+  const mode = ringMode(), item = STATE === 'play' ? SEL[mode] : null, W0 = item && WEAPONS[item], drawing = input.draw !== 'idle';
+  // the Gatling fires the whole time it is DRAWN; single shots go off on the release (DR.shotQ)
+  const firing = STATE === 'play' && !!W0?.spin && input.draw === 'drawn';
+  const scr = STATE === 'play' ? updateAim(dt) : null;
+  // the crosshair: a gun out, or a grenade being drawn (never for the drops: their landing ring is the aim)
+  const showRet = !!scr && (!!W0 || (item === 'grenade' && drawing) || !!input.mouse);
+  if (showRet) {
+    // the crosshair is drawn after the world (over houses / trees) but BEFORE the player's own things (renderOrder 11):
+    // Santa on foot, or the sleigh + crew + team when riding, so they cover it (his note: it was drawn on top of them)
+    const onFoot = foot.active;
+    document.body.classList.add('ret3d'); RET3.visible = true;
+    if ((retFrame++ % 20) === 0) { const mark = o => { o.renderOrder = 11; }; foot.santa?.holder.traverse(mark); rig.sleigh.g.traverse(mark); for (const d of rig.deer) d.g.traverse(mark); }
+    const d = onFoot ? camera.position.distanceTo(foot.st.pos) + 1.5 : camera.position.distanceTo(rig.S) + 3.5;
+    RET3.position.copy(AIM.ray.ray.origin).addScaledVector(AIM.ray.ray.direction, d);
+    const live = drawing || firing;
+    const s = 46 / innerHeight / 0.866 * (firing ? 0.9 + Math.random() * 0.15 : input.draw === 'drawn' ? 1.08 : 1);
+    RET3.scale.set(s, s, 1); RET3.material.rotation = firing ? (Math.random() - 0.5) * 0.35 : 0;
+    RET3.material.opacity = live ? 1 : 0.6;
+  } else { RET3.visible = false; document.body.classList.add('ret3d'); if (!scr) { AIM.target.copy(rig.lead).addScaledVector(rig.fwd, 30); AIM.target.y -= 8; } }
+  if (DR.spin && !firing && input.draw === 'idle') DR.spin = false;
+  if (firing !== wasFiring) { if (!firing) sfx('gun_spindown', { vol: 0.5 }); wasFiring = firing; }
+  rig.aimTarget = AIM.target;
+  const out = foot.active;
+  const crew = out ? footShooter : rig.crew;
+  _p.copy(AIM.target);
+  let muzzle, ready = true;
+  if (out) { rig.crew?.setFiring(false); rig.crew?.update(dt, t); }
+  if (crew && crew.muzzle) { crew.setFiring(firing); crew.aim(_p); crew.update(dt, t); muzzle = crew.muzzle; }
+  else if (out) { muzzle = null; ready = false; }
+  else {   // stand-in rail minigun until his models load
+    spin += ((firing ? 28 : 0) - spin) * (1 - Math.exp(-(firing ? 4 : 1.5) * dt));
+    rig.sleigh.barrels.rotation.z += spin * dt;
+    rig.sleigh.mount.updateMatrixWorld(); rig.sleigh.gun.lookAt(_p);
+    muzzle = rig.sleigh.muzzle; ready = spin > 18;
+  }
+  // after the clip + hold: the RACK (single shots) / the barrels spinning up while COCKED (Gatling)
+  const hs = heldSanta(), gun = hs?.gun;
+  if (gun?.g) {
+    DR.rackT = Math.max(0, DR.rackT - dt);
+    const u = DR.rackT > 0 ? 1 - DR.rackT / RACK.t : 0, k = Math.sin(u * Math.PI);
+    gun.g.rotation.z = RACK.roll * k; gun.g.position.z -= RACK.back * k;
+    if (DR.spin && !firing) { gun.firing = true; gun.updBelt?.(t, dt); }
+  }
+  fireCd -= dt;
+  flash.intensity *= Math.exp(-30 * dt);
+  const W = crew?.def || WEAPONS.gatling;
+  const single = DR.shotQ > 0 && !!W0 && !W0.spin;
+  if ((firing || single) && ready && fireCd <= 0 && STATE === 'play') {
+    DR.shotQ = 0;
+    fireCd = crew ? crew.rate : 0.05;
+    if (crew) { crew.kick(); if (W.shot === 'tracer' || W.shot === 'slug') casing(crew.eject); }
+    sfx(W.snd, { vol: W.vol, rate: W.sndRate || 1 }); if (W.shot === 'tracer' && Math.random() < 0.3) sfx('casing', { vol: 0.25 });
+    if (muzzle) fireShot(W, muzzle, out);
+  }
+  if (DR.shotQ > 0 && !W0) DR.shotQ = 0;
+  updateArc(dt, item, W, muzzle, out, drawing);
+  grenades.update(dt);
   shots.update(dt);
   updateCasings(dt);
   for (let i = 0; i < TR; i++) {
@@ -494,6 +600,12 @@ function updateCamera0(dt) {
   co.yaw -= Math.sign(cx) * Math.pow(Math.abs(cx), 1.5) * co.yawRate * dt;
   co.pitch = THREE.MathUtils.clamp(co.pitch - Math.sign(cy) * Math.pow(Math.abs(cy), 1.5) * co.pitchRate * dt, co.pitchMin, co.pitchMax);
   if (co.idle > co.back) { const k = 1 - Math.exp(-co.ease * dt); co.yaw = Math.atan2(Math.sin(co.yaw), Math.cos(co.yaw)) * (1 - k); co.pitch *= 1 - k; }
+  // b74 DRAWN with a gun: the chase camera follows the AIM (SAIM is the one writer of the shot; the orbit just looks along it) --
+  // aiming down lifts the camera (DRAW.sleighCamK of the aim's drop below its rest)
+  if (STATE === 'play' && input.draw !== 'idle' && WEAPONS[SEL.ride]) {
+    co.idle = 0; let dy = SAIM.yaw - rig.yaw; co.yaw = Math.atan2(Math.sin(dy), Math.cos(dy));
+    co.pitch = THREE.MathUtils.clamp((DRAW.sleighPitch0 - SAIM.pitch) * DRAW.sleighCamK, co.pitchMin, co.pitchMax);
+  }
   const yawF = _d.set(Math.sin(rig.yaw + co.yaw), 0, Math.cos(rig.yaw + co.yaw));
   crashZoom *= Math.exp(-0.9 * dt);   // a crash pulls the camera back so the whole wreck is in frame
   const want = _p.copy(rig.S).addScaledVector(yawF, -14 * (1 + crashZoom) * Math.cos(co.pitch)).add(new THREE.Vector3(0, (7.5 - rig.pitch * 6 + 14 * Math.sin(co.pitch)) * (1 + crashZoom * 0.8), 0));
@@ -519,6 +631,7 @@ function frame(now) {
   const real = Math.min(0.05, (now - last) / 1000); last = now;
   const dt = STATE === 'pause' ? 0 : real * slow; t += dt;
   pollInput();
+  updateDraw(real * slow); syncHeld();
   if (STATE === 'play') {
     input.boost = input.boost && milk > 0 && !foot.active;
     if (input.boost && !wasBoost) sfx('milk_gulp'); wasBoost = input.boost;

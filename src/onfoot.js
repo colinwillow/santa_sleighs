@@ -6,6 +6,13 @@ import * as THREE from 'three';
 import { groundH } from './terrain.js';
 import { loadModels, makeSanta } from './characters.js';
 import { makeLegs } from './loco.js';
+import { DRAW } from './input.js';
+import { CLIPS, ONCE } from './anim.js';
+import { THROW } from './weapons.js';
+import { bombGeo } from './delivery.js';
+// b74 the THROW clip (his library's Grenade_Throw_2, copied into models/anims/): registered here so anim.js bakes it on first use
+if (!CLIPS.santa.throw) CLIPS.santa.throw = THROW.clip;
+if (!ONCE.santa.includes('throw')) ONCE.santa.push('throw');
 
 export const FOOT = {
   deckY: 1.25, deckX: 0.75, deckZ0: -0.7, deckZ1: 1.7,    // the walkable floor of his sleigh (sleigh-local metres)
@@ -19,8 +26,9 @@ export const FOOT = {
 // yourself"): the RIGHT pad (gun unlocked) orbits it round him. yawRate / pitchRate = rad/s at full stick (the stick is curved by
 // `curve`), pitch = the camera's height angle above his shoulders (pitch0 rest, clamped pitchMin..pitchMax), dist = metres back
 // from the pivot (pivotY above his feet), lookAhead = metres past him it looks. recentre = OFF by default: when ON, running
-// straight for recentreAfter s with no camera input eases the camera behind him at recentreRate. aimTurn = LOCKED, the aim pushed
-// past aimEdge turns the camera at this rate (the right stick is busy aiming).
+// straight for recentreAfter s with no camera input eases the camera behind him at recentreRate. b74: DRAWN (input.js DRAW), the
+// right stick turns this same camera at DRAW.yawRate / pitchRate (finer than the camera's own) -- the crosshair stays put, so
+// where the camera looks IS the aim.
 export const CAMERA = {
   yawRate: 2.6, pitchRate: 1.5, curve: 1.5, pitch0: 0.24, pitchMin: -0.2, pitchMax: 1.05, dist: 6.7, pivotY: 1.6, lookAhead: 3,
   recentre: false, recentreAfter: 2.0, recentreRate: 0.9, aimEdge: 0.7, aimTurn: 3.5,
@@ -46,13 +54,18 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     camPitch: CAMERA.pitch0, straightT: 0, dodgeT: 0, dodgeCd: 0, inv: 0, dodgeDir: new THREE.Vector3(), dodgeBack: false };
   loadModels().then(M => {
     st.santa = makeSanta(M.santa, { role: 'idle', stance: 'foot' });
-    st.santa.anim.preload('idle', 'walk', 'run', 'air', 'fire', 'tipsy', 'getup', 'land', 'roll', 'dodgeBack');
+    st.santa.anim.preload('idle', 'walk', 'run', 'air', 'fire', 'tipsy', 'getup', 'land', 'roll', 'dodgeBack', 'throw');
     // the LEGS layer (src/loco.js): strafe / backpedal blends under the held upper-body pose while he aims
     { const H = st.santa.holder; H.updateMatrixWorld(true); const hp = st.santa.B.Hips?.getWorldPosition(new THREE.Vector3());
       const hipH = hp ? Math.max(0.5, hp.y - H.position.y) : 1.0;
       st.legs = makeLegs({ rest: M.santa.scene, mixer: st.santa.anim.mixer, hipH }); }   // no first-use hitch when he changes gait
     try { st.santa.setWeapon(localStorage.getItem('weapon') || 'gatling'); } catch (e) { st.santa.setWeapon('gatling'); }
     st.santa.holder.visible = false; scene.add(st.santa.holder); st.ready = true;
+    // the ornament bomb in his right hand (on his weapon mount bone -- never a wrist guess), shown while the grenade is equipped
+    { const B = st.santa.B, mount = B.weapon_root_right || B.RightHand;
+      const m = new THREE.Mesh(bombGeo(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.15, metalness: 0.15 }));
+      mount.updateMatrixWorld(true); m.scale.setScalar(THROW.size / 0.72 / mount.getWorldScale(new THREE.Vector3()).x);
+      m.position.set(0, 0, 0); m.visible = false; m.castShadow = true; mount.add(m); st.handBomb = m; }
   });
 
   // ---- buttons: HOP (out / sit / call), JUMP --------------------------------------------------------------------------
@@ -128,6 +141,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
   const _dd = new THREE.Vector3();
   function startDodge(fl) {
     const S = st.santa;
+    if (st.throwSt) throwCancel(true);
     fwd.set(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); right.set(-fwd.z, 0, fwd.x);
     _dd.copy(fwd).multiplyScalar(fl.y).addScaledVector(right, fl.x);
     if (_dd.lengthSq() < 0.01) _dd.set(Math.sin(st.face), 0, Math.cos(st.face));   // no direction (a key with no stick) = forward
@@ -146,7 +160,32 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     sfx('whoosh', { vol: 0.75, rate: st.dodgeBack ? 1.25 : 0.95 }); sfx('snow_puff', { vol: 0.5, rate: 1.3 });
     onDodge?.(st.pos.clone(), _dd.clone(), st.dodgeBack);
   }
+  // ---- b74 GRENADE: cock = the wind-up (Grenade_Throw_2 from THROW.from, held at cockAt), release = the throw (the bomb leaves his
+  // hand at releaseAt: main.js takes it with takeThrow() and solves the launch), back in his stance by endAt ---------------------------
+  const _hand = new THREE.Vector3();
+  function throwCock() {
+    const S = st.santa; if (!S || st.mode === 'seat' || st.dodgeT > 0 || st.stun > 0) return false;
+    st.throwSt = 'wind'; st.throwT = 0; st.thrown2 = false; S.busy = true; S.freeArms = true; S.setFiring(false);
+    S.anim.play('throw', 0.1, { once: true, speed: THROW.cockSpeed }).then(a => { if (st.throwSt && S.anim.role === 'throw') a.time = Math.max(a.time, THROW.from); });
+    sfx('casing', { vol: 0.8, rate: 1.9 }); sfx('ui_tap', { vol: 0.5, rate: 0.6 });   // the pin
+    return true;
+  }
+  function throwGo() { if (st.throwSt !== 'wind') return false; st.throwSt = 'go'; const a = st.santa.anim.current; if (a) a.timeScale = THROW.animSpeed; sfx('whoosh', { vol: 0.6, rate: 1.5 }); return true; }
+  function throwCancel(quiet) { if (!st.throwSt) return; st.throwSt = null; if (!quiet && st.santa?.busy) st.santa.endOnce(); }   // quiet = another clip (a roll, the get-up) takes the body
+  function updateThrow(dt) {
+    if (!st.throwSt) return;
+    const S = st.santa, a = S.anim.current;
+    if (st.stun > 0 || S.anim.role !== 'throw' && st.throwT > 0.5) { throwCancel(true); return; }
+    st.throwT += dt;
+    if (!a || S.anim.role !== 'throw') return;
+    if (st.throwSt === 'wind') { if (a.time >= THROW.cockAt) { a.time = THROW.cockAt; a.timeScale = 0; } return; }   // HOLD the wind-up while he aims
+    if (!st.thrown2 && a.time >= THROW.releaseAt) {
+      st.thrown2 = true; st.handBomb.getWorldPosition(_hand); st.throwOut = _hand.clone(); st.handBomb.userData.gone = 0.45;
+    }
+    if (a.time >= THROW.endAt) { st.throwSt = null; S.endOnce(); }
+  }
   function update(dt, t) {
+
     if (input.tap) { input.tap = false; if (st.mode !== 'seat') jumpPress = true; }   // right-pad tap = jump
     if (!st.ready || st.mode === 'seat') { if (st.santa) st.santa.holder.visible = false; return; }
     const S = st.santa;
@@ -164,7 +203,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     // (strafe / backward clips below)
     // he faces the aim only with the gun LOCKED (aiming / shooting); unlocked he runs wherever the left stick goes
     // he turns to the crosshair while he SHOOTS (gun locked + thumb on the pad); otherwise he runs where the left stick points
-    const aiming = st.dodgeT <= 0 && st.firing;
+    const aiming = st.dodgeT <= 0 && (st.firing || st.aiming);
     if (aiming) { const a = rig.aimTarget; if (a) st.face = Math.atan2(a.x - st.pos.x, a.z - st.pos.z); }
     const doJump = jumpPress && st.stun <= 0 && st.dodgeT <= 0; jumpPress = false;
     // DODGE: a left flick (input.dodge), on the ground, not knocked down, off cooldown
@@ -246,7 +285,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     // into it, so flips stacked into a glitchy multi-spin). Knocked flat = the Getting Up clip, not a rotation at his feet.
     st.bodyQ.slerp(baseQ, 1 - Math.exp(-14 * dt));
     S.holder.quaternion.copy(st.bodyQ);
-    if (st.stun <= 0 && st.dodgeT <= (st.dodgeT > 0 ? DODGE.blendOut : 0) && S.busy) S.endOnce();   // a dodge hands back blendOut s early
+    if (st.stun <= 0 && st.dodgeT <= (st.dodgeT > 0 ? DODGE.blendOut : 0) && S.busy && !st.throwSt) S.endOnce();   // a dodge hands back blendOut s early
     // AIR SPINS turn round his HIPS, never his boots (his note): the cartwheel when he's thrown / hit, and the double-jump flip
     let spin = 0;
     if (st.tumble > 0) spin = st.tumbleA = (st.tumbleA || 0) + 9 * dt;                       // cartwheeling out
@@ -279,7 +318,10 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     const cx = input.camX || 0, cy = input.camY || 0;
     st.camYaw -= cc(cx) * CAMERA.yawRate * dt;
     st.camPitch = THREE.MathUtils.clamp(st.camPitch - cc(cy) * CAMERA.pitchRate * dt, CAMERA.pitchMin, CAMERA.pitchMax);
-    if (Math.abs(input.aimX) > CAMERA.aimEdge) st.camYaw -= Math.sign(input.aimX) * (Math.abs(input.aimX) - CAMERA.aimEdge) * CAMERA.aimTurn * dt;
+    const ac = v => Math.sign(v) * Math.pow(Math.abs(v), DRAW.curve);   // DRAWN: the right stick = the 3D aim (yaw + pitch rates)
+    st.camYaw -= ac(input.aimX || 0) * DRAW.yawRate * dt;
+    st.camPitch = THREE.MathUtils.clamp(st.camPitch - ac(input.aimY || 0) * DRAW.pitchRate * dt, CAMERA.pitchMin, CAMERA.pitchMax);
+    updateThrow(dt);
     st.straightT = (mag > 0.85 && Math.abs(mx) < 0.35 && Math.abs(cx) < 0.1 && !aiming) ? st.straightT + dt : 0;
     if (CAMERA.recentre && st.straightT > CAMERA.recentreAfter) {
       let dy = st.face - st.camYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -314,6 +356,18 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     aimRest(out) { const b = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); return out.copy(st.pos).addScaledVector(b, 22).setY(st.pos.y + 1.0 + 22 * Math.tan(CAMERA.pitch0 - st.camPitch) * 0.6); },
     get dodging() { return st.dodgeT > 0; },
     setFiring(on) { st.firing = on; },
+    /** b74: drawn / cocked with a gun or the grenade = he turns to the crosshair without the firing clip */
+    setAiming(on) { st.aiming = on; },
+    /** what he holds: a WEAPONS key (the gun shows), 'grenade' (the ornament bomb in his hand, the gun hidden) or null (unarmed) */
+    setHeld(item, isGun) {
+      st.held = item; const S = st.santa; if (!S) return;
+      if (S.gun?.g) S.gun.g.visible = !!isGun;
+      if (st.handBomb) { const u = st.handBomb.userData; if (u.gone > 0) u.gone -= 1 / 60; st.handBomb.visible = item === 'grenade' && !(u.gone > 0); }
+    },
+    throwCock, throwGo, throwCancel, get throwing() { return st.throwSt; },
+    /** the bomb's release point once the throw lets go (once), else null */
+    takeThrow() { const p = st.throwOut; st.throwOut = null; return p || null; },
+    handPos(out) { if (st.handBomb) st.handBomb.getWorldPosition(out); else out.copy(st.pos).setY(st.pos.y + 1.6); return out; },
     /** a blow from an enemy: 'small' = knocked back a few metres + a stagger (lands on his feet); 'big' = sent flying, lands on his
      *  back, gets up. Only on foot (the sleigh shields him). */
     knock(dir, kind = 'small') {
