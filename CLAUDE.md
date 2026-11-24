@@ -64,14 +64,15 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   point ahead of the sleigh (`AIM` in main.js, `reach` = fraction of the short screen side); the camera ray under it marches to the
   terrain and tracers fly straight at that point (Santa's gun swings after it). Mouse = reticle + left button; gamepad: L fly, R aim/fire,
   RT/A boost, RB fire.
-- **DESTRUCTIBLE TOWN** (b21): `src/town.js` -- every village house is chunky bevelled cookie BRICKS (44-tri chamfer box from
-  `vendor/geometries/ConvexGeometry.js`) in running bond: walls, gables, chocolate shingle roof; ONE InstancedMesh for all bricks
-  in the town + one for icing caps w/ drips + one each for doors / glowing windows / candy canes / gumdrops. ~8.5k bricks, 30
-  houses (~370k tris). `town.raycast / hitBrick / blast / solidAt`: Gatling = 1 dmg a hit (2 hp bricks), rifle = 0.95 m blast,
-  rocket = 3.6 m, snowball = 1 m soft, a CRASH = 2.2-4.8 m along the sleigh's velocity. Unsupported bricks fall; the roof drops
-  when <40% of the wall tops remain; under 35% the house is "dead" (crash collider gone, dressing hidden). Debris: one
-  InstancedMesh (420), CPU tumble, settles as rubble. `village.js` places them (gHouse). FAR LOD (b33): past `TOWN.lod.far` m each house is ~540 tris of painted slabs in ONE merged mesh (`townFar`,
-  a house hidden by zeroing its index range), bricks zero-scaled; `town.lodTick(camera)` from main.js; a hit house stays near for good. His sleigh model (133 parts) is next.
+- **DESTRUCTIBLE TOWN** (b21, rebuilt b43 to his "gingerbread, break along JAGGED lines, far = near"): `src/town.js` -- every wall /
+  gable / roof slope is a 0.3 m COOKIE SLAB pre-snapped into jagged chunks (row-offset jittered grid -> hexagon-ish prisms, pillowy
+  baked front, crumb inner sides that show once a neighbour dies), door + window holes kept, piped icing on wall tops / eaves (drips) /
+  ridges / rakes / window + door frames, owned by the chunk under it. ALL chunks of ALL houses = ONE merged mesh (one draw), a dead
+  chunk = its index range collapsed. NO FAR LOD (near = far = same geometry; `lodTick` is a no-op). ~118 chunks / ~2.8k tris a house
+  (30 houses ~85k). `town.raycast / hitBrick / blast / solidAt` (ids = chunk ids): chunk hp = 5 + 2.2 x area (Gatling ~3-4 bullets),
+  blast hits a chunk within r*.45 of its outline or r*.85 of its middle (rifle ~5 chunks, rocket ~20). Support: up from below or
+  sideways <= `TOWN.span` chunks; roof chunks hold while resting on a live wall / gable, all drop under 40% wall tops; <35% = dead
+  (collider r 0, dressing hidden). Debris = one InstancedMesh of jagged hexagon prisms scaled per chunk.
 - **ON FOOT + CRASHES** (b20, his slice): `src/onfoot.js` -- states seat | deck | air | ground. HOP OUT (E) = stand on the deck
   while the sleigh flies itself (holds heading + altitude); walk the deck in sleigh-local space; JUMP (F) or walk off the edge
   = fall (FOOT.gravity); landing faster than FOOT.splat knocks him flat; CALL SLEIGH = the sleigh autopilots low + slow to him
