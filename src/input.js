@@ -272,10 +272,12 @@ export function pollInput() {
   let rx = R.x, ry = R.y;
   if (R.id === null && gp) { rx = gp.rx; ry = gp.ry; }
   const locked = gun.locked; input.locked = locked;
-  input.aimX = locked ? rx : 0; input.aimY = locked ? ry : 0;
+  // b65 (his: "the only difference between having the gun and not should be that it's shooting or not"): the right stick ALWAYS
+  // aims + looks exactly the same way; the lock only decides whether it FIRES
+  input.aimX = rx; input.aimY = ry;
   // camera keys for a keyboard: J / L turn, I / K tilt
   const ckx = (keys.has('KeyL') ? 1 : 0) - (keys.has('KeyJ') ? 1 : 0), cky = (keys.has('KeyI') ? 1 : 0) - (keys.has('KeyK') ? 1 : 0);
-  input.camX = Math.max(-1, Math.min(1, (locked ? 0 : rx) + ckx)); input.camY = Math.max(-1, Math.min(1, (locked ? 0 : ry) + cky));
+  input.camX = Math.max(-1, Math.min(1, ckx)); input.camY = Math.max(-1, Math.min(1, cky));
   const push = Math.hypot(rx, ry);
   // his: the whole right stick shoots -- off-centre at once, the middle once it's held past a tap (a quick tap = jump)
   const heldR = locked && R.id !== null && now - (R.t0 || 0) > STICKS.tapMs;
