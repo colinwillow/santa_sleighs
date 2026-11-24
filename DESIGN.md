@@ -121,3 +121,33 @@ North Pole workshop till dawn.
 
 **First slice to prototype (when he says go):** 3-4 marked houses + chimney drop from the sleigh + a cheer / cookie payout + the
 snowmen camping around the undelivered ones. Small enough to feel in one session.
+
+
+### Paperboy angle + the enemy roster (his sheets, Nov 24: images/reference/enemies/)
+*His words: "almost like one of those paper delivery boy games... houses that have been taken over, they come out and attack you...
+know ahead of time... instead of dropping a present down the chimney you could drop a bomb down the chimney -- a Christmas ornament
+ball bomb."*
+- **The route reads like Paperboy:** a street of houses, each one a quick read-and-react as you fly past. GOOD houses (warm windows,
+  wreath, gingerfolk waving) want a PRESENT. TAKEN-OVER houses show TELLS ahead of time -- green/red monster glow in the windows,
+  a broken wreath, claw marks, snow piled weird, a stocking twitching on the door, the chimney smoking the wrong colour -- and get an
+  ORNAMENT BOMB down the chimney instead (blows the roof off + the monsters inside come boiling out stunned). Wrong item = the
+  penalty: a present into a monster house is stolen (and arms them); a bomb into a good house = a ruined Christmas (big score hit).
+- **Taken-over houses come alive** as you pass: doors burst, mimics leap out, snipers on the roof, a golem punches through the wall
+  (the destructible gingerbread does the work).
+- **Roster by ROLE (not all at once -- a few per street, introduced one at a time):**
+  - BRUISERS (melee + throws, camp at houses): Snow Brute (BUILT), Frost Troll, Yeti Snowsmasher, Peppermint Behemoth, Cookie Golem.
+  - TANKS / walls (slow, shielded, need explosives or flanking): Gingerbread Juggernaut (candy shield), Snow Globe Golem (dome =
+    weak spot when cracked), Milkshot Tank.
+  - FAST AMBUSHERS (leap from yards / rooftops): Candy Cane Marauder, Candy Cane Scorpion, Krampusling (steals presents too),
+    Ornament Spider (drops from eaves / trees), Bell Hopper.
+  - MIMICS (the "know ahead of time" read): Present Mimic (a present on a doorstep that isn't), Stocking Mimic (on the mantle /
+    door), Living Wreath (on a door you're about to deliver to).
+  - SHOOTERS (pressure the sleigh): Polar Bear Commando (minigun), Hot Cocoa Cannoneer (arcing scalding lobs), Toy Soldier
+    Automaton (rifle, wind-up key = weak spot), Nutcracker General (a boss / squad leader).
+  - AIR (chase the sleigh): Sleigh Drone (reindeer-antler copter).
+  - CASTERS / specials: Ice Wizard Snowman (ice walls, freezes the sleigh's boosters), Sugar Slime (splits, slows you).
+  - SABOTEURS: Elf Saboteur (ornament bombs at you -- the same ornament bomb Santa drops, mirrored).
+- **Ornament bomb** = Santa's second sleigh item: a glass bauble with a fuse; dropped down a chimney or lobbed; it's also the elf
+  saboteur's weapon, so the player learns it by having it thrown at him.
+- **First slice (unchanged, + the read):** one street, 3 good houses + 1 taken-over house with clear tells; chimney drop of a
+  present OR an ornament bomb; the taken-over house bursts and its snowmen come out.
