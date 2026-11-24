@@ -28,6 +28,12 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
 - Look: bloom (`src/post.js`, `?bloom=0` = raw A/B) + lavender FogExp2 haze; glowing things use the `L` batch (past 1.0 so they bloom).
 - Budget: report tris/draws when they move (b3: village solid batch ~260k tris, ~70 draws). Small details use `BALL` / `CYL6`, not `BLOB` / `CYL`.
 - Design notes: `DESIGN.md`. **It is a SHOOTER** ("Santa Slays"): Rambo-size gun + cigar.
+- **POSE CHECK (his idea, Nov 24 -- USE IT for every character / gun / arm change, before saying an arm is visible):**
+  `node tools/pose/run.cjs out.png "fit=nocoat&r=idle,walk,run,fire"` renders `tools/pose/posecheck.html`: body as a ghost, skeleton
+  solid -- LEFT bones BLUE, RIGHT bones RED, spine YELLOW -- gun ghosted with grip_r GREEN / grip_l CYAN / muzzle MAGENTA; rows = roles,
+  columns = front / side / top. Prints every arm bone in his frame (+X = his LEFT) + FLAGS: a left forearm/hand on his right side
+  (or vice versa), an elbow INSIDE the torso (torso half-width measured from spine-weighted vertices at elbow height). Zero flags = ship.
+  b47-48 arm fit per Santa in `ARMFIT` (`leftOut` left hand pushed out, `rightOut` / `rightHand` right elbow + hand out).
 - **The crew** (`src/crew.js`): his GLBs. HOW SANTA HOLDS A GUN (b44-45, his: "his arms are completely gone"): the gun rides his
   `weapon_root_right` MOUNT bone (hand bone + palm offset only for a rig without mounts) and the Mixamo RIFLE clips (idle / walk /
   run / fire) pose BOTH arms -- never IK both fists onto a gun pinned to the body (it fought every clip). The gun is lined up with his

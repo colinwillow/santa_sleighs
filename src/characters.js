@@ -242,9 +242,9 @@ function makeHatSway(B) {
  *  body, so on a wide one the arms swing INTO the belly. `spread` (rad) opens both upper arms outward after the clip; `fwd` (m)
  *  pushes the held gun out from the belly; `pole` scales how far out to the side the elbows bend under the gun IK. */
 export const ARMFIT = {
-  tough:   { spread: 0.15, fwd: 0.05, pole: 1.15, leftOut: 0.42 },
-  nocoat:  { spread: 0.5,  fwd: 0.22, pole: 1.6, leftOut: 0.46 },
-  classic: { spread: 0.1,  fwd: 0,    pole: 1, leftOut: 0.38 },
+  tough:   { spread: 0.15, fwd: 0.05, pole: 1.15, leftOut: 0.6, rightOut: 0.45, rightHand: 0.32 },
+  nocoat:  { spread: 0.5,  fwd: 0.22, pole: 1.6, leftOut: 0.52, rightOut: 0.45, rightHand: 0.28 },
+  classic: { spread: 0.1,  fwd: 0,    pole: 1, leftOut: 0.38, rightOut: 0.4, rightHand: 0.26 },
   snowman: { spread: 0.6,  fwd: 0.25, pole: 1.7 },
   elf:     { spread: 0.22, fwd: 0,    pole: 1 },
 };
@@ -379,6 +379,9 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
         twist(['Spine', 'Spine1', 'Spine2'], Q().setFromAxisAngle(up, -CREW.blade / 3));
         twist(['Neck', 'Head'], Q().setFromAxisAngle(up, CREW.blade * CREW.bladeHead / 2));
       }
+      // RIGHT ELBOW OUT (pose check, Nov 24: in the rifle idle / fire his right elbow tucked behind his back, inside his body):
+      // keep the hand exactly where the clip put it (the gun rides it) and swing the elbow out to his right side
+      if (!self.freeArms && fit.rightOut) { const rh = H.worldToLocal(wpos(B.RightHand)); rh.x = Math.min(rh.x, -fit.rightHand); ik2(B.RightArm, B.RightForeArm, B.RightHand, H.localToWorld(rh), local(-fit.rightOut * 4, -0.2, 0.15)); }
       // line the gun up with his facing once the rifle pose is on (hand -> gun offset fixed after that)
       if (calib < 4 && RIFLE_ROLES.has(anim.role)) {   // only a RIFLE clip's hand pose defines how he holds it
         calib++;
@@ -405,7 +408,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       if (!self.freeArms && fit.leftOut) {
         const lh = H.worldToLocal(wpos(B.LeftHand)), sh0 = H.worldToLocal(wpos(B.LeftArm));
         lh.x = Math.max(lh.x, fit.leftOut); lh.z = THREE.MathUtils.clamp(lh.z, -0.15, 0.35); lh.y = Math.min(lh.y, sh0.y - 0.15);
-        ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, H.localToWorld(lh), local(1.6, 0.6, -0.6));   // elbow out + back
+        ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, H.localToWorld(lh), local(2.6, 0.2, -0.3));   // elbow out to his side (pose check)
       }
       // the support hand on the gun's front grip (slides back along the gun to what his arm can reach)
       if (!self.freeArms && gun.grips?.left && CREW.leftGrip) {

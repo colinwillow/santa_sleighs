@@ -1,0 +1,69 @@
+<!doctype html><meta charset="utf-8"><base href="../../">
+<!-- POSE CHECK (his idea, Nov 24): the body as a faint ghost, the SKELETON drawn solid -- LEFT bones BLUE, RIGHT bones RED, spine /
+     head YELLOW -- the gun ghosted with its sockets marked (grip_r GREEN, grip_l CYAN, muzzle MAGENTA). Views: front / side / top
+     for each role. window.report = numbers: every bone in his own frame (+X = his LEFT, +Z = forward) + flags (a LEFT bone on his
+     right side, a RIGHT bone on his left, elbows inside the torso radius). Usage: tools/pose/run.cjs -->
+<script type="importmap">{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/"}}</script>
+<body style="margin:0;background:#fff"><script type="module">
+import * as THREE from 'three'; import { GLTFLoader } from 'three/addons/GLTFLoader.js'; import { DRACOLoader } from 'three/addons/DRACOLoader.js';
+import { makeSanta, ARMFIT, CREW } from './src/characters.js';
+const q = new URLSearchParams(location.search), roles = (q.get('r') || 'idle,walk,run,fire').split(','), key = q.get('fit') || 'tough';
+if (q.get('crew')) Object.assign(CREW, JSON.parse(q.get('crew')));
+const MODELS = { tough: './models/santa_tough_rig.glb', nocoat: './models/santa_no_coat_rig.glb', classic: './models/santa.glb' };
+const VW = 420, VH = 460, views = [['front', 0], ['side', Math.PI / 2], ['top', 'top']];
+const W = VW * views.length, H = VH * roles.length;
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(W, H); document.body.appendChild(r.domElement); r.setScissorTest(true);
+const L = new GLTFLoader(); const D = new DRACOLoader(); D.setDecoderPath('./vendor/draco/'); L.setDRACOLoader(D);
+const COL = { L: 0x1e6bff, R: 0xff2a2a, C: 0xf0c000 };
+const side = n => /Left/.test(n) ? 'L' : /Right/.test(n) ? 'R' : 'C';
+const report = {};
+L.load(MODELS[key], async g => {
+  for (let ri = 0; ri < roles.length; ri++) {
+    const role = roles[ri], sc = new THREE.Scene(); sc.background = new THREE.Color(ri % 2 ? '#f6f6f6' : '#ffffff');
+    sc.add(new THREE.HemisphereLight('#fff', '#999', 2));
+    const s = makeSanta(g, { role: role === 'fire' ? 'idle' : role, stance: q.get('stance') || 'foot', fit: ARMFIT[key], cigarKey: key });
+    await s.anim.preload(role); s.anim.play(role, 0); await s.setWeapon(q.get('gun') || 'gatling');
+    if (role === 'fire') s.setFiring(true);
+    sc.add(s.holder); const aim = new THREE.Vector3();
+    for (let f = 0; f < 20; f++) { s.holder.updateMatrixWorld(true); aim.set(0, 1.0, 12).applyMatrix4(s.holder.matrixWorld); s.aimAt(aim); s.update(1 / 30, f / 30); }
+    s.holder.updateMatrixWorld(true);
+    // ghost every mesh
+    s.holder.traverse(o => { if (o.isMesh) { o.material = new THREE.MeshBasicMaterial({ color: o.isSkinnedMesh ? 0xc8b8a8 : 0x88aa88, transparent: true, opacity: o.isSkinnedMesh ? 0.18 : 0.25, depthWrite: false }); o.frustumCulled = false; } });
+    // bones: sticks + joints, colour by side
+    const P = o => o.getWorldPosition(new THREE.Vector3()), bones = []; s.holder.traverse(o => { if (o.isBone && !/weapon|gun_tip|hat_|jiggle|Toe_End|HeadTop/.test(o.name)) bones.push(o); });
+    const top = new THREE.Group(); sc.add(top);
+    for (const b of bones) {
+      const n = b.name.replace(/^mixamorig[_:]?/, ''); if (/Hand(Thumb|Index|Middle|Ring|Pinky)[234]/.test(n)) continue;
+      const col = COL[side(n)], a = P(b);
+      const j = new THREE.Mesh(new THREE.SphereGeometry(/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(n) ? 0.012 : 0.025, 8, 6), new THREE.MeshBasicMaterial({ color: col, depthTest: false })); j.position.copy(a); j.renderOrder = 3; top.add(j);
+      if (b.parent?.isBone) { const p = P(b.parent), len = a.distanceTo(p); if (len > 1e-3) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, len, 6), new THREE.MeshBasicMaterial({ color: col, depthTest: false })); c.position.copy(a).add(p).multiplyScalar(0.5); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), a.clone().sub(p).normalize()); c.renderOrder = 2; top.add(c); } }
+    }
+    // gun sockets
+    const mk = (o, col) => { if (!o) return; const m = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: col, depthTest: false })); m.position.copy(P(o)); m.renderOrder = 4; top.add(m); };
+    mk(s.gun.grips.right, 0x00c040); mk(s.gun.grips.left, 0x00d0d0); mk(s.muzzle, 0xd000d0);
+    // numbers in his frame
+    const loc = o => s.holder.worldToLocal(P(o)).toArray().map(v => +v.toFixed(2)), Bn = s.B, rep = {}, flags = [];
+    for (const n of ['LeftArm', 'LeftForeArm', 'LeftHand', 'RightArm', 'RightForeArm', 'RightHand', 'Spine2']) if (Bn[n]) rep[n] = loc(Bn[n]);
+    for (const n of ['LeftForeArm', 'LeftHand']) if (rep[n] && rep[n][0] < 0.02) flags.push(n + ' crosses to his RIGHT (x ' + rep[n][0] + ')');
+    for (const n of ['RightForeArm', 'RightHand']) if (rep[n] && rep[n][0] > -0.02) flags.push(n + ' crosses to his LEFT (x ' + rep[n][0] + ')');
+    // torso half-width at elbow height from the body mesh vertices (skinned, current pose)
+    let skin = null; s.holder.traverse(o => { if (o.isSkinnedMesh && !skin) skin = o; });
+    // torso = vertices whose strongest joint is a spine / hips bone (not the arms, not the sleeves)
+    const torsoJ = new Set(); skin.skeleton.bones.forEach((bn, i) => { if (/Hips|Spine/.test(bn.name)) torsoJ.add(i); });
+    const halfW = y => { const pos = skin.geometry.attributes.position, sk = skin.geometry.attributes.skinIndex, sw = skin.geometry.attributes.skinWeight, v = new THREE.Vector3(); let m = 0;
+      for (let i = 0; i < pos.count; i += 3) { let bi = 0, bw = -1; for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; bi = sk.getComponent(i, k); } } if (!torsoJ.has(bi)) continue;
+        skin.getVertexPosition(i, v); skin.localToWorld(v); s.holder.worldToLocal(v); if (Math.abs(v.y - y) < 0.06) m = Math.max(m, Math.abs(v.x)); } return +m.toFixed(2); };
+    for (const n of ['LeftForeArm', 'RightForeArm']) if (rep[n]) { const hw = halfW(rep[n][1]); rep[n + '_torsoHalfWidth'] = hw; if (Math.abs(rep[n][0]) < hw && Math.abs(rep[n][2]) < 0.45) flags.push(n + ' (elbow) INSIDE the body: |x| ' + Math.abs(rep[n][0]) + ' < torso half-width ' + hw); }
+    rep.gripR = s.gun.grips.right ? loc(s.gun.grips.right) : null; rep.gripL = s.gun.grips.left ? loc(s.gun.grips.left) : null;
+    rep.flags = flags; report[role] = rep;
+    // views
+    for (let vi = 0; vi < views.length; vi++) {
+      const [name, a] = views[vi], cam = new THREE.PerspectiveCamera(30, VW / VH, 0.01, 100);
+      if (a === 'top') { cam.position.set(0, 7, 0.001); cam.up.set(0, 0, 1); cam.lookAt(0, 1, 0); }
+      else { cam.position.set(Math.sin(a) * 6.5, 1.15, Math.cos(a) * 6.5); cam.lookAt(0, 1.0, 0); }
+      r.setViewport(vi * VW, H - (ri + 1) * VH, VW, VH); r.setScissor(vi * VW, H - (ri + 1) * VH, VW, VH); r.render(sc, cam);
+    }
+  }
+  window.report = report; window.done = 1;
+}, undefined, e => { window.report = { error: e.message }; window.done = 1; });
+</script>
