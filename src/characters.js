@@ -14,7 +14,8 @@ export const CREW = {
   floorY: 1.42,                       // he stands on the seat cushion of his sleigh model (sleigh local)
   santaZ: 0.35,                       // where he stands
   gunScale: 1.3,
-  handGunScale: 0.85, gunTilt: 0.05, handSpread: 0.35,   // b44 hand-held gun: size, a touch of muzzle-down, arm spread kept small (it moves the gun hand)
+  handGunScale: 0.85, gunTilt: 0.05, handSpread: 0.35,
+  blade: 0.6, bladeHead: 0.85, leftGrip: true,   // b45 bladed stance: torso twist (rad, left shoulder forward), share of it the head turns back; left hand IK'd to the front grip   // b44 hand-held gun: size, a touch of muzzle-down, arm spread kept small (it moves the gun hand)
   // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
   // arms were inside his body) the gun is held further out and the elbows flare to the sides so the arms read from behind.
   // side = gun pivot x as a multiple of his right hip's x (0.55 = across the belly; bigger = out at his right hip, Rambo carry);
@@ -290,8 +291,11 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   // made for holding a gun) -- no more arm IK fighting the clip. The gun is lined up with his facing once, in the rifle idle pose
   // (calibrated on the first frames), then it simply rides the hand; AIM = a twist through his spine (+ a swivel on the seat).
   let gun = buildGun(); const pivot = new THREE.Group();
-  B.RightHand.add(pivot);
-  pivot.scale.setScalar(1 / B.RightHand.getWorldScale(V()).x);
+  // the gun mounts on his WEAPON bone (mounts.py: weapon_root_right, at the palm) -- his rule: never a wrist guess; the hand
+  // bone + a palm offset only for a rig without mounts (classic)
+  const mount = B.weapon_root_right || B.RightHand;
+  mount.add(pivot);
+  pivot.scale.setScalar(1 / mount.getWorldScale(V()).x);
   gun.g.scale.setScalar(CREW.gunScale * CREW.handGunScale); pivot.add(gun.g);
   let calib = 0;   // frames of the rifle pose seen; lined up at a few frames in
 
@@ -300,6 +304,8 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   anim.play(role);
   let idleRole = role, firing = false, kick = 0, flashT = 0, aimWorld = null, aimY = 0, aimP = 0, baseYaw = null, swiv = 0;
   const aimQ = Q(), wantQ = Q(), tmp = V(), hq = Q(), sq = Q();
+  /** apply a world rotation `r` to each named bone (additive, after the clip) */
+  const twist = (names, r) => { for (const k of names) { const b = B[k]; if (!b) continue; b.getWorldQuaternion(sq); const w = r.clone().multiply(sq); b.parent.getWorldQuaternion(sq).invert(); b.quaternion.copy(sq.multiply(w)); b.updateMatrixWorld(true); } };
   const self = {
     holder: H, B, anim, cigarTip: cig.tip, weapon: null,
     get gun() { return gun; }, get muzzle() { return gun.muzzle; }, get eject() { return gun.eject; },
@@ -331,13 +337,20 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
         H.rotation.y = baseYaw + swiv;
       }
       H.updateMatrixWorld(true);
+      // BLADED STANCE (his: "stubby thick arms -- he needs to turn his torso to the side to shoot a two-handed gun"): the torso
+      // twists side-on (left shoulder forward) and the neck + head turn back toward the target; the gun is lined up AFTER this,
+      // so it still points ahead, and the left hand can now reach the front grip
+      if (!self.freeArms && CREW.blade) {
+        H.getWorldQuaternion(hq); const up = new THREE.Vector3(0, 1, 0).applyQuaternion(hq);
+        twist(['Spine', 'Spine1', 'Spine2'], Q().setFromAxisAngle(up, -CREW.blade / 3));
+        twist(['Neck', 'Head'], Q().setFromAxisAngle(up, CREW.blade * CREW.bladeHead / 2));
+      }
       // line the gun up with his facing once the rifle pose is on (hand -> gun offset fixed after that)
       if (calib < 4 && RIFLE_ROLES.has(anim.role)) {   // only a RIFLE clip's hand pose defines how he holds it
         calib++;
-        const hw = B.RightHand.getWorldQuaternion(Q()), want = H.getWorldQuaternion(Q()).multiply(Q().setFromEuler(new THREE.Euler(CREW.gunTilt, 0, 0)));
+        const hw = mount.getWorldQuaternion(Q()), want = H.getWorldQuaternion(Q()).multiply(Q().setFromEuler(new THREE.Euler(CREW.gunTilt, 0, 0)));
         pivot.quaternion.copy(hw.invert().multiply(want));
-        const palm = (B.RightHandMiddle1 ? wpos(B.RightHandMiddle1) : wpos(B.RightHand)).lerp(wpos(B.RightHand), 0.35);
-        pivot.position.copy(B.RightHand.worldToLocal(palm));
+        if (mount === B.RightHand) { const palm = (B.RightHandMiddle1 ? wpos(B.RightHandMiddle1) : wpos(B.RightHand)).lerp(wpos(B.RightHand), 0.35); pivot.position.copy(B.RightHand.worldToLocal(palm)); }
       }
       // AIM: yaw + pitch toward the target, spread through Spine / Spine1 / Spine2 (additive, in his frame)
       let wy = 0, wp = 0;
@@ -350,7 +363,15 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       if (Math.abs(aimY) + Math.abs(aimP) > 1e-4) {
         H.getWorldQuaternion(hq); const up = new THREE.Vector3(0, 1, 0).applyQuaternion(hq), rt = new THREE.Vector3(1, 0, 0).applyQuaternion(hq);
         const r = Q().setFromAxisAngle(up, aimY / 3).multiply(Q().setFromAxisAngle(rt, -aimP / 3));
-        for (const k of ['Spine', 'Spine1', 'Spine2']) { const b = B[k]; if (!b) continue; b.getWorldQuaternion(sq); const w = r.clone().multiply(sq); b.parent.getWorldQuaternion(sq).invert(); b.quaternion.copy(sq.multiply(w)); b.updateMatrixWorld(true); }
+        twist(['Spine', 'Spine1', 'Spine2'], r);
+      }
+      // the support hand on the gun's front grip (slides back along the gun to what his arm can reach)
+      if (!self.freeArms && gun.grips?.left && CREW.leftGrip) {
+        pivot.updateMatrixWorld(true);
+        const sh = wpos(B.LeftArm), reach = (wpos(B.LeftForeArm).distanceTo(sh) + wpos(B.LeftHand).distanceTo(wpos(B.LeftForeArm))) * 0.97;
+        const gl = gun.grips.left.getWorldPosition(V()), gr = gun.grips.right.getWorldPosition(V()), tgt = gl.clone();
+        if (tgt.distanceTo(sh) > reach) { let lo = 0, hi = 1; for (let k = 0; k < 12; k++) { const m = (lo + hi) / 2; tgt.lerpVectors(gr, gl, m); if (tgt.distanceTo(sh) > reach) hi = m; else lo = m; } tgt.lerpVectors(gr, gl, lo); }
+        ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, local(1.2, -0.8, -0.2));
       }
       kick *= Math.exp(-18 * dt);
       gun.g.position.set(0, 0, -kick); gun.g.rotation.x = -kick * 1.4;
