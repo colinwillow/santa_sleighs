@@ -15,6 +15,9 @@ const CSS = `
 .mn .b.green { background: linear-gradient(#3fae62, #1f7a3e); box-shadow: 0 4px 0 #0f4a24, 0 6px 14px #0006; }
 .mn .b.dim { background: linear-gradient(#5a5f7a, #3a3e56); box-shadow: 0 4px 0 #22253a, 0 6px 14px #0006; }
 .mn .b:active { transform: translateY(3px); box-shadow: 0 1px 0 #6a0d14; }
+.mn .ib { display: block; width: 100%; height: auto; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: transform .08s; } .mn .ib:active { transform: scale(.95) translateY(2px); }
+.mn .ib.small { width: 86%; align-self: center; }
 .mn .row { display: flex; gap: 8px; } .mn .row .b { flex: 1; font-size: 14px; padding: 11px 8px; }
 .mn .title { font-weight: 900; font-size: 22px; letter-spacing: .08em; text-shadow: 0 2px 0 #0008; margin-bottom: 4px; text-align: center; }
 .mn .info { font: 600 12px/1.5 ui-monospace, monospace; background: #0008; border-radius: 12px; padding: 8px 10px; white-space: pre; }
@@ -103,10 +106,13 @@ export function makeMenus(G) {
     ]);
   };
 
+  // his sticker-banner art (images/ui/btn_*.webp, cut from his sheet); the click wiring is button()'s
+  const imgButton = (src, alt, cls, fn) => { const b = el('img', 'ib ' + (cls || '')); b.src = src; b.alt = alt; b.draggable = false;
+    b.addEventListener('click', e => { e.stopPropagation(); G.sfx?.('ui_tap'); fn(b); }); return b; };
   const startMain = () => fill(startCol, [
-    button('PLAY', 'big', () => { G.sfx?.('ui_start'); G.play(); }),
-    button('SANDBOXES', 'green', () => sandboxes(startCol, startMain)),
-    button('OPTIONS', '', () => options(startCol, startMain)),
+    imgButton('images/ui/btn_play.webp', 'PLAY', '', () => { G.sfx?.('ui_start'); G.play(); }),
+    imgButton('images/ui/btn_sandboxes.webp', 'SANDBOXES', 'small', () => sandboxes(startCol, startMain)),
+    imgButton('images/ui/btn_options.webp', 'OPTIONS', 'small', () => options(startCol, startMain)),
     el('div', 'ver', `build ${G.build}`),
   ]);
   const pauseMain = () => fill(pauseCol, [
