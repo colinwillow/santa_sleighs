@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/BufferGeometryUtils.js';
 import { groundH, VILLAGE_R } from './terrain.js';
 import { softDot, bevBox } from './util.js';
+import { ITEMS, placeAt } from './input.js';
 
 export const DELIVER = {
   houses: 4, chimR: 2.2,          // m: horizontal radius round the chimney top that counts as DOWN THE CHIMNEY
@@ -36,12 +37,15 @@ export const DELIVER = {
 // the sleigh keeps flying. Let go = drop + the camera eases back. Slide the finger off the button (slideOff px past its edge) =
 // cancel, nothing drops. camRate = how fast the camera chases the drop-cam pose (1/s, added to the chase's 4).
 export const DROPCAM = { tapMs: 200, ease: 0.35, up: 18, back: 5, side: 5, lookK: 0.85, step: 1 / 120, maxT: 5, slideOff: 30, ring: 2.6, ringView: 0.12, camRate: 6,
-  aimRate: 24, aimSide: 16, aimFwd: 12, aimCurve: 1.4 };
+  aimRate: 24, aimSide: 16, aimFwd: 12, aimCurve: 1.4, aimPx: 0.075 };
 // b74 AIM THE DROP WITH THE RIGHT THUMB (his: "when you press and hold the drop and the aimer comes out, you're supposed to be able
 // to AIM AROUND WITH YOUR RIGHT THUMB, then let go to drop"): while a drop is held (a PRESENT / BOMB button, or the draw gesture
 // with the present / bomb equipped on the weapon ring), the right stick pushes the release velocity sideways / forward in the
 // sleigh's frame -- aimRate m/s per s at full stick (curved by aimCurve), held within +-aimSide (his right +) and +-aimFwd (ahead +)
 // m/s -- so the landing ring slides where the thumb pushes and STAYS when the thumb centres. The drop flies with it.
+// b76 (CoD controls): the PRESENT / BOMB stickers sit ABOVE THE LEFT PAD (input.js ITEMS); held, a second finger dragged on the
+// right half (input.js LOOK) slides the ring: aimPx m/s of release velocity per px (right = his right, up = ahead), same clamps.
+// The gamepad's right stick still pushes it at aimRate.
 
 const V3 = THREE.Vector3;
 // ---- geometry: parts merged into one vertex-coloured mesh (baked top-front light so a MeshBasic glow still reads 3D) ---------
@@ -331,6 +335,12 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     if (fire) drop(k, { ...hold.off });
     hold.off.x = hold.off.z = 0;
   }
+  /** b76: a LOOK drag (px) slides the landing ring (screen right = his right, screen up = ahead) */
+  function aimDropPx(dx, dy) {
+    if (!hold.kind) return;
+    hold.off.x = THREE.MathUtils.clamp(hold.off.x + dx * DROPCAM.aimPx, -DROPCAM.aimSide, DROPCAM.aimSide);
+    hold.off.z = THREE.MathUtils.clamp(hold.off.z - dy * DROPCAM.aimPx, -DROPCAM.aimFwd, DROPCAM.aimFwd);
+  }
   /** the right stick while a drop is held: push the landing point (x = his right, y = ahead; -1..1) */
   function aimDrop(x, y, dt) {
     if (!hold.kind) return;
@@ -426,9 +436,9 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
   #deliv svg { width: 20px; height: 20px; display: block; } #deliv .sk { margin-left: 6px; } #deliv .ok { color: #2a9a50; } #deliv .no { color: var(--candy); }
   #deliv.win { background: var(--gold); }
   .dropb { width: 62px; height: 62px; z-index: 7; } .dropb svg { width: 36px; height: 36px; display: block; }
-  #dropPresent { right: calc(env(safe-area-inset-right) + 104px); bottom: calc(env(safe-area-inset-bottom) + 262px); transform: rotate(4deg);
+  #dropPresent { transform: rotate(4deg);
     border-radius: 52% 48% 47% 53% / 47% 53% 47% 53%; background: radial-gradient(circle at 34% 28%, #fff6dc 0 14%, transparent 15%), var(--gold); box-shadow: inset 0 0 0 3px #ffe39a, 3px 4px 0 var(--ink); }
-  #dropBomb { right: calc(env(safe-area-inset-right) + 178px); bottom: calc(env(safe-area-inset-bottom) + 250px); transform: rotate(-4deg);
+  #dropBomb { transform: rotate(-4deg);
     border-radius: 48% 52% 53% 47% / 53% 47% 53% 47%; background: radial-gradient(circle at 34% 28%, #9d8ad8 0 14%, transparent 15%), #5a3d96; box-shadow: inset 0 0 0 3px #8a74c8, 3px 4px 0 var(--ink); }
   #dropPresent.on { transform: rotate(4deg) translate(2px, 3px) scale(.94); box-shadow: 1px 1px 0 var(--ink); }
   #dropBomb.on { transform: rotate(-4deg) translate(2px, 3px) scale(.94); box-shadow: 1px 1px 0 var(--ink); }
@@ -449,7 +459,7 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (hold.kind) return; pid = e.pointerId; try { b.setPointerCapture(pid); } catch (_) {} holdStart(kind, 'ptr'); });
     b.addEventListener('pointermove', e => {
       if (e.pointerId !== pid || hold.kind !== kind || hold.src !== 'ptr') return;
-      const r = b.getBoundingClientRect(), m = DROPCAM.slideOff;
+      const r = b.getBoundingClientRect(), m = ITEMS.slideOff;
       if (e.clientX < r.left - m || e.clientX > r.right + m || e.clientY < r.top - m || e.clientY > r.bottom + m) { pid = null; holdEnd(false); }
     });
     const up = fire => e => { if (e.pointerId !== pid) return; pid = null; if (hold.kind === kind && hold.src === 'ptr') holdEnd(fire); };
@@ -457,6 +467,7 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     return b;
   };
   const bP = mkBtn('dropPresent', GIFT, 'present'), bB = mkBtn('dropBomb', BOMB, 'bomb'), bPn = bP.querySelector('.n');
+  [bP, bB].forEach((b, i) => placeAt(b, ITEMS.x + i * ITEMS.gap, ITEMS.y + i * ITEMS.stagger, ITEMS.size, true));   // b76: above the LEFT pad
   const KEYS = { KeyZ: 'present', KeyX: 'bomb' };
   addEventListener('keydown', e => { if (e.repeat || !KEYS[e.code]) return; holdStart(KEYS[e.code], 'key'); });
   addEventListener('keyup', e => { if (KEYS[e.code] && hold.kind === KEYS[e.code] && hold.src === 'key') holdEnd(true); });
@@ -562,5 +573,5 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, camera: cam = n
     sparkG.attributes.position.needsUpdate = sparkG.attributes.color.needsUpdate = true;
     updateHud();
   }
-  return { update, drop, dropCam, hold, predict, aimDrop, aimStart: kind => holdStart(kind, 'draw'), aimEnd: fire => { if (hold.src === 'draw') holdEnd(fire); }, get street() { return street; }, get items() { return items; }, get stack() { return stack; }, facts, DELIVER, begin, end };
+  return { update, drop, dropCam, hold, predict, aimDrop, aimDropPx, get street() { return street; }, get items() { return items; }, get stack() { return stack; }, facts, DELIVER, begin, end };
 }

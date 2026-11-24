@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { groundH } from './terrain.js';
 import { loadModels, makeSanta } from './characters.js';
 import { makeLegs } from './loco.js';
-import { DRAW } from './input.js';
+import { LOOK } from './input.js';
 import { CLIPS, ONCE } from './anim.js';
 import { THROW } from './weapons.js';
 import { bombGeo } from './delivery.js';
@@ -26,9 +26,9 @@ export const FOOT = {
 // yourself"): the RIGHT pad (gun unlocked) orbits it round him. yawRate / pitchRate = rad/s at full stick (the stick is curved by
 // `curve`), pitch = the camera's height angle above his shoulders (pitch0 rest, clamped pitchMin..pitchMax), dist = metres back
 // from the pivot (pivotY above his feet), lookAhead = metres past him it looks. recentre = OFF by default: when ON, running
-// straight for recentreAfter s with no camera input eases the camera behind him at recentreRate. b74: DRAWN (input.js DRAW), the
-// right stick turns this same camera at DRAW.yawRate / pitchRate (finer than the camera's own) -- the crosshair stays put, so
-// where the camera looks IS the aim.
+// straight for recentreAfter s with no camera input eases the camera behind him at recentreRate. b76 (CoD controls): a finger
+// dragged on the right half of the screen (or the fire thumb) turns this camera by input.lookDX / lookDY px x LOOK.footYaw /
+// footPitch; the gamepad stick still turns it at yawRate / pitchRate. The crosshair stays put, so where the camera looks IS the aim.
 export const CAMERA = {
   yawRate: 2.6, pitchRate: 1.5, curve: 1.5, pitch0: 0.24, pitchMin: -0.2, pitchMax: 1.05, dist: 6.7, pivotY: 1.6, lookAhead: 3,
   recentre: false, recentreAfter: 2.0, recentreRate: 0.9, aimEdge: 0.7, aimTurn: 3.5,
@@ -170,7 +170,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     sfx('casing', { vol: 0.8, rate: 1.9 }); sfx('ui_tap', { vol: 0.5, rate: 0.6 });   // the pin
     return true;
   }
-  function throwGo() { if (st.throwSt !== 'wind') return false; st.throwSt = 'go'; const a = st.santa.anim.current; if (a) a.timeScale = THROW.animSpeed; sfx('whoosh', { vol: 0.6, rate: 1.5 }); return true; }
+  function throwGo() { if (st.throwSt !== 'wind') return false; st.throwSt = 'go'; const a = st.santa.anim.current; if (a && st.santa.anim.role === 'throw') a.timeScale = THROW.animSpeed; sfx('whoosh', { vol: 0.6, rate: 1.5 }); return true; }
   function throwCancel(quiet) { if (!st.throwSt) return; st.throwSt = null; if (!quiet && st.santa?.busy) st.santa.endOnce(); }   // quiet = another clip (a roll, the get-up) takes the body
   function updateThrow(dt) {
     if (!st.throwSt) return;
@@ -179,6 +179,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     st.throwT += dt;
     if (!a || S.anim.role !== 'throw') return;
     if (st.throwSt === 'wind') { if (a.time >= THROW.cockAt) { a.time = THROW.cockAt; a.timeScale = 0; } return; }   // HOLD the wind-up while he aims
+    a.timeScale = THROW.animSpeed;   // 'go' (a quick tap can let go before the clip had even started: it still throws at full speed)
     if (!st.thrown2 && a.time >= THROW.releaseAt) {
       st.thrown2 = true; st.handBomb.getWorldPosition(_hand); st.throwOut = _hand.clone(); st.handBomb.userData.gone = 0.45;
     }
@@ -186,7 +187,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
   }
   function update(dt, t) {
 
-    if (input.tap) { input.tap = false; if (st.mode !== 'seat') jumpPress = true; }   // right-pad tap = jump
+    if (input.tap) { input.tap = false; if (st.mode !== 'seat') jumpPress = true; }   // a tap on the right half = jump
     if (!st.ready || st.mode === 'seat') { if (st.santa) st.santa.holder.visible = false; return; }
     const S = st.santa;
     // stick -> a world direction, relative to the camera
@@ -318,11 +319,11 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     const cx = input.camX || 0, cy = input.camY || 0;
     st.camYaw -= cc(cx) * CAMERA.yawRate * dt;
     st.camPitch = THREE.MathUtils.clamp(st.camPitch - cc(cy) * CAMERA.pitchRate * dt, CAMERA.pitchMin, CAMERA.pitchMax);
-    const ac = v => Math.sign(v) * Math.pow(Math.abs(v), DRAW.curve);   // DRAWN: the right stick = the 3D aim (yaw + pitch rates)
-    st.camYaw -= ac(input.aimX || 0) * DRAW.yawRate * dt;
-    st.camPitch = THREE.MathUtils.clamp(st.camPitch - ac(input.aimY || 0) * DRAW.pitchRate * dt, CAMERA.pitchMin, CAMERA.pitchMax);
+    // b76 LOOK: drag right = the view turns right, drag down = look down (the camera rises: pitch is its height angle)
+    st.camYaw -= (input.lookDX || 0) * LOOK.footYaw;
+    st.camPitch = THREE.MathUtils.clamp(st.camPitch + (input.lookDY || 0) * LOOK.footPitch, CAMERA.pitchMin, CAMERA.pitchMax);
     updateThrow(dt);
-    st.straightT = (mag > 0.85 && Math.abs(mx) < 0.35 && Math.abs(cx) < 0.1 && !aiming) ? st.straightT + dt : 0;
+    st.straightT = (mag > 0.85 && Math.abs(mx) < 0.35 && Math.abs(cx) < 0.1 && !input.lookDown && !aiming) ? st.straightT + dt : 0;
     if (CAMERA.recentre && st.straightT > CAMERA.recentreAfter) {
       let dy = st.face - st.camYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       st.camYaw += dy * (1 - Math.exp(-CAMERA.recentreRate * dt));
