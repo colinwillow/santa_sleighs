@@ -9,6 +9,7 @@ export const CLIPS = {
   santa: {
     idle: 'Rifle_Idle_2', fire: 'Firing_Rifle_2', walk: 'Rifle_Walk', run: 'Rifle_Run', jump: 'Jumping_5', air: 'Falling_Idle', getup: 'Getting_Up', land: 'Landing',
     tipsy: 'Drunk_Idle', dance: 'Silly_Dancing', cheer: 'Cheering',
+    roll: 'Sprinting_Forward_Roll', dodgeBack: 'Jump_Backward',   // b61 DODGE (in place; onfoot.js moves him). Strafe / backpedal legs: src/loco.js
   },
   elf: {
     idle: 'Idle_14', happy: 'Happy_Idle', walk: 'Walking', run: 'Standard_Run', jump: 'Jumping_5', air: 'Falling_Idle',

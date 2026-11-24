@@ -21,7 +21,7 @@ import { makeDelivery } from './delivery.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 61;
+export const BUILD = 62;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -54,13 +54,15 @@ const foot = makeOnFoot({ scene, rig, input, camera, sfx: (n, o) => sfx(n, o),
   // the superhero landing: shake by drop height, a boom, a ring of powder snow kicked up round his boots
   onSlam: (p, v, drop) => { const k = Math.min(1, drop / 25); shake = Math.max(shake, 0.5 + k * 1.2); sfx('explosion', { vol: 0.45 + k * 0.5, rate: 0.75 }); sfx('debris', { vol: 0.6, rate: 0.8 });
     for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; shots?.puff?.(p.clone().add(new THREE.Vector3(Math.cos(a) * 0.8, 0.2, Math.sin(a) * 0.8)), '#ffffff', 3, 6 + k * 6, 1.2, 0.6); }
-    shots?.puff?.(p, '#eef2ff', 18, 4 + k * 5, 1.6, 1.4); foot.crashZoom?.(0.25 + k * 0.3); } });
+    shots?.puff?.(p, '#eef2ff', 18, 4 + k * 5, 1.6, 1.4); foot.crashZoom?.(0.25 + k * 0.3); },
+  onDodge: (p, dir) => { p.y += 0.15; shots?.puff?.(p, '#ffffff', 10, 3.5, 0.7, 0.9); shots?.puff?.(p.addScaledVector(dir, 1.2), '#eef2ff', 8, 2.5, 0.9, 0.7); } });
 rig.onCrash = (power, at) => {
   shake = Math.max(shake, 0.4 + power * 0.8); crashZoom = Math.max(crashZoom, 0.4 + power * 0.6);
   sfx('debris', { vol: 0.6 + power * 0.4, rate: 0.7 }); if (power > 0.5) sfx('explosion', { vol: 0.5 * power, rate: 1.3 });
   shots?.puff?.(at, '#ffffff', 12 + Math.round(power * 16), 6, 1.0);
   // the sleigh as a wrecking ball: a crash into a house knocks a hole in it the size of the hit
   if (world.town) world.town.blast(at, 2.2 + power * 2.6, 99, rig.SV.clone().multiplyScalar(0.6));
+  world.props?.blast(at, 2.2 + power * 2.6, power > 0.35 ? 99 : 6, rig.SV.clone().multiplyScalar(0.6));   // b60: cars flip, trees fall
   foot.eject(power, at);
   // his sleigh takes the hit too: pieces near the impact fly off (a reindeer-first hit only shakes the front loose)
   if (rig.model) { const near = at.distanceTo(rig.S) < 6; rig.model.hit(near ? at : rig.sleigh.g.localToWorld(new THREE.Vector3(0, 1, 2.6)), near ? 1.5 + power * 2.5 : 1.2, near ? 2 + power * 6 : 1 + power * 2); }
@@ -215,6 +217,7 @@ function updateAim(dt) {
     const wx = input.aimX * reach, wy = -input.aimY * reach, k = 1 - Math.exp(-14 * dt);
     AIM.sx += (wx - AIM.sx) * k; AIM.sy += (wy - AIM.sy) * k;
     px = (rp.x * 0.5 + 0.5) * W + AIM.sx; py = (-rp.y * 0.5 + 0.5) * H + AIM.sy;
+    if (!input.locked && foot.active) { px = W / 2; py = H / 2; }   // b61: gun UNLOCKED = the right pad is the camera; the reticle sits centred
   }
   px = THREE.MathUtils.clamp(px, 20, W - 20); py = THREE.MathUtils.clamp(py, 20, H - 20);
   // what's under the reticle: march the camera ray down to the terrain, else a point far along it
@@ -230,11 +233,12 @@ function updateAim(dt) {
 
 // ---- WEAPONS: his four guns; switch with the WEAPON button / 1-4 / Q / gamepad Y; fly through a floating gun to grab it -------
 const shots = makeShots(scene, groundH, {
-  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); world.town?.blast(p, 3.6, 99); rig.model?.hit(p, 3.2, 8); snowmen.blast(p, 3.6, 99); },
-  onHit: (p, kind) => { if (kind === 'snowball') { world.town?.blast(p, 1.0, 1); snowmen.blast(p, 1.0, 3); } },
-  solid: p => !!world.town?.solidAt(p),
+  onBlast: (p, r) => { shake = Math.max(shake, 0.6 * Math.max(0, 1 - p.distanceTo(camera.position) / 120)); world.town?.blast(p, 3.6, 99); world.props?.blast(p, 3.6, 99); rig.model?.hit(p, 3.2, 8); snowmen.blast(p, 3.6, 99); },
+  onHit: (p, kind) => { if (kind === 'snowball') { world.town?.blast(p, 1.0, 1); world.props?.blast(p, 1.0, 3); snowmen.blast(p, 1.0, 3); } },
+  solid: p => !!world.town?.solidAt(p) || !!world.props?.solidAt(p),
 });
 // SNOWMAN MONSTERS in the village (src/enemies.js): shootable, face Santa, respawn; a kill makes the sidekick elf cheer
+if (world.props) Object.assign(world.props.hooks, { puff: (...a) => shots.puff(...a), shake: k => { shake = Math.max(shake, k); } });   // b60
 const snowmen = makeSnowmen({ scene, world, groundH, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a), onKill: () => rig.crew?.react?.('cheer'),
   onHitSanta: (dir, kind, from) => { if (!foot.knock(dir, kind)) return; const big = kind === 'big'; shake = Math.max(shake, big ? 1.4 : 0.7);
     sfx('debris', { vol: big ? 1 : 0.7, rate: big ? 0.6 : 0.9 }); sfx('snow_puff', { vol: 0.8, rate: 0.7 });
@@ -356,7 +360,9 @@ function updateGun(dt, t) {
     if (mh && (!hit || mh.dist < hit.dist)) { rig.model.shoot(mh, W.shot === 'slug' ? 3 : 1); shots.puff(mh.point, '#ffd060', 3, 3, 0.4); hit = { dist: mh.dist, sleigh: true }; }
     const sh = (W.shot === 'tracer' || W.shot === 'slug') ? snowmen.raycast(from, _d, 250) : null;
     if (sh && (!hit || sh.dist < hit.dist)) { snowmen.shoot(sh, W.shot === 'slug' ? snowmen.SNOW.slug : 1, from); shots.puff(sh.point, '#ffffff', 4, 3, 0.5); hit = { dist: sh.dist, enemy: true }; }
-    if (hit && !hit.sleigh && !hit.enemy) {
+    const ph = (W.shot === 'tracer' || W.shot === 'slug') ? world.props?.raycast(from, _d, 250) : null;   // b60: cars + trees
+    if (ph && (!hit || ph.dist < hit.dist)) { world.props.shoot(ph, W.shot === 'slug' ? 3 : 1, _d); hit = { dist: ph.dist, prop: true }; }
+    if (hit && !hit.sleigh && !hit.enemy && !hit.prop) {
       // his: bullets should hit harder -- a Gatling round now takes out the brick it hits + chips its neighbours; the rifle punches a big hole
       if (W.shot === 'slug') world.town.blast(hit.point, 1.7, 99, _d.clone().multiplyScalar(10));
       else { world.town.hitBrick(hit.id, 2, _d.clone().multiplyScalar(6)); world.town.blast(hit.point, 0.7, 1, _d.clone().multiplyScalar(5)); }
@@ -433,6 +439,8 @@ addEventListener('pointermove', e => { if (!ORB.drag) return; ORB.a -= (e.client
 addEventListener('pointerup', () => ORB.drag = null);
 // EVERY camera change EASES (his): when the camera's owner changes (seat <-> on foot, menu -> play, a camera mode), the next
 // ~1.2 s blend from where the camera actually was toward the new rig's pose instead of cutting
+// yawRate / pitchRate rad/s at full stick; back = s after letting go before it eases (rate `ease`) back behind the sleigh
+const CHASE_ORBIT = { yaw: 0, pitch: 0, idle: 9, yawRate: 2.2, pitchRate: 1.2, pitchMin: -0.35, pitchMax: 0.7, back: 1.5, ease: 2.5 };
 const CAMB = { key: null, t: 0, pos: new THREE.Vector3(), q: new THREE.Quaternion(), fov: 60, dur: 1.2 };
 function updateCamera(dt) {
   const key = STATE + '|' + (foot.active ? 'foot' : 'ride') + '|' + (camOverride || '');
@@ -477,9 +485,16 @@ function updateCamera0(dt) {
     return;
   }
   if (camMode === 'diorama') { camera.position.copy(DIORAMA.pos); camera.lookAt(DIORAMA.look); if (camera.fov !== DIORAMA.fov) { camera.fov = DIORAMA.fov; camera.updateProjectionMatrix(); } return; }
-  const yawF = _d.set(Math.sin(rig.yaw), 0, Math.cos(rig.yaw));
+  // b61 CHASE ORBIT: gun unlocked, the right pad orbits the chase camera round the sleigh (stick right = view turns right, up =
+  // look up); let go for CHASE_ORBIT.back s and it eases back behind
+  const co = CHASE_ORBIT, cx = STATE === 'play' ? input.camX || 0 : 0, cy = STATE === 'play' ? input.camY || 0 : 0;
+  if (Math.abs(cx) + Math.abs(cy) > 0.05) co.idle = 0; else co.idle += dt;
+  co.yaw -= Math.sign(cx) * Math.pow(Math.abs(cx), 1.5) * co.yawRate * dt;
+  co.pitch = THREE.MathUtils.clamp(co.pitch - Math.sign(cy) * Math.pow(Math.abs(cy), 1.5) * co.pitchRate * dt, co.pitchMin, co.pitchMax);
+  if (co.idle > co.back) { const k = 1 - Math.exp(-co.ease * dt); co.yaw = Math.atan2(Math.sin(co.yaw), Math.cos(co.yaw)) * (1 - k); co.pitch *= 1 - k; }
+  const yawF = _d.set(Math.sin(rig.yaw + co.yaw), 0, Math.cos(rig.yaw + co.yaw));
   crashZoom *= Math.exp(-0.9 * dt);   // a crash pulls the camera back so the whole wreck is in frame
-  const want = _p.copy(rig.S).addScaledVector(yawF, -14 * (1 + crashZoom)).add(new THREE.Vector3(0, (7.5 - rig.pitch * 6) * (1 + crashZoom * 0.8), 0));
+  const want = _p.copy(rig.S).addScaledVector(yawF, -14 * (1 + crashZoom) * Math.cos(co.pitch)).add(new THREE.Vector3(0, (7.5 - rig.pitch * 6 + 14 * Math.sin(co.pitch)) * (1 + crashZoom * 0.8), 0));
   const gy = groundH(want.x, want.z) + 2; if (want.y < gy) want.y = gy;
   camPos.lerp(want, 1 - Math.exp(-4 * dt));
   const look = new THREE.Vector3().copy(rig.S).lerp(rig.lead, 0.4).addScaledVector(rig.fwd, 4); look.y += 1;
@@ -525,6 +540,7 @@ function frame(now) {
   cookieDisc.instanceMatrix.needsUpdate = true; cookieChips.instanceMatrix.needsUpdate = true;
   $cookies.textContent = cookieCount; $milk.textContent = Math.round(milk);
   if (dt > 0) { world.tick(t, dt); snowmen.update(dt, foot.active ? foot.st.pos : rig.S, camera, { vel: foot.active ? foot.st.vel : rig.SV, sleigh: rig.S }); delivery.update(dt, t); }
+  if (dt > 0) world.props?.update(dt, foot.active ? foot.st.pos : rig.S, rig);   // b60: cars / trees / gingerfolk
   merger.tick(dt);
   updateCamera(dt);
   world.town?.lodTick(camera, real);   // b33: far houses swap to painted slabs (town.js TOWN.lod)
