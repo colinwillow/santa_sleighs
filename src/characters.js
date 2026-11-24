@@ -362,7 +362,8 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   // TUMBLES CARRY THE GUN (b68, his: "he does the roll and the gun doesn't rotate with him"): during a roll / back hop / get-up /
   // landing the clip owns his arms, so the gun stops being posed and RIDES HIS RIGHT HAND (the hand->gun offset is captured the
   // moment the move starts), then eases back into the posed hold when it's over
-  const FREE_ROLES = new Set(['roll', 'dodgeBack', 'getup', 'land']), _rel = new THREE.Matrix4(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
+  const FREE_ROLES = new Set(['roll', 'dodgeBack', 'getup', 'land', 'air']),   // b73: + 'air' (thrown by a crash / falling: the gun floated)
+  _rel = new THREE.Matrix4(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
   let riding = false;
   function rideHand() {
     H.updateMatrixWorld(true);
