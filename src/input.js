@@ -22,7 +22,7 @@ export const LOOK = { footYaw: 0.0068, footPitch: 0.005, sleighYaw: 0.006, sleig
 export const FIREBTN = { x: 110, y: 185, size: 86, ring: 92, lookK: 1, dotMax: 74, fold: 0.16 };
 // DIAL: centre x / y px from the right / bottom edges, size px, iconR = rim radius of the icons, gain = dial turn per degree of finger
 // turn, a tap (< tapMs, < tapDeg of turn) inside centreR px = holster, outside = pick the icon under it
-export const DIAL = { x: 52, y: 300, size: 92, iconR: 32, gain: 1.5, tapMs: 260, tapDeg: 12, centreR: 20 };
+export const DIAL = { x: 56, y: 306, size: 100, iconR: 36, gain: 1.5, tapMs: 260, tapDeg: 12, centreR: 17 };
 // ITEMS: the item stickers above the left pad: slot i centre = (x + i * gap, y + i * stagger) px from the left / bottom edges; a hold
 // past tapMs = the aim (drop-cam / throw arc); sliding slideOff px past the button = cancel
 export const ITEMS = { x: 52, y: 238, gap: 76, stagger: 16, size: 62, tapMs: 200, slideOff: 30 };
