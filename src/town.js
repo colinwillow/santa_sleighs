@@ -8,6 +8,13 @@
 // range. There is NO far LOD any more: near and far are the same geometry, so nothing ever swaps (~2-3k tris a house).
 // Chunk ids are multiplayer-ready (a hit = "these ids are gone"). A chunk with no path to the ground through touching chunks
 // falls; a house that loses its wall tops drops its roof; falling chunks tumble as debris and settle as rubble.
+// b44 DETAIL PASS (his ok: "yeah that sounds good"): one shared canvas ATLAS painted in metres per surface layout (front /
+// back / side wall, gable, roof; one region per house size, ~56 px/m) -- piped icing swirls, snowflakes, drapes, dots,
+// a round amber medallion in the gable, glossy chocolate shingle rows with sugar + candies on the roof, dough speckle on
+// the cookie. Each slab's (u, y) maps linearly into its region, so a pattern is CUT across chunks and breaks with them.
+// Vertex colour on the fronts is now a TINT over the painted cookie (per-chunk bake variation, a few toasted ones); seam
+// edges are GROOVED (the front inset TOWN.groove, sides slope back to the flush back -- a dark crack lip, crumb deeper in),
+// zero extra triangles. Everything that is not a painted front samples a white texel, so it keeps its vertex colour.
 import * as THREE from 'three';
 import { groundH } from './terrain.js';
 import { rand, rr, shadowProxy } from './util.js';
@@ -23,6 +30,7 @@ export const TOWN = {
   span: 2,                             // a chunk can hang sideways this many chunks off one held from below
   debrisMax: 420, gravity: 20,
   door: [1.2, 2.0], win: [1.2, 2.0, 3.0],   // door w x h; window w, y0, y1
+  ppm: 56, groove: 0.035, toast: 0.12,  // atlas px a metre; crack groove inset (m); share of toasted (darker) chunks
   cookie: ['#d98f4e', '#cf8446', '#e39a58'], roof: ['#8a4c2a', '#9a5631', '#7c4325'], icing: '#fff8f0', crumb: '#efc08a',
 };
 
@@ -61,11 +69,176 @@ function polyDist(p, u, y) {
   return best;
 }
 
+// ---- the painted ICING ATLAS (b44): regions painted in metres (y up), sampled by the slab fronts ------------------------
+const ICE = '#f2e8de', ICE_SH = 'rgba(70,30,10,0.42)', CANDY = '#d42a36';
+const AT = { W: 1024, H: 2048, pad: 6, x: 16, y: 0, rowH: 16, keys: new Map(), cv: null, g: null };
+const WHITE = [8, 8];
+function region(key, u0, u1, y0, y1, paint) {
+  let r = AT.keys.get(key); if (r) return r;
+  if (!AT.g) { AT.cv = document.createElement('canvas'); AT.cv.width = AT.W; AT.cv.height = AT.H; AT.g = AT.cv.getContext('2d'); AT.g.fillStyle = '#fff'; AT.g.fillRect(0, 0, 16, 16); }
+  const ppm = TOWN.ppm, p = AT.pad, w = Math.ceil((u1 - u0) * ppm) + 2 * p, h = Math.ceil((y1 - y0) * ppm) + 2 * p;
+  if (AT.x + w > AT.W) { AT.y += AT.rowH; AT.x = 0; AT.rowH = 0; }
+  if (AT.y + h > AT.H) console.warn('town atlas full', key);
+  const ox = AT.x + p, oy = AT.y + h - p;           // canvas px of (u0, y0)
+  AT.x += w; AT.rowH = Math.max(AT.rowH, h);
+  r = { u0, y0, ox, oy }; AT.keys.set(key, r);
+  const g = AT.g; g.save(); g.beginPath(); g.rect(ox - p, oy - h + p, w, h); g.clip();
+  g.setTransform(ppm, 0, 0, -ppm, ox - u0 * ppm, oy + y0 * ppm);
+  paint(g, u0 - p / ppm, u1 + p / ppm, y0 - p / ppm, y1 + p / ppm);
+  g.restore();
+  return r;
+}
+/** a piped line: shadow under, icing, a thin highlight on top */
+function iced(g, path, w) {
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  g.save(); g.translate(0.012, -0.02); g.strokeStyle = ICE_SH; g.lineWidth = w * 1.25; g.beginPath(); path(g); g.stroke(); g.restore();
+  g.strokeStyle = ICE; g.lineWidth = w; g.beginPath(); path(g); g.stroke();
+  g.save(); g.translate(-w * 0.12, w * 0.16); g.strokeStyle = '#ffffff'; g.lineWidth = w * 0.4; g.beginPath(); path(g); g.stroke(); g.restore();
+}
+function blob(g, x, y, r, col = ICE) {
+  g.fillStyle = ICE_SH; g.beginPath(); g.arc(x + r * 0.2, y - r * 0.35, r * 1.08, 0, 7); g.fill();
+  g.fillStyle = col; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.arc(x - r * 0.3, y + r * 0.32, r * 0.36, 0, 7); g.fill();
+}
+function flake(g, x, y, r) {
+  iced(g, g2 => {
+    for (let k = 0; k < 6; k++) {
+      const a = k * Math.PI / 3 + Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
+      g2.moveTo(x, y); g2.lineTo(x + ca * r, y + sa * r);
+      for (const t of [0.5, 0.78]) {
+        const bx = x + ca * r * t, by = y + sa * r * t, l = r * (t < 0.6 ? 0.3 : 0.2);
+        for (const s of [-1, 1]) { const b = a + s * 0.8; g2.moveTo(bx, by); g2.lineTo(bx + Math.cos(b) * l, by + Math.sin(b) * l); }
+      }
+    }
+  }, r * 0.11);
+  blob(g, x, y, r * 0.14);
+}
+/** a curl from its outer end inward; dir -1 + rot PI = the mirror image */
+function swirl(g, x, y, r, dir = 1, rot = 0) {
+  iced(g, g2 => { for (let i = 0; i <= 48; i++) { const t = i / 48, a = rot + dir * t * Math.PI * 2.4, q = r * (1 - t * 0.82); const px = x + Math.cos(a) * q, py = y + Math.sin(a) * q; i ? g2.lineTo(px, py) : g2.moveTo(px, py); } }, r * 0.17);
+  blob(g, x + Math.cos(rot) * r, y + Math.sin(rot) * r, r * 0.13);
+}
+/** hanging scallops along a line, dots at the joints */
+function drape(g, u0, u1, y, amp, per) {
+  const n = Math.max(1, Math.round((u1 - u0) / per)), p = (u1 - u0) / n;
+  iced(g, g2 => { for (let i = 0; i < n; i++) { const cx = u0 + p * (i + 0.5); g2.moveTo(cx - p / 2, y); g2.ellipse(cx, y, p / 2, amp, 0, Math.PI, Math.PI * 2); } }, 0.055);
+  for (let i = 0; i <= n; i++) blob(g, u0 + p * i, y, 0.05, i % 3 === 1 ? CANDY : ICE);
+}
+function fleur(g, x, y, s) {
+  iced(g, g2 => { g2.moveTo(x, y + s * 0.25); g2.lineTo(x, y - s * 0.4); }, s * 0.12);
+  blob(g, x, y + s * 0.5, s * 0.18); blob(g, x - s * 0.36, y + s * 0.12, s * 0.14); blob(g, x + s * 0.36, y + s * 0.12, s * 0.14);
+}
+function dough(g, U0, U1, Y0, Y1, hex) {
+  g.fillStyle = hex; g.fillRect(U0, Y0, U1 - U0, Y1 - Y0);
+  const A = (U1 - U0) * (Y1 - Y0), R = Math.random;
+  for (let i = 0; i < A * 12; i++) {
+    const x = U0 + R() * (U1 - U0), y = Y0 + R() * (Y1 - Y0), r = 0.15 + R() * 0.35, gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, R() < 0.55 ? 'rgba(120,55,20,0.13)' : 'rgba(255,215,160,0.12)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r);
+  }
+  for (let i = 0; i < A * 150; i++) {
+    g.fillStyle = R() < 0.6 ? 'rgba(90,38,12,0.28)' : 'rgba(255,232,195,0.32)';
+    g.beginPath(); g.arc(U0 + R() * (U1 - U0), Y0 + R() * (Y1 - Y0), 0.006 + R() * 0.01, 0, 7); g.fill();
+  }
+}
+/** a wall panel: drape under the top, dots along the base, sill scallops, flakes / swirls / fleurs in the free bays */
+function paintWall(g, U0, U1, Y0, Y1, L) {
+  const { len, top, wins, door, ww, wy0, wy1, dw, dh } = L;
+  dough(g, U0, U1, Y0, Y1, TOWN.cookie[0]);
+  drape(g, 0.05, len - 0.05, top - 0.1, 0.15, 0.5);
+  const skip = u => door != null && Math.abs(u - door) < dw / 2 + 0.12;
+  for (let u = 0.2; u < len - 0.1; u += 0.3) if (!skip(u)) blob(g, u, 0.32, 0.045);
+  for (const cu of wins) {
+    drape(g, cu - ww / 2 - 0.12, cu + ww / 2 + 0.12, wy0 - 0.12, 0.09, 0.3);
+    if (top - 0.3 - wy1 > 0.55) { swirl(g, cu - 0.28, wy1 + 0.32, 0.18, 1, 0); swirl(g, cu + 0.28, wy1 + 0.32, 0.18, -1, Math.PI); }
+  }
+  if (door != null) {
+    for (let i = 0; i <= 8; i++) { const a = Math.PI * i / 8; blob(g, door + Math.cos(a) * (dw / 2 + 0.22), dh + 0.08 + Math.sin(a) * 0.5, 0.05, i === 4 ? CANDY : ICE); }
+    if (top - 0.3 - dh > 1.0) fleur(g, door, dh + 0.85, 0.32);
+  }
+  // free bays: between the holes (and the wall ends)
+  const holes = [...wins.map(c => [c - ww / 2, c + ww / 2]), ...(door != null ? [[door - dw / 2, door + dw / 2]] : [])].sort((a, b) => a[0] - b[0]);
+  const bays = []; let at = 0;
+  for (const [a, b] of holes) { bays.push([at, a]); at = b; }
+  bays.push([at, len]);
+  bays.forEach(([a, b], i) => {
+    const w = b - a, cx = (a + b) / 2; if (w < 0.5) return;
+    const end = i === 0 || i === bays.length - 1, r = Math.min(end ? 0.27 : 0.42, w * 0.36);
+    if (!end && door == null && w > 1.8) { flake(g, cx, (wy0 + wy1) / 2, Math.min(0.55, w * 0.25)); fleur(g, cx - w * 0.33, 2.6, 0.24); fleur(g, cx + w * 0.33, 2.6, 0.24); }
+    else if (!end) { flake(g, cx, 1.55, r); if (top - 0.35 > 2.75) blob(g, cx, 2.55, 0.07, CANDY); }
+    else {
+      const mir = i === 0 ? 1 : -1;
+      swirl(g, cx, Math.min(2.4, top - 0.75), r, mir, mir > 0 ? 0 : Math.PI);
+      fleur(g, cx, 1.35, Math.min(0.26, w * 0.3));
+    }
+  });
+}
+/** a gable: dots under the rakes, the round amber medallion with an iced cross, swirls either side */
+function paintGable(g, U0, U1, Y0, Y1, L) {
+  const { W, top, yU0, k } = L, hgt = yU0 - top, cx = W / 2, under = u => yU0 - k * Math.abs(u - cx);
+  dough(g, U0, U1, Y0, Y1, TOWN.cookie[0]);
+  for (let u = 0.35; u < W - 0.3; u += 0.3) { const y = under(u) - 0.32; if (y > top + 0.3) blob(g, u, y, 0.045, Math.round(u / 0.3) % 4 === 0 ? CANDY : ICE); }
+  for (let u = 0.4; u < W - 0.3; u += 0.34) if (under(u) - 0.35 > top + 0.22) blob(g, u, top + 0.22, 0.04);
+  const my = top + hgt * 0.45, R = Math.min(0.55, hgt * 0.2);
+  const gr = g.createRadialGradient(cx, my, 0, cx, my, R); gr.addColorStop(0, '#ffe2a0'); gr.addColorStop(0.7, '#f0a842'); gr.addColorStop(1, '#b8641e');
+  g.fillStyle = gr; g.beginPath(); g.arc(cx, my, R, 0, 7); g.fill();
+  iced(g, g2 => { g2.moveTo(cx - R, my); g2.lineTo(cx + R, my); g2.moveTo(cx, my - R); g2.lineTo(cx, my + R); }, 0.06);
+  iced(g, g2 => g2.arc(cx, my, R, 0, Math.PI * 2), 0.1);
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; blob(g, cx + Math.cos(a) * (R + 0.17), my + Math.sin(a) * (R + 0.17), 0.035); }
+  if (my + R + 0.55 < yU0 - 0.25) fleur(g, cx, my + R + 0.42, 0.24);
+  for (const s of [-1, 1]) {
+    const x = cx + s * (R + 0.62), y = top + hgt * 0.3;
+    if (y + 0.3 < under(x) - 0.25) swirl(g, x, y, 0.26, -s, s < 0 ? Math.PI : 0);
+  }
+}
+/** a roof slab: overlapping scalloped chocolate shingles (glossy lip, sugar, a few candies), frosting along the eave */
+function paintRoof(g, U0, U1, Y0, Y1, len) {
+  g.fillStyle = '#4e2612'; g.fillRect(U0, Y0, U1 - U0, Y1 - Y0);
+  const rh = 0.42, per = 0.56, rows = Math.ceil(len / rh) + 1, R = Math.random;
+  for (let j = rows; j >= 0; j--) {
+    const yb = 0.1 + j * rh, off = (j % 2) * per / 2, ry = rh * 0.62, tp = yb + rh * 1.45;
+    for (let cx = U0 - per + off; cx < U1 + per; cx += per) {
+      const sh = 0.92 + R() * 0.16, gr = g.createLinearGradient(0, yb, 0, tp);
+      gr.addColorStop(0, `rgb(${168 * sh | 0},${101 * sh | 0},${59 * sh | 0})`); gr.addColorStop(0.3, `rgb(${138 * sh | 0},${76 * sh | 0},${42 * sh | 0})`); gr.addColorStop(1, '#4a2410');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(cx - per / 2, tp); g.lineTo(cx - per / 2, yb + ry); g.ellipse(cx, yb + ry, per / 2, ry, 0, Math.PI, Math.PI * 2); g.lineTo(cx + per / 2, tp); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(38,14,5,0.75)'; g.lineWidth = 0.03; g.beginPath(); g.ellipse(cx, yb + ry, per / 2, ry, 0, Math.PI, Math.PI * 2); g.stroke();
+      g.strokeStyle = 'rgba(255,236,214,0.55)'; g.lineWidth = 0.032; g.beginPath(); g.ellipse(cx, yb + ry, per / 2 * 0.72, ry * 0.72, 0, Math.PI * 1.12, Math.PI * 1.45); g.stroke();
+      g.fillStyle = 'rgba(255,242,228,0.6)'; g.beginPath(); g.arc(cx - per * 0.17, yb + ry * 0.5, 0.026, 0, 7); g.fill();
+      g.fillStyle = 'rgba(255,250,244,0.7)';
+      for (let s = 0; s < 4; s++) { g.beginPath(); g.arc(cx + (R() - 0.5) * per * 0.8, yb + R() * rh, 0.008 + R() * 0.008, 0, 7); g.fill(); }
+      if (R() < 0.06) blob(g, cx, yb + ry * 1.15, 0.065, CANDY);
+    }
+  }
+  // frosting along the eave (the cap tube + drips sit on it)
+  const wave = u => 0.24 + 0.05 * Math.sin(u * 7.3) + 0.03 * Math.sin(u * 17.1 + 1);
+  const band = g2 => { g2.moveTo(U0, Y0); for (let u = U0; u <= U1 + 0.05; u += 0.05) g2.lineTo(u, wave(u)); g2.lineTo(U1, Y0); g2.closePath(); };
+  g.save(); g.translate(0.01, -0.03); g.fillStyle = ICE_SH; g.beginPath(); band(g); g.fill(); g.restore();
+  g.fillStyle = ICE; g.beginPath(); band(g); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 0.025; g.beginPath(); for (let u = U0; u <= U1; u += 0.05) { const y = wave(u) - 0.035; u === U0 ? g.moveTo(u, y) : g.lineTo(u, y); } g.stroke();
+  // the ridge: a sugar band under the cap
+  g.fillStyle = ICE; g.fillRect(U0, len - 0.22, U1 - U0, Y1 - len + 0.22);
+}
+/** a polygon (CCW) with each edge k pulled in by d[k] (the crack grooves); outline edges (d 0) stay put */
+function insetPoly(poly, d) {
+  const n = poly.length, N = poly.map((A, k) => { const B = poly[(k + 1) % n], ex = B[0] - A[0], ey = B[1] - A[1], l = Math.hypot(ex, ey) || 1; return [-ey / l, ex / l]; });
+  return poly.map((P, k) => {
+    const kp = (k - 1 + n) % n, n1 = N[kp], n2 = N[k], d1 = d[kp], d2 = d[k];
+    if (!d1 && !d2) return P;
+    const det = n1[0] * n2[1] - n1[1] * n2[0];
+    let x, y;
+    if (Math.abs(det) < 0.25) { const m = Math.max(d1, d2), ax = n1[0] + n2[0], ay = n1[1] + n2[1], l = Math.hypot(ax, ay) || 1; x = ax / l * m; y = ay / l * m; }
+    else { x = (d1 * n2[1] - d2 * n1[1]) / det; y = (n1[0] * d2 - n2[0] * d1) / det; }
+    const L = Math.hypot(x, y), mx = 2.2 * Math.max(d1, d2); if (L > mx) { x *= mx / L; y *= mx / L; }
+    return [P[0] + x, P[1] + y];
+  });
+}
+
 export function makeTown(scene) {
+  Object.assign(AT, { x: 16, y: 0, rowH: 16, keys: new Map(), cv: null, g: null });   // a fresh atlas per town
   const chunks = [];       // { h, S, kind, poly, bb, i0, i1, v0, vb, v1, hp, alive, col, lmin, lmax, band, top, ground, up, side, rest }
   const houses = [];
   let built = false, mesh, debrisMesh, wallProxy, roofProxy;
-  const G = { pos: [], nrm: [], col: [], idx: [] };
+  const G = { pos: [], nrm: [], col: [], uv: [], idx: [] };
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   const V3 = THREE.Vector3;
   const icingC = new THREE.Color(TOWN.icing), crumbC = new THREE.Color(TOWN.crumb);
@@ -73,36 +246,41 @@ export function makeTown(scene) {
   // ---- emission (house-local points -> world, straight into the merged arrays) --------------------------------------
   let curH = null, curQ = null;
   const _v = new V3(), _n = new V3();
-  function vert(p, n, c) {
+  function vert(p, n, c, uv = WHITE) {
     const i = G.pos.length / 3;
     _v.copy(p).applyMatrix4(curH); G.pos.push(_v.x, _v.y, _v.z);
     _n.copy(n).applyQuaternion(curQ).normalize(); G.nrm.push(_n.x, _n.y, _n.z);
-    G.col.push(c.r, c.g, c.b);
+    G.col.push(c.r, c.g, c.b); G.uv.push(uv[0], uv[1]);
     return i;
   }
   const tri = (a, b, c) => G.idx.push(a, b, c);
   const FP = (S, u, y, v) => S.O.clone().addScaledVector(S.A, u).addScaledVector(S.B, y).addScaledVector(S.N, v);
 
-  /** one chunk: the polygon (CCW in u, y) extruded through the slab; front fan bulged into a baked pillow */
+  /** one chunk: the polygon (CCW in u, y) extruded through the slab; front fan bulged into a baked pillow, painted from the
+   *  surface's atlas region (vertex colour = a tint over the painted cookie); seam edges grooved (front inset, sides slope) */
   function prism(S, poly, col, inner) {
-    const h = S.T / 2, n = poly.length, [cu, cy] = centroid(poly);
-    const cf = col.clone().multiplyScalar(1.07), cr = col.clone().multiplyScalar(0.88), cb = col.clone().multiplyScalar(0.6);
-    const ci = crumbC.clone().multiply(new THREE.Color(1, 1, 1).lerp(col, 0.25)), ce = col.clone().multiplyScalar(0.82);
+    const h = S.T / 2, n = poly.length, [cu, cy] = centroid(poly), R = S.uvr, ppm = TOWN.ppm;
+    const tint = R ? new THREE.Color(col.r / S.base.r, col.g / S.base.g, col.b / S.base.b) : col;
+    const cf = tint.clone().multiplyScalar(1.08), cr = tint.clone().multiplyScalar(0.78), cb = col.clone().multiplyScalar(0.6);
+    const ci = crumbC.clone().multiply(new THREE.Color(1, 1, 1).lerp(col, 0.25)), ce = col.clone().multiplyScalar(0.82), ck = col.clone().multiplyScalar(0.4);
+    const uv = (u, y) => R ? [R.ox + (u - R.u0) * ppm, R.oy - (y - R.y0) * ppm] : WHITE;
+    const ip = insetPoly(poly, inner.map(s => s ? TOWN.groove : 0));
     // front
-    const c0 = vert(FP(S, cu, cy, h + TOWN.bulge), S.N, cf), rim = [];
-    for (const [u, y] of poly) {
+    const c0 = vert(FP(S, cu, cy, h + TOWN.bulge), S.N, cf, uv(cu, cy)), rim = [];
+    for (const [u, y] of ip) {
       const rad = S.A.clone().multiplyScalar(u - cu).addScaledVector(S.B, y - cy).normalize();
-      rim.push(vert(FP(S, u, y, h), S.N.clone().addScaledVector(rad, 0.45), cr));
+      rim.push(vert(FP(S, u, y, h), S.N.clone().addScaledVector(rad, 0.45), cr, uv(u, y)));
     }
     for (let k = 0; k < n; k++) tri(c0, rim[k], rim[(k + 1) % n]);
     // back (fan from vertex 0, reversed)
     const bk = poly.map(([u, y]) => vert(FP(S, u, y, -h), S.N.clone().negate(), cb));
     for (let k = 1; k < n - 1; k++) tri(bk[0], bk[k + 1], bk[k]);
-    // sides: crumb where the edge is a seam with a neighbour (shows once it is gone), cookie on the outside
+    // sides: from the (inset) front to the flush back; a seam = a dark crack lip over crumb (shows once the neighbour is gone)
     for (let k = 0; k < n; k++) {
-      const [u0, y0] = poly[k], [u1, y1] = poly[(k + 1) % n], o = S.A.clone().multiplyScalar(y1 - y0).addScaledVector(S.B, -(u1 - u0)).normalize();
-      const c = inner[k] ? ci : ce;
-      const f0 = vert(FP(S, u0, y0, h), o, c), f1 = vert(FP(S, u1, y1, h), o, c), b0 = vert(FP(S, u0, y0, -h), o, c), b1 = vert(FP(S, u1, y1, -h), o, c);
+      const k1 = (k + 1) % n, [u0, y0] = poly[k], [u1, y1] = poly[k1], o = S.A.clone().multiplyScalar(y1 - y0).addScaledVector(S.B, -(u1 - u0)).normalize();
+      if (inner[k]) o.addScaledVector(S.N, TOWN.groove / S.T).normalize();
+      const cF = inner[k] ? ck : ce, cB = inner[k] ? ci : ce;
+      const f0 = vert(FP(S, ip[k][0], ip[k][1], h), o, cF), f1 = vert(FP(S, ip[k1][0], ip[k1][1], h), o, cF), b0 = vert(FP(S, u0, y0, -h), o, cB), b1 = vert(FP(S, u1, y1, -h), o, cB);
       tri(f0, b0, b1); tri(f0, b1, f1);
     }
   }
@@ -183,7 +361,7 @@ export function makeTown(scene) {
     const pal = c.kind === 'roof' ? TOWN.roof : TOWN.cookie, h = S.T / 2;
     for (const cl of cells) {
       const poly = cl.poly, n = poly.length, [gu, gy] = centroid(poly);
-      const col = new THREE.Color(pal[(rand() * pal.length) | 0]).multiplyScalar(rr(0.93, 1.06));
+      const bake = rand(), col = new THREE.Color(pal[(rand() * pal.length) | 0]).multiplyScalar(bake < TOWN.toast ? 0.8 : 0.93 + (bake - TOWN.toast) / (1 - TOWN.toast) * 0.15);
       const types = poly.map((A, k) => {
         const Bp = poly[(k + 1) % n]; let ou = Bp[1] - A[1], oy = -(Bp[0] - A[0]); const l = Math.hypot(ou, oy) || 1; ou /= l; oy /= l;
         const mu = (A[0] + Bp[0]) / 2, my = (A[1] + Bp[1]) / 2;
@@ -251,35 +429,43 @@ export function makeTown(scene) {
     curH = H; curQ = q;
     const top = rows * TOWN.course, gRows = Math.round(W / 2 / TOWN.course * 0.7), gh = gRows * TOWN.course;
     const peak = top + gh + 0.25, run = W / 2 + 0.55, rise = peak - top + 0.3, slope = Math.hypot(run, rise), pitch = Math.atan2(rise, run);
-    const surf = (O, A, B, T0) => { const S = { O, A, B, N: new V3().crossVectors(A, B), T: T0, chunks: [], hs }; hs.surfs.push(S); return S; };
+    const surf = (O, A, B, T0, uvr = null, base = TOWN.cookie[0]) => { const S = { O, A, B, N: new V3().crossVectors(A, B), T: T0, chunks: [], hs, uvr, base: new THREE.Color(base) }; hs.surfs.push(S); return S; };
     const [dw, dh] = TOWN.door, [ww, wy0, wy1] = TOWN.win;
+    // b44: the painted atlas regions for this house size (shared by every house of the same size)
+    const kz = `${W.toFixed(2)}:${top.toFixed(2)}:${D.toFixed(2)}`, wy1c = Math.min(wy1, top - 0.35);
+    const wallL = (len, wins, door) => ({ len, top, wins, door, ww, wy0, wy1: wy1c, dw, dh });
+    const rFront = region('front:' + kz, 0, W, 0, top, (g, ...b) => paintWall(g, ...b, wallL(W, [W / 2 - W * 0.28, W / 2 + W * 0.28], W / 2)));
+    const rBack = region('back:' + kz, 0, W, 0, top, (g, ...b) => paintWall(g, ...b, wallL(W, [W / 2 - W * 0.28, W / 2 + W * 0.28], null)));
+    const rSide = region('side:' + kz, 0, D - 2 * T, 0, top, (g, ...b) => paintWall(g, ...b, wallL(D - 2 * T, [(D - 2 * T) / 2], null)));
     const win = cu => ({ u0: cu - ww / 2, u1: cu + ww / 2, y0: wy0, y1: Math.min(wy1, top - 0.35) });
     const wallIce = { top: 'pipe', hole: 'pipe' }, eaveIce = { top: 'drip', hole: 'pipe' };
     // walls: front (+z, the door) + back run the full width; the sides fit between them
-    const front = surf(new V3(-W / 2, 0, D / 2 - T / 2), new V3(1, 0, 0), new V3(0, 1, 0), T);
+    const front = surf(new V3(-W / 2, 0, D / 2 - T / 2), new V3(1, 0, 0), new V3(0, 1, 0), T, rFront);
     fracture(hs, front, { kind: 'wall', u0: 0, u1: W, y0: 0, y1: top, cell: TOWN.cell.wall, ice: wallIce,
       holes: [{ u0: W / 2 - dw / 2, u1: W / 2 + dw / 2, y0: 0, y1: dh }, win(W / 2 - W * 0.28), win(W / 2 + W * 0.28)] });
-    const back = surf(new V3(W / 2, 0, -D / 2 + T / 2), new V3(-1, 0, 0), new V3(0, 1, 0), T);
+    const back = surf(new V3(W / 2, 0, -D / 2 + T / 2), new V3(-1, 0, 0), new V3(0, 1, 0), T, rBack);
     fracture(hs, back, { kind: 'wall', u0: 0, u1: W, y0: 0, y1: top, cell: TOWN.cell.wall, ice: wallIce, holes: [win(W / 2 - W * 0.28), win(W / 2 + W * 0.28)] });
     const SL = D - 2 * T;
     for (const s of [1, -1]) {
-      const side = surf(new V3(s * (W / 2 - T / 2), 0, s * (D / 2 - T)), new V3(0, 0, -s), new V3(0, 1, 0), T);
+      const side = surf(new V3(s * (W / 2 - T / 2), 0, s * (D / 2 - T)), new V3(0, 0, -s), new V3(0, 1, 0), T, rSide);
       fracture(hs, side, { kind: 'wall', u0: 0, u1: SL, y0: 0, y1: top, cell: TOWN.cell.wall, ice: eaveIce, holes: [win(SL / 2)] });
     }
     // gables front + back: clipped under the roof's underside
     const yU0 = top - 0.15 + rise - (Tr / 2) / Math.cos(pitch) - 0.02, k = rise / run;
+    const rGable = region('gable:' + kz, 0, W, top, yU0, (g, ...b) => paintGable(g, ...b, { W, top, yU0, k }));
     for (const s of [1, -1]) {
-      const g = surf(new V3(-s * W / 2, 0, s * (D / 2 - T / 2)), new V3(s, 0, 0), new V3(0, 1, 0), T);
+      const g = surf(new V3(-s * W / 2, 0, s * (D / 2 - T / 2)), new V3(s, 0, 0), new V3(0, 1, 0), T, rGable);
       fracture(hs, g, { kind: 'gable', u0: 0, u1: W, y0: top, y1: yU0, cell: TOWN.cell.gable, ice: { rake: 'pipe', top: 'pipe' },
         clips: [[k, 1, yU0 + k * W / 2], [-k, 1, yU0 - k * W / 2]] });
     }
     // roof: one chocolate slab per side, eave + ridge capped in icing, drips off the eave
-    const RW = D + 1.0;
+    const RW = D + 1.0, rLen = slope + 0.2;
+    const rRoof = region('roof:' + kz, -RW / 2, RW / 2, 0, rLen, (g, ...b) => paintRoof(g, ...b, rLen));
     for (const sgn of [1, -1]) {
       const B = new V3(-sgn * run, rise, 0).normalize(), A = new V3(0, 0, -sgn);
       const O = new V3(sgn * run, top - 0.15, 0).addScaledVector(B, -0.1);
-      const S = surf(O, A, B, Tr);
-      fracture(hs, S, { kind: 'roof', u0: -RW / 2, u1: RW / 2, y0: 0, y1: slope + 0.1 + 0.1, cell: TOWN.cell.roof, ice: { bottom: 'drip', top: 'cap', end: 'pipe' } });
+      const S = surf(O, A, B, Tr, rRoof, TOWN.roof[0]);
+      fracture(hs, S, { kind: 'roof', u0: -RW / 2, u1: RW / 2, y0: 0, y1: rLen, cell: TOWN.cell.roof, ice: { bottom: 'drip', top: 'cap', end: 'pipe' } });
     }
     hs.total = hs.alive = hs.ids.length;
     hs.wallH = top; hs.roofBase = top - 0.15; hs.roofW = run * 2; hs.roofH = rise + 0.1; hs.roofD = RW;   // shadow proxy sizes
@@ -301,7 +487,7 @@ export function makeTown(scene) {
   }
 
   // ---- after the layout: the merged mesh, debris, dressing, shadow stand-ins -------------------------------------------
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.74 });
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68 });
   const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffc070').multiplyScalar(2.2), toneMapped: false });
   const decorMeshes = [];
   let ixLive = null;
@@ -310,12 +496,22 @@ export function makeTown(scene) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(G.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(G.nrm, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(G.col, 3));
+    // the painted atlas: crop the canvas to what was used (power of two), atlas px -> uv
+    const Hf = Math.min(AT.H, Math.max(64, 2 ** Math.ceil(Math.log2(AT.y + AT.rowH))));
+    let cv = AT.cv;
+    if (cv && Hf < AT.H) { const c2 = document.createElement('canvas'); c2.width = AT.W; c2.height = Hf; c2.getContext('2d').drawImage(cv, 0, 0); cv = c2; }
+    for (let i = 0; i < G.uv.length; i += 2) { G.uv[i] /= AT.W; G.uv[i + 1] = 1 - G.uv[i + 1] / Hf; }
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(G.uv, 2));
+    if (cv) {
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      mat.map = tex; mat.needsUpdate = true;
+    }
     ixLive = new THREE.BufferAttribute(new Uint32Array(G.idx), 1);
     g.setIndex(ixLive); g.computeBoundingSphere();
     mesh = new THREE.Mesh(g, mat); mesh.name = 'townChunks';
     mesh.castShadow = false; mesh.receiveShadow = true; mesh.userData.noMerge = true;   // the merger must not swallow the index trick
     scene.add(mesh);
-    G.pos = G.nrm = G.col = G.idx = null;
+    G.pos = G.nrm = G.col = G.uv = G.idx = null; AT.cv = AT.g = null;
     // debris: a snapped-cookie prism (hexagon, jittered), scaled per chunk
     const dg = new THREE.CylinderGeometry(0.5, 0.5, 1, 6, 1).rotateX(Math.PI / 2).toNonIndexed();
     const dp = dg.attributes.position;

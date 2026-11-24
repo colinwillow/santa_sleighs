@@ -69,7 +69,10 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   baked front, crumb inner sides that show once a neighbour dies), door + window holes kept, piped icing on wall tops / eaves (drips) /
   ridges / rakes / window + door frames, owned by the chunk under it. ALL chunks of ALL houses = ONE merged mesh (one draw), a dead
   chunk = its index range collapsed. NO FAR LOD (near = far = same geometry; `lodTick` is a no-op). ~118 chunks / ~2.8k tris a house
-  (30 houses ~85k). `town.raycast / hitBrick / blast / solidAt` (ids = chunk ids): chunk hp = 5 + 2.2 x area (Gatling ~3-4 bullets),
+  (30 houses ~85k). DETAIL PASS (b44): one canvas ATLAS (`region()` / `paintWall` / `paintGable` / `paintRoof`, `TOWN.ppm` px a metre,
+  one region per surface per house size) painted with icing swirls / snowflakes / drapes / dots, a gable medallion, glossy scalloped
+  chocolate shingles + eave frosting; each slab's (u, y) maps linearly into it, so patterns cut across chunks. Front vertex colour =
+  a TINT over the paint (`TOWN.toast` share toasted darker); seams GROOVED (`TOWN.groove` front inset, sloped sides, dark lip), 0 extra tris. `town.raycast / hitBrick / blast / solidAt` (ids = chunk ids): chunk hp = 5 + 2.2 x area (Gatling ~3-4 bullets),
   blast hits a chunk within r*.45 of its outline or r*.85 of its middle (rifle ~5 chunks, rocket ~20). Support: up from below or
   sideways <= `TOWN.span` chunks; roof chunks hold while resting on a live wall / gable, all drop under 40% wall tops; <35% = dead
   (collider r 0, dressing hidden). Debris = one InstancedMesh of jagged hexagon prisms scaled per chunk.
