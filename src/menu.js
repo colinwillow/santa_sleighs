@@ -18,6 +18,8 @@ const CSS = `
 .mn .ib { display: block; width: 100%; height: auto; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   transition: transform .08s; } .mn .ib:active { transform: scale(.95) translateY(2px); }
 .mn .ib.small { width: 86%; align-self: center; }
+.mn .ib.ptitle { width: 78%; align-self: center; pointer-events: none; animation: mnBob 4s ease-in-out infinite; }
+.mn.dark .col .ib.ptitle { grid-column: 1 / -1; justify-self: center; width: min(60%, 320px); }
 .mn .row { display: flex; gap: 8px; } .mn .row .b { flex: 1; font-size: 14px; padding: 11px 8px; }
 .mn .title { font-weight: 900; font-size: 22px; letter-spacing: .08em; text-shadow: 0 2px 0 #0008; margin-bottom: 4px; text-align: center; }
 .mn .info { font: 600 12px/1.5 ui-monospace, monospace; background: #0008; border-radius: 12px; padding: 8px 10px; white-space: pre; }
@@ -116,12 +118,12 @@ export function makeMenus(G) {
     el('div', 'ver', `build ${G.build}`),
   ]);
   const pauseMain = () => fill(pauseCol, [
-    el('div', 'title', 'PAUSED'),
-    button('RESUME', 'big', () => G.resume()),
-    button('OPTIONS', '', () => options(pauseCol, pauseMain)),
-    button('DEBUG', 'dim', () => debug(pauseCol, pauseMain)),
-    button('SANDBOXES', 'green', () => sandboxes(pauseCol, pauseMain)),
-    button('MAIN MENU', '', () => G.mainMenu()),
+    (() => { const t = el('img', 'ib ptitle'); t.src = 'images/ui/p_paused.webp'; t.alt = 'PAUSED'; t.draggable = false; return t; })(),
+    imgButton('images/ui/p_resume.webp', 'RESUME', '', () => G.resume()),
+    imgButton('images/ui/p_options.webp', 'OPTIONS', '', () => options(pauseCol, pauseMain)),
+    imgButton('images/ui/p_debug.webp', 'DEBUG', '', () => debug(pauseCol, pauseMain)),
+    imgButton('images/ui/p_sandboxes.webp', 'SANDBOXES', '', () => sandboxes(pauseCol, pauseMain)),
+    imgButton('images/ui/p_mainmenu.webp', 'MAIN MENU', '', () => G.mainMenu()),
   ]);
 
   return {
