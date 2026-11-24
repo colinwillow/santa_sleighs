@@ -15,6 +15,7 @@
 "./src/ground.js",
 "./src/gunpose.js",
 "./src/input.js",
+"./src/jetpack.js",
 "./src/kit.js",
 "./src/kitshow.js",
 "./src/loco.js",

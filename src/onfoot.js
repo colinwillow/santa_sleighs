@@ -10,6 +10,7 @@ import { LOOK } from './input.js';
 import { CLIPS, ONCE } from './anim.js';
 import { THROW } from './weapons.js';
 import { bombGeo } from './delivery.js';
+import { JET, makeJetpack } from './jetpack.js';
 // b74 the THROW clip (his library's Grenade_Throw_2, copied into models/anims/): registered here so anim.js bakes it on first use
 if (!CLIPS.santa.throw) CLIPS.santa.throw = THROW.clip;
 if (!ONCE.santa.includes('throw')) ONCE.santa.push('throw');
@@ -51,6 +52,7 @@ const _look = new THREE.Vector3(), _X = new THREE.Vector3(1, 0, 0), _Y = new THR
 export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, onDodge }) {
   const st = { mode: 'seat', santa: null, local: new THREE.Vector3(0, FOOT.deckY, -0.3), pos: new THREE.Vector3(), vel: new THREE.Vector3(),
     face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false, zoom: 1, kick: 0, jumps: 0, flip: 0, camLook: new THREE.Vector3(), bodyQ: new THREE.Quaternion(), peakY: 0, thrown: false,
+    fuel: JET.fuel, jetK: 0, jetting: false, airAt: 0, groundT: 0,
     camPitch: CAMERA.pitch0, straightT: 0, dodgeT: 0, dodgeCd: 0, inv: 0, dodgeDir: new THREE.Vector3(), dodgeBack: false };
   loadModels().then(M => {
     st.santa = makeSanta(M.santa, { role: 'idle', stance: 'foot' });
@@ -61,6 +63,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
       st.legs = makeLegs({ rest: M.santa.scene, mixer: st.santa.anim.mixer, hipH }); }   // no first-use hitch when he changes gait
     try { st.santa.setWeapon(localStorage.getItem('weapon') || 'gatling'); } catch (e) { st.santa.setWeapon('gatling'); }
     st.santa.holder.visible = false; scene.add(st.santa.holder); st.ready = true;
+    jet.attach(st.santa);   // b81: the candy jetpack rides his Spine2
     // the ornament bomb in his right hand (on his weapon mount bone -- never a wrist guess), shown while the grenade is equipped
     { const B = st.santa.B, mount = B.weapon_root_right || B.RightHand;
       const m = new THREE.Mesh(bombGeo(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.15, metalness: 0.15 }));
@@ -68,6 +71,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
       m.position.set(0, 0, 0); m.visible = false; m.castShadow = true; mount.add(m); st.handBomb = m; }
   });
 
+  const jet = makeJetpack({ scene });
   // ---- buttons: HOP (out / sit / call), JUMP --------------------------------------------------------------------------
   const mk = (id, txt, css) => { const b = document.createElement('div'); b.className = 'btn'; b.id = id; b.textContent = txt; b.style.cssText = css; document.getElementById('hud').appendChild(b); return b; };
   const hop = mk('hopBtn', 'HOP OUT', 'width:auto;height:auto;z-index:7;font-size:12px;top:calc(env(safe-area-inset-top) + 8px);right:calc(50% + 6px)');
@@ -83,7 +87,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
   const crewSanta = () => rig.crew?.debug?.santa;
 
   function setMode(m) {
-    st.mode = m;
+    st.mode = m; if (m === 'air') st.airAt = performance.now();   // b81: the jetpack only answers a left hold that began after this
     const out = m !== 'seat';
     if (st.santa) st.santa.holder.visible = out;
     if (crewSanta()) crewSanta().holder.visible = !out;
@@ -163,32 +167,46 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
   // ---- b74 GRENADE: cock = the wind-up (Grenade_Throw_2 from THROW.from, held at cockAt), release = the throw (the bomb leaves his
   // hand at releaseAt: main.js takes it with takeThrow() and solves the launch), back in his stance by endAt ---------------------------
   const _hand = new THREE.Vector3();
+  // b81 (his: "when you press and hold the bomb he doesn't do a pulled-back throw position -- he just plays the throw animation...
+  // then T-POSE"): the throw ACTION is kept (st.throwA, from the play promise -- never anim.current, which is still the OLD clip until
+  // the play resolves, so a quick tap used to speed up the idle instead) and driven explicitly: COCK = from THROW.from at cockSpeed,
+  // FROZEN at THROW.cockAt (measured: the hand furthest back + high, z -0.70 m / y 1.35 m in his frame, the whip starts right after)
+  // for as long as it is held; GO = unfrozen at animSpeed (the bomb leaves at releaseAt = the hand's peak speed), back to locomotion
+  // by endAt (endOnce crossfades). A re-used action is always reset first (a LoopOnce that already finished is PAUSED / disabled:
+  // re-entering the same role returned it as-is -> a frozen or bind-pose body).
   function throwCock() {
     const S = st.santa; if (!S || st.mode === 'seat' || st.dodgeT > 0 || st.stun > 0) return false;
-    st.throwSt = 'wind'; st.throwT = 0; st.thrown2 = false; S.busy = true; S.freeArms = true; S.setFiring(false);
-    S.anim.play('throw', 0.1, { once: true, speed: THROW.cockSpeed }).then(a => { if (st.throwSt && S.anim.role === 'throw') a.time = Math.max(a.time, THROW.from); });
+    S.setFiring(false);   // first: setFiring plays a role whatever 'busy' says
+    st.throwSt = 'wind'; st.throwT = 0; st.thrown2 = false; st.throwA = null; S.busy = true; S.freeArms = true;
+    const tok = st.throwTok = (st.throwTok || 0) + 1, same = S.anim.role === 'throw';
+    S.anim.play('throw', 0.1, { once: true, speed: THROW.cockSpeed }).then(a => {
+      if (tok !== st.throwTok || !st.throwSt) return;
+      if (same || a.paused || !a.enabled) { a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.setEffectiveWeight(1); a.play(); }
+      a.time = Math.max(a.time, THROW.from); a.timeScale = st.throwSt === 'go' ? THROW.animSpeed : THROW.cockSpeed; st.throwA = a;
+    });
     sfx('casing', { vol: 0.8, rate: 1.9 }); sfx('ui_tap', { vol: 0.5, rate: 0.6 });   // the pin
     return true;
   }
-  function throwGo() { if (st.throwSt !== 'wind') return false; st.throwSt = 'go'; const a = st.santa.anim.current; if (a && st.santa.anim.role === 'throw') a.timeScale = THROW.animSpeed; sfx('whoosh', { vol: 0.6, rate: 1.5 }); return true; }
-  function throwCancel(quiet) { if (!st.throwSt) return; st.throwSt = null; if (!quiet && st.santa?.busy) st.santa.endOnce(); }   // quiet = another clip (a roll, the get-up) takes the body
+  function throwGo() { if (st.throwSt !== 'wind') return false; st.throwSt = 'go'; const a = st.throwA; if (a) { a.paused = false; a.timeScale = THROW.animSpeed; } sfx('whoosh', { vol: 0.6, rate: 1.5 }); return true; }
+  function throwCancel(quiet) { if (!st.throwSt) return; st.throwSt = null; st.throwA = null; if (!quiet && st.santa?.busy) st.santa.endOnce(); }   // quiet = another clip (a roll, the get-up) takes the body
   function updateThrow(dt) {
     if (!st.throwSt) return;
-    const S = st.santa, a = S.anim.current;
-    if (st.stun > 0 || S.anim.role !== 'throw' && st.throwT > 0.5) { throwCancel(true); return; }
+    const S = st.santa, a = st.throwA;
+    if (st.stun > 0 || S.anim.role !== 'throw' && st.throwT > 0.5) { throwCancel(true); return; }   // another clip took the body (S.busy -> endOnce next frame)
     st.throwT += dt;
     if (!a || S.anim.role !== 'throw') return;
-    if (st.throwSt === 'wind') { if (a.time >= THROW.cockAt) { a.time = THROW.cockAt; a.timeScale = 0; } return; }   // HOLD the wind-up while he aims
+    a.enabled = true; a.paused = false;   // never let it fall to bind while it is ours
+    if (st.throwSt === 'wind') { if (a.time >= THROW.cockAt) { a.time = THROW.cockAt; a.timeScale = 0; } return; }   // HOLD the wind-up while he aims (any length)
     a.timeScale = THROW.animSpeed;   // 'go' (a quick tap can let go before the clip had even started: it still throws at full speed)
     if (!st.thrown2 && a.time >= THROW.releaseAt) {
       st.thrown2 = true; st.handBomb.getWorldPosition(_hand); st.throwOut = _hand.clone(); st.handBomb.userData.gone = 0.45;
     }
-    if (a.time >= THROW.endAt) { st.throwSt = null; S.endOnce(); }
+    if (a.time >= THROW.endAt) { st.throwSt = null; st.throwA = null; S.endOnce(); }   // the follow-through crossfades back to locomotion
   }
   function update(dt, t) {
 
     if (input.tap) { input.tap = false; if (st.mode !== 'seat') jumpPress = true; }   // a tap on the right stick (unarmed) / above it = jump
-    if (!st.ready || st.mode === 'seat') { if (st.santa) st.santa.holder.visible = false; return; }
+    if (!st.ready || st.mode === 'seat') { if (st.santa) st.santa.holder.visible = false; st.jetting = false; st.jetK = 0; st.fuel = JET.fuel; jet.update(dt, { worn: false, thrust: 0, fuel01: 1, onFoot: false, vel: st.vel, t }); return; }
     const S = st.santa;
     // stick -> a world direction, relative to the camera
     fwd.set(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); right.set(-fwd.z, 0, fwd.x);   // forward (sin h, cos h) -> right (-fz, fx)
@@ -241,8 +259,19 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
           st.jumps = 2; st.vel.y = Math.max(st.vel.y, 0) * 0.3 + FOOT.jump2; st.flip = FOOT.flipT;
           if (mag > 0.15) { st.vel.x += (want.x * spd - st.vel.x) * 0.6; st.vel.z += (want.z * spd - st.vel.z) * 0.6; }
           sfx('whoosh', { vol: 0.5, rate: 1.2 });
-        } st.vel.x += want.x * 3 * dt; st.vel.z += want.z * 3 * dt; st.vel.x *= Math.exp(-0.3 * dt); st.vel.z *= Math.exp(-0.3 * dt); }
+        }
+        // b81 JETPACK: a LEFT-stick hold that began in the air (input.lHold = when it landed), the switch on, fuel left
+        st.jetting = !!input.jetOn && !!input.lHold && input.lHold >= st.airAt && st.fuel > 0 && st.tumble <= 0 && st.stun <= 0;
+        if (st.jetting) {
+          st.fuel = Math.max(0, st.fuel - dt);
+          st.vel.y += JET.thrust * (st.vel.y < 0 ? JET.brake : 1) * dt;
+          const raw = Math.min(1, Math.hypot(input.steer, input.climb));   // steer from the first touch (moveHold only guards walking)
+          const wx = fwd.x * input.climb + right.x * input.steer, wz = fwd.z * input.climb + right.z * input.steer;
+          if (raw > 0.12) { const k = 1 - Math.exp(-JET.steer * dt); st.vel.x += (wx * JET.speed - st.vel.x) * k; st.vel.z += (wz * JET.speed - st.vel.z) * k; if (!aiming) st.face = Math.atan2(wx, wz); }
+          else { st.vel.x *= Math.exp(-JET.drag * dt); st.vel.z *= Math.exp(-JET.drag * dt); }
+        } else { st.vel.x += want.x * 3 * dt; st.vel.z += want.z * 3 * dt; st.vel.x *= Math.exp(-0.3 * dt); st.vel.z *= Math.exp(-0.3 * dt); } }
       st.vel.y -= FOOT.gravity * dt;
+      if (st.jetting) st.vel.y = Math.min(st.vel.y, JET.maxUp);
       st.peakY = st.mode === 'air' ? Math.max(st.peakY, st.pos.y) : st.pos.y;
       st.pos.addScaledVector(st.vel, dt);
       // house walls push him out (below the roof)
@@ -278,6 +307,10 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     }
     st.stun = Math.max(0, st.stun - dt);
     st.tumble = Math.max(0, st.tumble - dt);
+    // b81 jetpack fuel: refills on the ground / the deck (after JET.refillDelay s), never in the air
+    if (st.mode !== 'air') { st.jetting = false; st.groundT += dt; if (st.groundT > JET.refillDelay) st.fuel = Math.min(JET.fuel, st.fuel + JET.fuel / JET.refill * dt); }
+    else st.groundT = 0;
+    st.jetK += ((st.jetting ? 1 : 0) - st.jetK) * (1 - Math.exp(-(st.jetting ? 14 : 7) * dt));
 
     // place + pose him
     S.holder.position.copy(st.pos);
@@ -295,6 +328,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
       st.flip = Math.max(0, st.flip - dt);
       const u = 1 - st.flip / FOOT.flipT; spin = Math.PI * 2 * (u * u * (3 - 2 * u));
     }
+    if (!spin && st.jetK > 0.01) spin = JET.lean * st.jetK;   // b81: a slight forward lean while the jets run (round his hips)
     if (spin) {
       const fq = _sq.setFromAxisAngle(_X, spin), q = _sq2.copy(S.holder.quaternion).multiply(fq);
       _hip.set(0, FOOT.hipY, 0);
@@ -312,7 +346,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     { const q = st.bodyQ, yaw = 2 * Math.atan2(q.y, q.w); let dyaw = yaw - (st.prevYaw ?? yaw); dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw)); st.prevYaw = yaw;
       st.turnRate = dt > 0 ? dyaw / dt : 0;
       st.legs?.update(dt, { aim: aiming, grounded: st.mode === 'ground', busy: !!S.busy || st.dodgeT > 0, vel: st.vel, face: st.face, turnRate: st.turnRate }); }
-    if (st.dodgeT <= 0) S.setFiring(st.firing && !moving && st.mode !== 'air');   // shooting on the move keeps his legs walking (hands stay on the gun)
+    if (st.dodgeT <= 0 && !st.throwSt) S.setFiring(st.firing && !moving && st.mode !== 'air');   // shooting on the move keeps his legs walking (hands stay on the gun)
     // THE CAMERA IS HIS (b61): the right pad (gun unlocked) orbits it -- x = yaw rate, y = pitch; stick right = the view turns right,
     // stick up = look up. No auto-follow (CAMERA.recentre is an opt-in). LOCKED, the aim pushed hard to a side still turns it.
     const cc = v => Math.sign(v) * Math.pow(Math.abs(v), CAMERA.curve);
@@ -328,6 +362,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
       let dy = st.face - st.camYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       st.camYaw += dy * (1 - Math.exp(-CAMERA.recentreRate * dt));
     }
+    jet.update(dt, { worn: !!input.jetOn, thrust: st.jetK, fuel01: st.fuel / JET.fuel, onFoot: true, vel: st.vel, t });
     st.zoom += ((st.mode === 'air' || st.stun > 0 ? 1.5 : 1) + st.kick - st.zoom) * (1 - Math.exp(-2.5 * dt));
     st.kick *= Math.exp(-1.2 * dt);
   }
@@ -341,6 +376,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     if (st.camPos.lengthSq() === 0 || st.camPos.distanceTo(want) > 60) st.camPos.copy(want);
     st.camPos.lerp(want, 1 - Math.exp(-(st.mode === 'air' || st.tumble > 0 ? 2.2 : 5) * dt));
     camera.position.copy(st.camPos);
+    if (st.jetK > 0.01) { const k = JET.shake * st.jetK; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; camera.position.z += (Math.random() - 0.5) * k; }
     // the look point eases too, so a tumbling / bouncing Santa never whips the camera round
     _look.set(st.pos.x + back.x * CAMERA.lookAhead, st.pos.y + CAMERA.pivotY, st.pos.z + back.z * CAMERA.lookAhead);
     if (st.camLook.lengthSq() === 0 || st.camLook.distanceTo(_look) > 60) st.camLook.copy(_look);
@@ -356,6 +392,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     /** where the reticle rests when he's on foot: ahead of the camera, at about his height */
     aimRest(out) { const b = new THREE.Vector3(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); return out.copy(st.pos).addScaledVector(b, 22).setY(st.pos.y + 1.0 + 22 * Math.tan(CAMERA.pitch0 - st.camPitch) * 0.6); },
     get dodging() { return st.dodgeT > 0; },
+    get jetting() { return st.jetting; },
     setFiring(on) { st.firing = on; },
     /** b74: drawn / cocked with a gun or the grenade = he turns to the crosshair without the firing clip */
     setAiming(on) { st.aiming = on; },

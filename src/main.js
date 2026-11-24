@@ -49,7 +49,8 @@ const rig = buildRig(scene, world.colliders);
 rig.colliders = world.colliders;
 rig.roadTop = (x, z) => world.roadTop ? world.roadTop(x, z) : -1e9;   // on foot he stands ON the road / sidewalk
 // SANTA ON FOOT: hop out, walk the deck while it flies itself, jump / get thrown off, CALL it back (src/onfoot.js)
-const foot = makeOnFoot({ scene, rig, input, camera, sfx: (n, o) => sfx(n, o),
+const foot = window.__foot = makeOnFoot(   // window.__foot: a debug handle (headless screenshots)
+  { scene, rig, input, camera, sfx: (n, o) => sfx(n, o),
   onSplat: (p, v) => { shake = Math.max(shake, 0.5); shots?.puff?.(p, '#ffffff', 14, 5, 0.9); },
   // the superhero landing: shake by drop height, a boom, a ring of powder snow kicked up round his boots
   onSlam: (p, v, drop) => { const k = Math.min(1, drop / 25); shake = Math.max(shake, 0.5 + k * 1.2); sfx('explosion', { vol: 0.45 + k * 0.5, rate: 0.75 }); sfx('debris', { vol: 0.6, rate: 0.8 });
@@ -380,8 +381,10 @@ function updateControls(dt) {
   TRIG.was = trig;
   if (pressed && item) { if (item === 'grenade') nadeStart('trig'); else delivery.holdStart?.(item, 'trig'); }
   if (released) { if (NADE.src === 'trig') nadeEnd(true); if (delivery.hold?.kind && delivery.hold.src === 'trig') delivery.holdEnd?.(true); }
-  // a quick tap on the right stick = JUMP when the stick isn't a trigger (unarmed, or the present on foot)
-  if (input.rTap) { input.rTap = false; if (STATE === 'play' && EQUIP.cat !== 'gun' && !item) input.tap = true; }
+  // b81 (his: "you should ALWAYS be able to JUMP by TAPPING the right stick, even with a gun"): a quick right tap never arms the
+  // trigger (input.js TAP) and is ALWAYS a jump on foot; riding (no jump in the seat) a tap with a present / bomb = a quick drop
+  if (input.rTap) { input.rTap = false;
+    if (STATE === 'play') { if (!foot.active && item && !delivery.hold?.kind) { delivery.holdStart?.(item, 'tap'); delivery.holdEnd?.(true); } else input.tap = true; } }
   setEquip({ cat: EQUIP.cat, gun: EQUIP.gun, guns: ORDER, presents: delivery.stack ?? 0, foot: foot.active });
   // a drop being held: the thumb slides its landing ring (drag px + the stick's deflection) -- not the camera
   if (delivery.hold?.kind) {

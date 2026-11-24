@@ -4,7 +4,8 @@
 // are ARC SEGMENTS on top of the right ring, a round utility button (SWAP) bottom-centre between the sticks.
 // LEFT STICK (floats in the left half) flies the sleigh / walks him; a flick = DODGE. RIGHT STICK (floats in the right half below
 // STICKS.zoneTop): with the GUN out, a finger on it = FIRE (every gun automatic) while its deflection turns the camera (rate) + a little
-// direct drag; UNARMED = camera only, a quick tap = JUMP; PRESENT / BOMB = the drop / throw aim while held, lift = drop / throw (a
+// direct drag (b81: only once ARMED -- held TAP.ms or moved TAP.px; a quick TAP = JUMP with any item, it never fires); UNARMED =
+// camera only, a quick tap = JUMP; LEFT tap = JUMP too, a left HOLD that began in the air = the JETPACK (input.lHold, JETB switch); PRESENT / BOMB = the drop / throw aim while held, lift = drop / throw (a
 // quick tap = a quick one). A finger on the right half ABOVE the stick zone = LOOK drag (tap = jump).
 // QUICK DRAW (the arc): PRIMARY (the current gun) / PRESENT / BOMB -- tap = equip, tap the equipped one again = unarmed (input.catTap;
 // main.js owns the state). SWAP (bottom centre): tap = next variant of the equipped category (input.swapStep), hold = a fan of the
@@ -27,7 +28,8 @@ export const input = { steer: 0, climb: 0, camX: 0, camY: 0, rx: 0, ry: 0, lookD
 // deadR / rateK: right-stick deflection -> camera rate; dragK = share of the thumb's movement that turns the camera directly.
 // tapMs / tapPx = a quick tap (jump / quick drop). watchMs = a tracked finger missing from the touch list this long after a touchend
 // is released (the stuck-fire watchdog).
-export const STICKS = { ring: 75, knob: 28, R: 62, x: 95, y: 150, kMin: 0.8, kMax: 1.25, zoneTop: 0.42, deadL: 0.06,
+// yP = y in PORTRAIT (b81, his: "the sticks could come down a little -- they're a little high and occlude Santa"; landscape keeps y)
+export const STICKS = { ring: 75, knob: 28, R: 62, x: 95, y: 150, yP: 100, kMin: 0.8, kMax: 1.25, zoneTop: 0.42, deadL: 0.06,
   deadR: 0.12, rateK: 1, dragK: 0.45, tapMs: 220, tapPx: 14, watchMs: 500 };
 // LOOK: rad per px of drag (yaw / pitch), on foot and in the sleigh's chase camera (onfoot.js / main.js); sleighBack = s after every
 // look finger lifts before the chase camera eases back behind the team (rate sleighEase); mouseK = mouse drag gain
@@ -38,9 +40,16 @@ export const LOOK = { footYaw: 0.0068, footPitch: 0.005, sleighYaw: 0.006, sleig
 export const QUICKDRAW = { r0: 80, r1: 117, seg: 32, at: [-34, 0, 34], iconR: 104, labR: 86, icon: 24, cats: ['gun', 'present', 'bomb'] };
 // SWAP: the round button bottom-centre (r pt, y pt up from the bottom); a hold past holdMs opens the FAN: items (item pt) on an arc
 // fanR pt round it, spread fanSpan deg about straight up; let go within pickR pt of one = pick it
-export const SWAP = { r: 23, y: 84, holdMs: 260, fanR: 82, fanSpan: 120, item: 46, pickR: 40 };
+export const SWAP = { r: 23, y: 84, yP: 40, holdMs: 260, fanR: 82, fanSpan: 120, item: 46, pickR: 40 };
 // BOOST (sleigh only): above the left stick, centre x pt in from the left, y pt up from the bottom, r pt
-export const BOOSTB = { x: 58, y: 268, r: 29 };
+export const BOOSTB = { x: 58, y: 268, yP: 218, r: 29 };
+// JETB (b81): the JETPACK switch above the left stick (on = lit, remembered; starts ON): centre x pt in from the left, y / yP pt up
+export const JETB = { x: 150, y: 262, yP: 212, r: 25 };
+// TAP (b81, his: "you should ALWAYS be able to JUMP by TAPPING the right stick, even with a gun... a PRESS AND HOLD shoots"; "tap
+// EITHER stick to jump"): a stick touch lifted within ms with under px pt of travel = a TAP (= jump). The RIGHT stick only becomes the
+// trigger (fire / the drop or throw aim) once it is ARMED: held ms, or moved px (so pushing to aim fires at once). The LEFT stick held
+// past ms (a touch that began in the air) = the JETPACK (input.lHold).
+export const TAP = { ms: 160, px: 12 };
 // FLICK (left pad): the thumb travels past `at` x STICKS.R from where it landed within `ms` = a DODGE that way
 export const FLICK = { at: 0.9, ms: 150 };
 /** place a fixed element by its CENTRE: x / y px from the given edges (safe areas added) */
@@ -94,6 +103,13 @@ const ICON = {
   more: `<circle cx='15' cy='15' r='10' fill='${CREAM}' stroke='${INK}' stroke-width='2' stroke-dasharray='3 3'/><path d='M11.5 12a3.5 3.5 0 1 1 5 3.2c-1 .5-1.5 1.1-1.5 2.3' fill='none' stroke='${INK}' stroke-width='2.2' stroke-linecap='round'/><circle cx='15' cy='21' r='1.3' fill='${INK}'/>`,
   cycle: `<path d='M7 12a8.5 8.5 0 0 1 15-3' fill='none' stroke='${INK}' stroke-width='5' stroke-linecap='round'/><path d='M23 18a8.5 8.5 0 0 1-15 3' fill='none' stroke='${INK}' stroke-width='5' stroke-linecap='round'/><path d='M7 12a8.5 8.5 0 0 1 15-3' fill='none' stroke='${CREAM}' stroke-width='2.2' stroke-linecap='round'/><path d='M23 18a8.5 8.5 0 0 1-15 3' fill='none' stroke='${CREAM}' stroke-width='2.2' stroke-linecap='round'/><path d='M24 4.5v6h-6z' fill='${CREAM}' stroke='${INK}' stroke-width='1.8' stroke-linejoin='round'/><path d='M6 25.5v-6h6z' fill='${CREAM}' stroke='${INK}' stroke-width='1.8' stroke-linejoin='round'/>`,
 };
+// the JETPACK switch icon: two candy-striped canisters with gold rings, a bow, flames under the nozzles
+const JETICON = `<svg viewBox="0 0 40 40" class="ji"><defs><pattern id="jstr" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><rect width="6" height="6" fill="#fff8ec"/><rect width="3" height="6" fill="${CANDY}"/></pattern></defs>
+<g class="fl"><path d="M11 30q2 7 0 9q-2-2 0-9zM29 30q2 7 0 9q-2-2 0-9z" fill="#ffb02e" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/><path d="M11 31q1 4 0 5.5M29 31q1 4 0 5.5" stroke="#fff6a0" stroke-width="1.6" stroke-linecap="round"/></g>
+<rect x="15" y="10" width="10" height="16" rx="2.5" fill="#8a5230" stroke="${INK}" stroke-width="2"/>
+<rect x="5.5" y="7" width="11" height="22" rx="5.5" fill="url(#jstr)" stroke="${INK}" stroke-width="2.2"/><rect x="23.5" y="7" width="11" height="22" rx="5.5" fill="url(#jstr)" stroke="${INK}" stroke-width="2.2"/>
+<path d="M6 12h10M24 12h10M6 25h10M24 25h10" stroke="${GOLD}" stroke-width="2.6"/><path d="M8 29l1 2.5h4l1-2.5zM26 29l1 2.5h4l1-2.5z" fill="#cfd3de" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M20 8c-3-4-7-4-6.5-1.2.4 1.6 4 1.3 6.5 1.2zM20 8c3-4 7-4 6.5-1.2-.4 1.6-4 1.3-6.5 1.2z" fill="#3dbb6a" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/><circle cx="20" cy="9" r="2.2" fill="${GOLD}" stroke="${INK}" stroke-width="1.4"/></svg>`;
 const icoSvg = (k, s = 30) => `<svg viewBox="0 0 30 30" width="${s}" height="${s}">${ICON[k] || ''}</svg>`;
 const LABEL = { gatling: 'GATLING', rifle: 'RIFLE', rocket: 'ROCKETS', snowball: 'SNOWBALLS', present: 'PRESENT', bomb: 'BOMB', grenade: 'GRENADE' };
 
@@ -141,9 +157,16 @@ css.textContent = `
 #swapFan .fi.ghost { opacity: .5; }
 #swapFan .fl { position: absolute; transform: translate(-50%, 0); font: italic 900 9px/1 ui-rounded, system-ui, sans-serif; color: ${CREAM}; white-space: nowrap;
   text-shadow: 1px 1px 0 ${INK}, -1px -1px 0 ${INK}, 1px -1px 0 ${INK}, -1px 1px 0 ${INK}; }
+#jetBtn { z-index: 7; border-radius: 47% 53% 50% 50% / 52% 48% 52% 48%; transform: rotate(4deg); background: #6d6470; box-shadow: inset 0 0 0 3px #8d8490, 3px 4px 0 ${INK}; }
+#jetBtn .ji { position: absolute; left: 13%; top: 6%; width: 74%; height: 74%; display: block; opacity: .55; }
+#jetBtn .ji .fl { display: none; }
+#jetBtn .jl { position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%) rotate(-3deg); font: italic 900 9px/1 ui-rounded, system-ui, sans-serif;
+  color: ${CREAM}; background: ${INK}; border-radius: 6px; padding: 2px 5px; letter-spacing: .08em; text-shadow: none; }
+#jetBtn.lit { background: radial-gradient(circle at 34% 28%, #fff6dc 0 13%, transparent 14%), ${GOLD}; box-shadow: inset 0 0 0 3px #ffe39a, 0 0 0 3px ${CANDY}, 3px 4px 0 3px ${INK}; }
+#jetBtn.lit .ji { opacity: 1; } #jetBtn.lit .ji .fl { display: inline; } #jetBtn.lit .jl { background: ${CANDY}; }
 #reticle { position: fixed; width: 46px; height: 46px; margin: -23px 0 0 -23px; pointer-events: none; z-index: 5; display: none; }
 body.play:not(.ret3d) #reticle { display: block; }
-body:not(.play) .pad, body:not(.play) .padlab, body:not(.play) #qdArc, body:not(.play) #swapBtn, body:not(.play) #swapFan { display: none; }
+body:not(.play) .pad, body:not(.play) .padlab, body:not(.play) #qdArc, body:not(.play) #swapBtn, body:not(.play) #swapFan, body:not(.play) #jetBtn { display: none; }
 `;
 document.head.appendChild(css);
 const hud = document.getElementById('hud') || document.body;
@@ -175,12 +198,21 @@ swapEl.innerHTML = `<div class="cur"></div><div class="cy">${icoSvg('cycle')}</d
 const swapCur = swapEl.querySelector('.cur');
 const fanEl = document.createElement('div'); fanEl.id = 'swapFan'; hud.appendChild(fanEl);
 const boostEl = document.getElementById('boost');
+// the JETPACK switch (b81): a sticker toggle above the left stick; input.jetOn (remembered, starts ON)
+const jetEl = document.createElement('div'); jetEl.className = 'btn'; jetEl.id = 'jetBtn';
+jetEl.innerHTML = `${JETICON}<span class="jl">JET</span>`; hud.appendChild(jetEl);
+try { input.jetOn = localStorage.getItem('jetpack') !== '0'; } catch (e) { input.jetOn = true; }
+const paintJet = () => jetEl.classList.toggle('lit', !!input.jetOn); paintJet();
+jetEl.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); input.jetOn = !input.jetOn; paintJet(); hideHint();
+  try { localStorage.setItem('jetpack', input.jetOn ? '1' : '0'); } catch (er) {}
+  window.sfx?.play(input.jetOn ? 'whoosh' : 'ui_back', { vol: 0.5, rate: input.jetOn ? 1.6 : 1.2 }); });
 function layout() {
   const W = innerWidth, H = innerHeight, cs = getComputedStyle(insetProbe);
   LAY.ins = { l: parseFloat(cs.paddingLeft) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0 };
   const k = LAY.k = Math.min(STICKS.kMax, Math.max(STICKS.kMin, Math.min(W, H) / 393));
-  LAY.L = { x: LAY.ins.l + STICKS.x * k, y: H - LAY.ins.b - STICKS.y * k };
-  LAY.R = { x: W - LAY.ins.r - STICKS.x * k, y: H - LAY.ins.b - STICKS.y * k };
+  const por = H > W, Y = t => por && t.yP != null ? t.yP : t.y;
+  LAY.L = { x: LAY.ins.l + STICKS.x * k, y: H - LAY.ins.b - Y(STICKS) * k };
+  LAY.R = { x: W - LAY.ins.r - STICKS.x * k, y: H - LAY.ins.b - Y(STICKS) * k };
   const D = 2 * STICKS.ring * k, kn = 2 * STICKS.knob * k;
   for (const p of [padL, padR]) { p.style.width = p.style.height = D + 'px'; p.style.margin = `${-D / 2}px 0 0 ${-D / 2}px`;
     const n = p.firstChild; n.style.width = n.style.height = kn + 'px'; n.style.margin = `${-kn / 2}px 0 0 ${-kn / 2}px`; }
@@ -188,11 +220,13 @@ function layout() {
   labR.style.left = LAY.R.x + 'px'; labR.style.top = (LAY.R.y + STICKS.ring * k + 6) + 'px';
   placeHome(); buildArc();
   // SWAP: bottom centre between the sticks
-  const sr = SWAP.r * k; LAY.swap = { x: W / 2, y: H - LAY.ins.b - SWAP.y * k };
+  const sr = SWAP.r * k; LAY.swap = { x: W / 2, y: H - LAY.ins.b - Y(SWAP) * k };
   swapEl.style.width = swapEl.style.height = 2 * sr + 'px'; swapEl.style.left = (LAY.swap.x - sr) + 'px'; swapEl.style.top = (LAY.swap.y - sr) + 'px';
   swapEl.style.right = swapEl.style.bottom = 'auto';
   if (boostEl) { const br = BOOSTB.r * k; Object.assign(boostEl.style, { width: 2 * br + 'px', height: 2 * br + 'px', left: (LAY.ins.l + BOOSTB.x * k - br) + 'px',
-    top: (H - LAY.ins.b - BOOSTB.y * k - br) + 'px', right: 'auto', bottom: 'auto' }); }
+    top: (H - LAY.ins.b - Y(BOOSTB) * k - br) + 'px', right: 'auto', bottom: 'auto' }); }
+  { const jr = JETB.r * k; Object.assign(jetEl.style, { width: 2 * jr + 'px', height: 2 * jr + 'px', left: (LAY.ins.l + JETB.x * k - jr) + 'px',
+    top: (H - LAY.ins.b - Y(JETB) * k - jr) + 'px' }); }
 }
 
 // ---- QUICK DRAW: three arc segments on top of the right ring -------------------------------------------------------------------
@@ -243,8 +277,8 @@ export function setEquip(s, force = false) {
   const cat = s.cat || 'gun', vs = variantsOf(s, cat), cur = cat === 'gun' ? s.gun : vs[0];
   swapCur.innerHTML = icoSvg(cur); swapEl.classList.toggle('soon', vs.length < 2);
   padR.classList.toggle('eq', !!s.cat && !(s.cat === 'present' && s.foot)); padRIco.innerHTML = s.cat ? icoSvg(icon[s.cat]) : '';
-  labL.textContent = s.foot ? 'MOVE' : 'FLY';
-  labR.textContent = s.cat === 'gun' ? 'HOLD = FIRE' : s.cat === 'bomb' ? (s.foot ? 'AIM · LIFT = THROW' : 'AIM · LIFT = DROP')
+  labL.textContent = s.foot ? 'MOVE · TAP = JUMP' : 'FLY';
+  labR.textContent = s.cat === 'gun' ? (s.foot ? 'TAP JUMP · HOLD FIRE' : 'HOLD = FIRE') : s.cat === 'bomb' ? (s.foot ? 'AIM · LIFT = THROW' : 'AIM · LIFT = DROP')
     : s.cat === 'present' && !s.foot ? 'AIM · LIFT = DROP' : 'LOOK · TAP = JUMP';
 }
 
@@ -299,12 +333,12 @@ window.addEventListener('pointerdown', e => {
   if (isUI(e.target) || !playing()) return;
   lastDevice = 'touch'; hideHint();
   const now = performance.now(), x = e.clientX, y = e.clientY;
-  const P = { id: e.pointerId, ox: x, oy: y, x: 0, y: 0, sx: x, sy: y, lx: x, ly: y, t0: now, maxd: 0, flicked: false, seen: now };
+  const P = { id: e.pointerId, ox: x, oy: y, x: 0, y: 0, sx: x, sy: y, lx: x, ly: y, t0: now, maxd: 0, maxpx: 0, flicked: false, armed: false, seen: now };
   if (x < innerWidth * 0.5) {
     if (T.L) return;
     T.L = P; padL.style.left = x + 'px'; padL.style.top = y + 'px'; padL.classList.add('act');
   } else if (!T.R && y > innerHeight * STICKS.zoneTop) {
-    T.R = P; rPulse = true; padR.style.left = x + 'px'; padR.style.top = y + 'px'; padR.classList.add('act');
+    T.R = P; padR.style.left = x + 'px'; padR.style.top = y + 'px'; padR.classList.add('act');
   } else looks.set(e.pointerId, { x, y, sx: x, sy: y, t0: now, maxd: 0, seen: now });
 });
 window.addEventListener('pointermove', e => {
@@ -324,6 +358,7 @@ window.addEventListener('pointermove', e => {
     if (side === 'R') { look.x += (e.clientX - P.lx) * STICKS.dragK; look.y += (e.clientY - P.ly) * STICKS.dragK; }
     P.lx = e.clientX; P.ly = e.clientY;
     P.maxd = Math.max(P.maxd, Math.hypot(e.clientX - P.sx, e.clientY - P.sy) / (side === 'L' ? R : 1));
+    P.maxpx = Math.max(P.maxpx, Math.hypot(e.clientX - P.sx, e.clientY - P.sy));
     // LEFT FLICK = DODGE: past FLICK.at of the radius from where the thumb landed, inside FLICK.ms (distance, not a speed estimate)
     if (side === 'L' && !P.flicked && now - P.t0 < FLICK.ms && P.maxd >= FLICK.at) {
       const fx = e.clientX - P.sx, fy = e.clientY - P.sy, fd = Math.hypot(fx, fy) || 1;
@@ -337,10 +372,11 @@ function release(id, clean) {
   if (boostId === id) setBoost(false);
   const L = looks.get(id);
   if (L) { if (clean && performance.now() - L.t0 < LOOK.tapMs && L.maxd < LOOK.tapPx) input.tap = true; looks.delete(id); }
-  if (T.L && T.L.id === id) { T.L = null; placeHome(); }
+  const isTap = P => clean && !P.flicked && performance.now() - P.t0 < TAP.ms && P.maxpx < TAP.px * LAY.k;
+  if (T.L && T.L.id === id) { const P = T.L; T.L = null; placeHome(); if (isTap(P)) input.tap = true; }   // b81: a LEFT tap = jump too
   if (T.R && T.R.id === id) {
     const P = T.R; T.R = null; placeHome();
-    if (clean && performance.now() - P.t0 < STICKS.tapMs && P.maxd < STICKS.tapPx) input.rTap = true;
+    if (!P.armed && isTap(P)) input.rTap = true;   // b81: never armed = a tap = JUMP (it never fired)
   }
 }
 function releaseAllTouch() {
@@ -451,6 +487,11 @@ export function pollInput() {
   input.steer = Math.max(-1, Math.min(1, curve(L ? L.x : 0) + kx + (gp ? curve(gp.lx) : 0)));
   input.climb = Math.max(-1, Math.min(1, curve(L ? L.y : 0) + ky + (gp ? curve(gp.ly) : 0)));
   input.moveHold = !!L && !L.flicked && now - L.t0 < FLICK.ms;
+  // b81 LEFT HOLD (the jetpack): a left touch held past TAP.ms; t0 = when it landed (onfoot only thrusts on a touch that began in the
+  // air); V (keyboard) / gamepad A count as a hold that began just now
+  input.lHold = L && !L.flicked && now - L.t0 >= TAP.ms ? L.t0 : (keys.has('KeyV') || gp?.boost) ? (input.lHold || now) : 0;
+  // b81 the RIGHT stick ARMS (becomes the trigger) once held TAP.ms or moved TAP.px; before that it is a would-be tap
+  if (R && !R.armed && (now - R.t0 >= TAP.ms || R.maxpx >= TAP.px * LAY.k)) R.armed = true;
   // camera RATES: the right stick's deflection (dead zone deadR, rescaled), the gamepad's right stick, I J K L
   const dzR = v => { const a = Math.abs(v); return a < STICKS.deadR ? 0 : Math.sign(v) * (a - STICKS.deadR) / (1 - STICKS.deadR) * STICKS.rateK; };
   const ckx = (keys.has('KeyL') ? 1 : 0) - (keys.has('KeyJ') ? 1 : 0), cky = (keys.has('KeyI') ? 1 : 0) - (keys.has('KeyK') ? 1 : 0);
@@ -458,11 +499,12 @@ export function pollInput() {
   input.rx = input.camX = rx; input.ry = input.camY = ry;
   input.lookDX = look.x; input.lookDY = look.y; look.x = look.y = 0;
   input.lookDown = looks.size > 0 || !!R || mouse.down;
+  const Rarm = !!R && R.armed;
   // THE TRIGGER: a level from live pointers only; trigTap = a press that came and went between two polls (a very quick tap)
-  input.trigger = !!R || mouse.left || keys.has('Space') || !!gp?.fire;
+  input.trigger = Rarm || mouse.left || keys.has('Space') || !!gp?.fire;
   input.trigTap = rPulse && !input.trigger; rPulse = false;
   input.fire = input.trigger || input.trigTap;
-  padR.classList.toggle('hot', !!R && QD.state?.cat === 'gun');
+  padR.classList.toggle('hot', Rarm && QD.state?.cat === 'gun');
   input.boost = boostBtn || keys.has('ShiftLeft') || keys.has('ShiftRight') || !!gp?.boost;
   input.mouse = lastDevice === 'mouse' ? { x: mouse.x, y: mouse.y } : null;
   input.device = lastDevice;
@@ -474,4 +516,4 @@ export function showReticle(x, y, firing) {
   ret.style.transform = firing ? `scale(${0.9 + Math.random() * 0.15}) rotate(${Math.random() * 20 - 10}deg)` : '';
 }
 // test hook: what the trigger reads right now (a headless check that lifting always stops the fire)
-window.__inputDbg = () => ({ trigger: input.trigger, fire: input.fire, rStick: !!T.R, looks: looks.size, left: !!T.L });
+window.__inputDbg = () => ({ trigger: input.trigger, fire: input.fire, rStick: !!T.R, armed: !!T.R?.armed, looks: looks.size, left: !!T.L, lHold: input.lHold });
