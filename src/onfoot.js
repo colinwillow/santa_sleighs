@@ -10,17 +10,18 @@ export const FOOT = {
   deckY: 1.25, deckX: 0.75, deckZ0: -0.7, deckZ1: 1.7,    // the walkable floor of his sleigh (sleigh-local metres)
   walk: 4.2, run: 7.5, walkClip: 3.2, runClip: 6.5, hipY: 1.0,   // clip speeds (m/s at timeScale 1) so the feet don't skate; hip = air-spin pivot
   jump: 10.5, jump2: 9.5, flipT: 0.55, gravity: 22,   // jump ~2.5 m; the 2nd jump (in the air) is a front flip, ~+2 m
-  splat: 13, splatDrop: 7, getupT: 2.1, getupSpeed: 1.3,   // splat = landing speed AND a drop of splatDrop m (or thrown); get-up clip 2.7 s at 1.3x                                              // landing faster than this knocks him flat
+  splat: 13, splatDrop: 7, slamDrop: 4.5, landT: 0.75, landSpeed: 1.6,   // a drop over slamDrop m = the superhero landing (clip 2.1 s at 1.6x, locked landT s)
+  getupT: 2.1, getupSpeed: 1.3,   // splat = landing speed AND a drop of splatDrop m (or thrown); get-up clip 2.7 s at 1.3x                                              // landing faster than this knocks him flat
   catchR: 2.6, noCatch: 1.2,                            // after he leaves the deck the sleigh can't grab him back for this long                                            // how close the deck must pass to grab it from the ground / air
 };
 
 const _look = new THREE.Vector3(), _X = new THREE.Vector3(1, 0, 0), _sq = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _hip = new THREE.Vector3(), _hip2 = new THREE.Vector3();
-export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
+export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam }) {
   const st = { mode: 'seat', santa: null, local: new THREE.Vector3(0, FOOT.deckY, -0.3), pos: new THREE.Vector3(), vel: new THREE.Vector3(),
     face: 0, stun: 0, tumble: 0, calling: false, camYaw: 0, camPos: new THREE.Vector3(), ready: false, firing: false, zoom: 1, kick: 0, jumps: 0, flip: 0, camLook: new THREE.Vector3(), bodyQ: new THREE.Quaternion(), peakY: 0, thrown: false };
   loadModels().then(M => {
     st.santa = makeSanta(M.santa, { role: 'idle', stance: 'foot' });
-    st.santa.anim.preload('idle', 'walk', 'run', 'air', 'fire', 'tipsy', 'getup');   // no first-use hitch when he changes gait
+    st.santa.anim.preload('idle', 'walk', 'run', 'air', 'fire', 'tipsy', 'getup', 'land');   // no first-use hitch when he changes gait
     try { st.santa.setWeapon(localStorage.getItem('weapon') || 'gatling'); } catch (e) { st.santa.setWeapon('gatling'); }
     st.santa.holder.visible = false; scene.add(st.santa.holder); st.ready = true;
   });
@@ -150,7 +151,11 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
           st.mode = 'ground'; setMode('ground'); st.tumble = 0; st.jumps = 0; st.flip = 0;
           // knocked flat only by a REAL fall (his: "whenever I jump I fall over" -- a double jump lands at ~14 m/s): high drop or thrown
           const drop = (st.peakY ?? st.pos.y) - floor;
-          if (impact > FOOT.splat && (drop > FOOT.splatDrop || st.thrown)) { st.stun = FOOT.getupT; S.playOnce('getup', FOOT.getupSpeed); onSplat?.(st.pos.clone(), impact); sfx('debris', { vol: 1, rate: 0.6 }); }
+          // his rule (Nov 24): he LANDS ON HIS FEET from any jump / drop (out of the sleigh, off a roof, from way up) -- a big drop is a
+          // superhero SLAM (crouch-land clip, shake, boom, powder burst). Only being THROWN (a crash; later: shot / blown up) lands him
+          // on his back and plays the get-up
+          if (st.thrown && impact > FOOT.splat * 0.6) { st.stun = FOOT.getupT; S.playOnce('getup', FOOT.getupSpeed); onSplat?.(st.pos.clone(), impact); sfx('debris', { vol: 1, rate: 0.6 }); }
+          else if (drop > FOOT.slamDrop) { st.stun = FOOT.landT; S.playOnce('land', FOOT.landSpeed); onSlam?.(st.pos.clone(), impact, drop); }
           else sfx('snow_puff', { vol: 0.7 });
           st.thrown = false;
         }

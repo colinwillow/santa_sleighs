@@ -20,7 +20,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 50;
+export const BUILD = 51;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -49,7 +49,11 @@ rig.colliders = world.colliders;
 rig.roadTop = (x, z) => world.roadTop ? world.roadTop(x, z) : -1e9;   // on foot he stands ON the road / sidewalk
 // SANTA ON FOOT: hop out, walk the deck while it flies itself, jump / get thrown off, CALL it back (src/onfoot.js)
 const foot = makeOnFoot({ scene, rig, input, camera, sfx: (n, o) => sfx(n, o),
-  onSplat: (p, v) => { shake = Math.max(shake, 0.5); shots?.puff?.(p, '#ffffff', 14, 5, 0.9); } });
+  onSplat: (p, v) => { shake = Math.max(shake, 0.5); shots?.puff?.(p, '#ffffff', 14, 5, 0.9); },
+  // the superhero landing: shake by drop height, a boom, a ring of powder snow kicked up round his boots
+  onSlam: (p, v, drop) => { const k = Math.min(1, drop / 25); shake = Math.max(shake, 0.5 + k * 1.2); sfx('explosion', { vol: 0.45 + k * 0.5, rate: 0.75 }); sfx('debris', { vol: 0.6, rate: 0.8 });
+    for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; shots?.puff?.(p.clone().add(new THREE.Vector3(Math.cos(a) * 0.8, 0.2, Math.sin(a) * 0.8)), '#ffffff', 3, 6 + k * 6, 1.2, 0.6); }
+    shots?.puff?.(p, '#eef2ff', 18, 4 + k * 5, 1.6, 1.4); foot.crashZoom?.(0.25 + k * 0.3); } });
 rig.onCrash = (power, at) => {
   shake = Math.max(shake, 0.4 + power * 0.8); crashZoom = Math.max(crashZoom, 0.4 + power * 0.6);
   sfx('debris', { vol: 0.6 + power * 0.4, rate: 0.7 }); if (power > 0.5) sfx('explosion', { vol: 0.5 * power, rate: 1.3 });
