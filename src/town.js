@@ -15,7 +15,7 @@
 // Vertex colour on the fronts is now a TINT over the painted cookie (per-chunk bake variation, a few toasted ones); seam
 // edges are GROOVED (the front inset TOWN.groove, sides slope back to the flush back -- a dark crack lip, crumb deeper in),
 // zero extra triangles. Everything that is not a painted front samples a white texel, so it keeps its vertex colour.
-// b47 (his ok on both): ROOF COURSES IN GEOMETRY -- roof chunk fronts are stepped at the painted row lines (each course's lower
+// b48 (his ok on both): ROOF COURSES IN GEOMETRY -- roof chunk fronts are stepped at the painted row lines (each course's lower
 // edge `TOWN.shingle.step` proud, a riser under it, sides follow the sawtooth), ~+580 tris a house. ATLAS: regions are packed
 // tallest-first at finish() and shared per layout (side per D, gable per W, roof per W x D), ppm 56 -> 44: 1024 x 2048 (and
 // overflowing -- the last house size painted off the canvas) -> 1024 x 1024, ~10.7 -> ~5.3 MB GPU with mips.
@@ -34,8 +34,8 @@ export const TOWN = {
   span: 2,                             // a chunk can hang sideways this many chunks off one held from below
   debrisMax: 420, gravity: 20,
   door: [1.2, 2.0], win: [1.2, 2.0, 3.0],   // door w x h; window w, y0, y1
-  ppm: 44, groove: 0.035, toast: 0.12,  // atlas px a metre (b47: 56 -> 44, the packed atlas fits 1024 x 1024); crack groove inset (m); share of toasted chunks
-  shingle: { y0: 0.1, rh: 0.5, step: 0.045, tilt: 0.3 },   // b47 roof courses in GEOMETRY: row lines at y0 + j*rh up the slope (= the painted rows),
+  ppm: 44, groove: 0.035, toast: 0.12,  // atlas px a metre (b48: 56 -> 44, the packed atlas fits 1024 x 1024); crack groove inset (m); share of toasted chunks
+  shingle: { y0: 0.1, rh: 0.5, step: 0.045, tilt: 0.3 },   // b48 roof courses in GEOMETRY: row lines at y0 + j*rh up the slope (= the painted rows),
                                        // each course's lower edge sits `step` proud of the one below; tilt = extra normal lean for the read
   cookie: ['#d98f4e', '#cf8446', '#e39a58'], roof: ['#8a4c2a', '#9a5631', '#7c4325'], icing: '#fff8f0', crumb: '#efc08a',
 };
