@@ -68,17 +68,88 @@ export function makeGingerPerson({ scale = 1, tint = 0, buttons = FOLK.buttons }
     /** 'idle' | 'run' | 'flail' | 'cover' (arms held across the front) | 'still' */
     pose(m) { mode = m; },
     look(dx, dy) { for (const { p } of eyes) p.position.set(dx * 0.012, dy * 0.012, 0.012); },
-    update(dt) {
-      t0 += dt; const t = t0;
-      if (mode === 'idle') { body.rotation.z = Math.sin(t * 1.6) * 0.04; armL.rotation.z = 0.9 + Math.sin(t * 1.6) * 0.08; armR.rotation.z = -0.9 - Math.sin(t * 1.6) * 0.08; legL.rotation.x = legR.rotation.x = 0; body.position.y = 0.74; }
-      else if (mode === 'run') {   // stiff little cookie legs, big bounce, arms pumping
-        const s = Math.sin(t * 16);
-        legL.rotation.x = s * 0.7; legR.rotation.x = -s * 0.7; armL.rotation.x = -s * 0.8; armR.rotation.x = s * 0.8;
-        armL.rotation.z = 0.5; armR.rotation.z = -0.5; body.position.y = 0.74 + Math.abs(Math.cos(t * 16)) * 0.08; body.rotation.z = s * 0.06;
-      } else if (mode === 'flail') { armL.rotation.z = 2.4 + Math.sin(t * 22) * 0.5; armR.rotation.z = -2.4 - Math.sin(t * 22 + 1) * 0.5; body.rotation.z = Math.sin(t * 11) * 0.08; }
-      else if (mode === 'cover') { armL.rotation.z = 2.6; armR.rotation.z = -2.6; armL.rotation.x = armR.rotation.x = -0.9; }
-    },
+    update(dt) { t0 += dt; poseFolk(self, mode, t0); },
   };
   self.face('happy');
+  return self;
+}
+
+
+/** the shared limb animation (both the full person and the lite crowd person). Modes: idle | run | flail | cover | still,
+ *  b60 + 'tumble' (thrown by a blast: limbs whirling) and 'down' (flat on his back, arms + legs spread) */
+function poseFolk(P, mode, t) {
+  const { body, armL, armR, legL, legR } = P;
+  if (mode === 'idle') { body.rotation.z = Math.sin(t * 1.6) * 0.04; armL.rotation.z = 0.9 + Math.sin(t * 1.6) * 0.08; armR.rotation.z = -0.9 - Math.sin(t * 1.6) * 0.08; legL.rotation.x = legR.rotation.x = 0; body.position.y = 0.74; }
+  else if (mode === 'run') {   // stiff little cookie legs, big bounce, arms pumping
+    const s = Math.sin(t * 16);
+    legL.rotation.x = s * 0.7; legR.rotation.x = -s * 0.7; armL.rotation.x = -s * 0.8; armR.rotation.x = s * 0.8;
+    armL.rotation.z = 0.5; armR.rotation.z = -0.5; body.position.y = 0.74 + Math.abs(Math.cos(t * 16)) * 0.08; body.rotation.z = s * 0.06;
+  } else if (mode === 'flail') { armL.rotation.z = 2.4 + Math.sin(t * 22) * 0.5; armR.rotation.z = -2.4 - Math.sin(t * 22 + 1) * 0.5; body.rotation.z = Math.sin(t * 11) * 0.08; }
+  else if (mode === 'cover') { armL.rotation.z = 2.6; armR.rotation.z = -2.6; armL.rotation.x = armR.rotation.x = -0.9; }
+  else if (mode === 'tumble') {
+    armL.rotation.set(Math.sin(t * 25) * 0.6, 0, 2.0 + Math.sin(t * 19) * 0.7); armR.rotation.set(Math.cos(t * 23) * 0.6, 0, -2.0 - Math.sin(t * 21) * 0.7);
+    legL.rotation.set(Math.sin(t * 20) * 0.8, 0, 0.4); legR.rotation.set(-Math.sin(t * 20) * 0.8, 0, -0.4); body.position.y = 0.74;
+  } else if (mode === 'down') { armL.rotation.set(0, 0, 1.6); armR.rotation.set(0, 0, -1.6); legL.rotation.set(0, 0, 0.45); legR.rotation.set(0, 0, -0.45); body.rotation.z = 0; body.position.y = 0.74; }
+}
+
+// ---- LITE (b60, the crowd that runs out of shot houses): same cookie + proportions, but each part is ONE vertex-coloured
+// mesh (icing cuffs, buttons, eyes baked in) -- 8 meshes a person instead of ~33, no shadow casting. Built on first use.
+const _c = new THREE.Color();
+function bake(list) {   // [[geo, colour, Matrix4]] -> one non-indexed geometry with vertex colours (no util rand: layout-safe)
+  const P = [], N = [], C = [];
+  for (const [g0, col, m] of list) {
+    const g = (g0.index ? g0.toNonIndexed() : g0.clone()).applyMatrix4(m); _c.set(col);
+    P.push(...g.attributes.position.array); N.push(...g.attributes.normal.array);
+    for (let i = 0; i < g.attributes.position.count; i++) C.push(_c.r, _c.g, _c.b);
+    g.dispose();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  g.computeBoundingSphere(); return g;
+}
+const M4 = (x = 0, y = 0, z = 0, sx = 1, sy = sx, sz = sx, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, rz)), new THREE.Vector3(sx, sy, sz));
+let liteMat = null, liteGeo = null;
+function liteGeos() {
+  if (liteGeo) return liteGeo;
+  liteMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
+  const W = '#ffffff', fz = T / 2 + 0.012;
+  const cuffs = y => [-1, 1].map(s => [geo.pipe, FOLK.icing, M4(0, y + s * 0.025, fz, 0.065, 0.03, 0.03, s > 0 ? 0 : Math.PI)]);
+  liteGeo = {
+    // cookie parts in WHITE x the per-person cookie colour is applied by tinting the vertex colours at build (see makeGingerLite)
+    torso: [[geo.torso, W, M4(0, 0.3, 0)]],
+    head: [[geo.head, W, M4()],
+      ...[-0.07, 0.07].flatMap(x => [[geo.dot, FOLK.icing, M4(x, 0.04, fz, 0.058, 0.058, 0.023)], [geo.dot, '#2a1610', M4(x, 0.04, fz + 0.017, 0.032, 0.032, 0.013)]])],
+    arm: [[geo.arm, W, M4()], ...cuffs(-0.27)],
+    leg: [[geo.leg, W, M4()], ...cuffs(-0.29)],
+    smile: bake([[geo.pipe, FOLK.icing, M4(0, -0.03, fz + 0.004, 0.08, 0.06, 0.03, Math.PI * 1.05)]]),
+    oh: bake([[geo.dot, '#2a1610', M4(0, -0.075, fz + 0.01, 0.04, 0.05, 0.012)]]),
+  };
+  return liteGeo;
+}
+/** a crowd gingerbread person (~1.1 m), same API as makeGingerPerson: group, face(expr), pose(mode), update(dt) */
+export function makeGingerLite({ tint = 0, scale = 1 } = {}) {
+  const L = liteGeos(), cookie = FOLK.cookie[tint % FOLK.cookie.length];
+  const part = (list, extra = []) => bake([...list.map(([g, col, m]) => [g, col === '#ffffff' ? cookie : col, m]), ...extra]);
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body); body.position.y = 0.74;
+  const mesh = (geo2, parent, x = 0, y = 0) => { const o = new THREE.Mesh(geo2, liteMat); o.position.set(x, y, 0); parent.add(o); return o; };
+  const upper = new THREE.Group(); upper.position.y = -0.3; body.add(upper);
+  const fz = T / 2 + 0.012;
+  mesh(part(L.torso, [0, 1, 2].map(k => [geo.dot, FOLK.buttons[(k + tint) % FOLK.buttons.length], M4(0, 0.35 - k * 0.12, fz + 0.01, 0.035)])), upper);
+  const head = new THREE.Group(); head.position.y = 0.63; upper.add(head);
+  mesh(part(L.head), head);
+  const smile = mesh(L.smile, head), oh = mesh(L.oh, head);
+  const armGeo = part(L.arm), legGeo = part(L.leg);
+  const limb = (gg, x, y, rz, parent) => { const p = new THREE.Group(); p.position.set(x, y, 0); p.rotation.z = rz; parent.add(p); mesh(gg, p); return p; };
+  const armL = limb(armGeo, 0.17, 0.36, 0.9, upper), armR = limb(armGeo, -0.17, 0.36, -0.9, upper);
+  const legL = limb(legGeo, 0.09, -0.3, 0.12, body), legR = limb(legGeo, -0.09, -0.3, -0.12, body);
+  g.scale.setScalar(scale);
+  let mode = 'idle', t0 = Math.random() * 10;
+  const self = {
+    group: g, body, upper, head, armL, armR, legL, legR,
+    face(expr) { smile.visible = expr === 'happy'; oh.visible = expr !== 'happy'; },
+    pose(m) { mode = m; }, get mode() { return mode; },
+    update(dt) { t0 += dt; poseFolk(self, mode, t0); },
+  };
+  self.face('shock');
   return self;
 }

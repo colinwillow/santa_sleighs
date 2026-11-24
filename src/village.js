@@ -16,9 +16,10 @@ const FLAT = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 const DIRT = [[62, -22], [90, -26], [120, -12], [150, -20], [182, -4], [212, 10]];
 
 export function buildVillage(scene, world) {
-  const K = makeKit(), flora = makeFlora(scene);
+  const K = makeKit(), flora = makeFlora(scene, world.props);
   // DESTRUCTIBLE TOWN (b21): every house is cookie bricks you can shoot / crash apart (src/town.js)
   const town = makeTown(scene); world.town = town;
+  town.onHouseDamaged = hs => world.props?.folkOut(hs);   // b60: gingerfolk run out of a house the first time it is hit
   const gHouse = (x, z, ry) => { const r = town.house(x, z, ry); world.colliders.push(r.collider); world.chimneys.push(r.smoke); return r; };
   const R = new Batch();
   const curve = new THREE.CatmullRomCurve3(LOOP.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'centripetal');
@@ -204,36 +205,18 @@ export function buildVillage(scene, world) {
   const road = R.mesh(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.15, side: THREE.DoubleSide }));
   road.castShadow = false; scene.add(road);
 
-  // ---- cars: two parked, three driving the loop ---------------------------------------------------
-  const carDefs = ['#c42a2a', '#2a3440', '#5a6a88', '#e0d8c0', '#3a5a4a'];
-  const solidMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.3 });
-  const lightMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }); lightMat.color.setScalar(2);
+  // ---- cars: two parked, three driving the loop -- b60 GINGERBREAD CARS, destructible (src/props.js builds + breaks them) ----
+  // the old car builder drew 62 numbers from the layout rand(): draw them still, so the forest after the village stays put
+  for (let k = 0; k < 62; k++) rand();
   const length = curve.getLength();
-  const cars = carDefs.map((col, i) => {
-    const b = new Batch(), l = new Batch(), parked = i < 2;
-    b.add(bevBox(1.9, 0.75, 4.2, 0.25, 3), col, T(0, 0.62, 0));
-    b.add(bevBox(1.62, 0.6, 2.1, 0.22, 3), '#1c2233', T(0, 1.22, -0.25));
-    b.add(bevBox(1.68, 0.14, 2.0, 0.07), col, T(0, 1.52, -0.25));
-    if (parked) b.add(BLOB, PAL.snow, T(0, 1.62, -0.25, 0.8, 0.14, 1.0), 0.03);
-    for (const sx of [-1, 1]) for (const sz of [-1.35, 1.35]) b.add(CYL, '#15151b', T(sx * 0.9, 0.36, sz, 0.36, 0.26, 0.36, 0, 0, Math.PI / 2));
-    for (const sx of [-0.62, 0.62]) { l.add(BOX, parked ? '#332d20' : '#fff2cc', T(sx, 0.72, 2.12, 0.42, 0.18, 0.05), 0); l.add(BOX, parked ? '#200808' : '#ff2a2a', T(sx, 0.72, -2.12, 0.42, 0.16, 0.05), 0); }
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(b.geometry(), solidMat); body.castShadow = true;
-    g.add(body, new THREE.Mesh(l.geometry(), lightMat));
-    if (!parked) {
-      const hp = new THREE.Mesh(new THREE.PlaneGeometry(4, 7).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: softDot(), color: '#ffe8b0', transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
-      hp.position.set(0, 0.05, 5.5); g.add(hp);
-    }
-    scene.add(g);
-    return { g, parked, u: (i * 0.23 + 0.05) % 1, dir: i % 2 ? -1 : 1, speed: rr(6, 9) };
-  });
+  const cars = [0, 1, 2, 3, 4].map(i => ({ car: world.props.addCar({ parked: i < 2 }), parked: i < 2, u: (i * 0.23 + 0.05) % 1, dir: i % 2 ? -1 : 1, speed: 6 + (i * 0.37 % 1) * 3 })).filter(c => c.car);
   const _t = new THREE.Vector3(), _p = new THREE.Vector3();
   const placeCar = (c, lane) => {
     curve.getPointAt(c.u, _p); curve.getTangentAt(c.u, _t); _t.y = 0; _t.normalize();
     const o = lane * c.dir;
-    c.g.position.set(_p.x - _t.z * o, ROAD.y, _p.z + _t.x * o);
-    c.g.rotation.y = Math.atan2(_t.x * c.dir, _t.z * c.dir);
+    c.car.drive(_p.x - _t.z * o, ROAD.y, _p.z + _t.x * o, Math.atan2(_t.x * c.dir, _t.z * c.dir));
   };
   for (const c of cars) placeCar(c, c.parked ? 2.6 : 1.75);
-  world.update.push((t, dt) => { for (const c of cars) if (!c.parked) { c.u = (c.u + c.dir * c.speed * dt / length + 1) % 1; placeCar(c, 1.75); } });
+  // a shot car brakes to a stop where it is; a flipped one is the props' to move
+  world.update.push((t, dt) => { for (const c of cars) if (!c.parked && c.car.mode === 'idle') { if (c.car.damaged) c.speed *= Math.exp(-2.5 * dt); if (c.speed < 0.2) continue; c.u = (c.u + c.dir * c.speed * dt / length + 1) % 1; placeCar(c, 1.75); } });
 }

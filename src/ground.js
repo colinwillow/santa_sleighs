@@ -59,21 +59,23 @@ function bladeTexture() {
 }
 
 /** flora + patches, placed with add*() then finish() */
-export function makeFlora(scene) {
+export function makeFlora(scene, props = null) {
   // b30 tris cut: crowns are 48-tri smooth spheres (were 80-tri BLOBs), trunks open 6-sided, pine tiers 7-sided with the
   // snow caps + tip open-bottomed (their undersides sit inside the tier below) -- frost 520 -> 300, pine 184 -> 103, bush 160 -> 96
-  const frost = new Batch();
+  // b60 DESTRUCTIBLE TREES: the snow (round tree's white top crowns, pine caps + tip) is its OWN instanced mesh, so a hit can
+  // shrink it into the tree (snow dumped off); same pieces in the same order as before (the rand() jitter stream is unchanged)
+  const frost = new Batch(), frostSnow = new Batch();
   frost.add(CYL6, '#4a3428', T(0, 1.2, 0, 0.25, 2.4, 0.25));
   for (const [bx, by, bz, s] of [[0, 3.2, 0, 1.6], [0.9, 2.7, 0.3, 1.1], [-0.8, 2.8, -0.4, 1.15], [0.2, 4.3, -0.2, 1.15], [-0.3, 2.5, 0.9, 1.0], [0.4, 2.6, -1.0, 1.0]])
-    frost.add(LOBLOB, by > 3 ? '#eef2ff' : '#c4d0ee', T(bx, by, bz, s, s * 0.9, s), 0.1);
-  const pine = new Batch();
+    (by > 3 ? frostSnow : frost).add(LOBLOB, by > 3 ? '#eef2ff' : '#c4d0ee', T(bx, by, bz, s, s * 0.9, s), 0.1);
+  const pine = new Batch(), pineSnow = new Batch();
   pine.add(CYL6, '#4a3428', T(0, 0.6, 0, 0.25, 1.2, 0.25));
   for (let k = 0; k < 4; k++) {
     const r = 2.2 - k * 0.45, yb = 1.2 + k * 1.35;
     pine.add(new THREE.ConeGeometry(r, 2.2, 7), '#1f4a3c', T(0, yb + 1.1, 0));
-    pine.add(new THREE.ConeGeometry(r * 0.78, 0.9, 7, 1, true), '#eef2ff', T(0, yb + 1.75, 0), 0.03);
+    pineSnow.add(new THREE.ConeGeometry(r * 0.78, 0.9, 7, 1, true), '#eef2ff', T(0, yb + 1.75, 0), 0.03);
   }
-  pine.add(new THREE.ConeGeometry(0.4, 0.7, 7, 1, true), '#eef2ff', T(0, 7.2, 0));
+  pineSnow.add(new THREE.ConeGeometry(0.4, 0.7, 7, 1, true), '#eef2ff', T(0, 7.2, 0));
   const bush = new Batch();
   bush.add(LOBLOB, '#8396bd', T(0, 0.45, 0, 0.9, 0.7, 0.9)); bush.add(LOBLOB, '#f3f5ff', T(0, 0.85, 0, 0.8, 0.4, 0.8), 0.03);
   // snow mounds sit half in the ground: a dome a little past the equator (so slopes don't show its rim), 40 tris (was 80)
@@ -86,7 +88,8 @@ export function makeFlora(scene) {
   // b30: nothing here casts for real; trees + bushes cast through shadow-only stand-ins (SH below)
   const inst = (geo, m, n) => { const im = new THREE.InstancedMesh(geo, m, n); im.castShadow = false; im.receiveShadow = true; im.count = 0; scene.add(im); return im; };
   const I = {
-    frost: inst(paintUV(frost.geometry(), 2.0, 1.2), mat, 260), pine: inst(paintUV(pine.geometry(), 2.2, 1.5), mat, 260), bush: inst(paintUV(bush.geometry(), 1.4, 0.8), mat, 400),
+    frost: inst(paintUV(frost.geometry(), 2.0, 1.2), mat, 260), pine: inst(paintUV(pine.geometry(), 2.2, 1.5), mat, 260),
+    frostSnow: inst(paintUV(frostSnow.geometry(), 2.0, 1.2), mat, 260), pineSnow: inst(paintUV(pineSnow.geometry(), 2.2, 1.5), mat, 260), bush: inst(paintUV(bush.geometry(), 1.4, 0.8), mat, 400),
     mound: inst(MOUND, snowMat, 1400),
     patch: inst(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: blobTexture(), transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 }), 500, false),
     tuft: inst(crossQuads(), new THREE.MeshStandardMaterial({ map: bladeTexture(), alphaTest: 0.4, side: THREE.DoubleSide, roughness: 1 }), 3000, false),
@@ -101,9 +104,13 @@ export function makeFlora(scene) {
   const put = (im, m, col) => { if (im.count >= im.instanceMatrix.count) return false; im.setMatrixAt(im.count, m); if (col) im.setColorAt(im.count, col); im.count++; return true; };
   return {
     tree(kind, x, z, s = rr(0.8, 1.35)) {
-      const m = T(x, groundH(x, z), z, s, s * rr(0.9, 1.2), s, 0, rand() * 6, 0);
+      const gy = groundH(x, z), sy = s * rr(0.9, 1.2), m = T(x, gy, z, s, sy, s, 0, rand() * 6, 0);
+      const i = I[kind].count;
       if (!put(I[kind], m, c.setScalar(rr(0.9, 1.05)))) return false;
-      put(SH[kind], m); return true;
+      put(SH[kind], m);
+      const snow = I[kind + 'Snow'];
+      if (snow) { put(snow, m, c); props?.addTree({ x, y: gy, z, R: (kind === 'pine' ? 2.2 : 2.0) * s, h: (kind === 'pine' ? 7.5 : 5.3) * sy, m, parts: [[I[kind], i], [SH[kind], i]], snow: [[snow, i]] }); }
+      return true;
     },
     mound(x, z, sx, sy, sz, y) { return put(I.mound, T(x, (y ?? groundH(x, z)) + 0.05, z, sx, sy, sz, 0, rand() * 6, 0)); },
     /** kind 'grass' | 'dirt' */

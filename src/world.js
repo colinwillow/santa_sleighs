@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { WORLD, VILLAGE_R, POND, groundH } from './terrain.js';
 import { rand, rr, softDot, shadowProxy } from './util.js';
 import { buildVillage } from './village.js';
+import { makeProps } from './props.js';
 import { buildKitShow } from './kitshow.js';
 import { snowShader } from './ground.js';
 import { foliageTex, snowTex, paintUV } from './paint.js';
@@ -14,6 +15,7 @@ export { groundH, softDot, WORLD };
 export function buildWorld(scene, camera, { mode = 'village' } = {}) {
   const upd = [];
   const world = { update: upd, chimneys: [], colliders: [], fireList: [], avoid: [] };
+  world.props = makeProps(scene, world);   // b60: destructible cars / trees / gingerfolk (src/props.js)
 
   // ---- sky --------------------------------------------------------------------------
   const skyMat = new THREE.ShaderMaterial({
@@ -157,7 +159,9 @@ export function buildWorld(scene, camera, { mode = 'village' } = {}) {
       const sc = rr(0.7, 1.7);
       p.set(x, groundH(x, z) - 0.2, z); q.setFromEuler(e.set(rr(-0.05, 0.05), rr(0, 6.28), rr(-0.05, 0.05))); s.set(sc, sc * rr(0.9, 1.25), sc);
       m4.compose(p, q, s);
-      coneMesh.setMatrixAt(n, m4); capMesh.setMatrixAt(n, m4); trunkMesh.setMatrixAt(n, m4); shadowMesh.setMatrixAt(n, m4); n++;
+      coneMesh.setMatrixAt(n, m4); capMesh.setMatrixAt(n, m4); trunkMesh.setMatrixAt(n, m4); shadowMesh.setMatrixAt(n, m4);
+      world.props.addTree({ x, y: p.y, z, R: 2.4 * sc, h: 7.6 * s.y, m: m4.clone(), parts: [[coneMesh, n], [trunkMesh, n], [shadowMesh, n]], snow: [[capMesh, n]] });   // b60: destructible
+      n++;
     }
     for (const im of [coneMesh, capMesh, trunkMesh]) { im.count = n; im.castShadow = false; im.receiveShadow = true; scene.add(im); }
     shadowMesh.count = n;

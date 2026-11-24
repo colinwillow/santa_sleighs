@@ -1,5 +1,5 @@
 {
-"build": 62,
+"build": 63,
 "files": [
 "./src/anim.js",
 "./src/audio.js",
@@ -25,6 +25,7 @@
 "./src/onfoot.js",
 "./src/paint.js",
 "./src/post.js",
+"./src/props.js",
 "./src/retarget.js",
 "./src/rope.js",
 "./src/sandbox.js",

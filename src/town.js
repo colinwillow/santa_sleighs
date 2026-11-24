@@ -781,6 +781,7 @@ export function makeTown(scene) {
     }
     ix.needsUpdate = true;
     proxyFollow(hs);
+    if (!hs.hitOnce) { hs.hitOnce = true; api.onHouseDamaged?.(hs, at); }   // b60: the first chunks out -> gingerfolk run (props.js)
     // the house's crash collider + dressing follow what's left
     const frac = hs.alive / hs.total;
     if (frac < 0.35 && !hs.dead) {
@@ -841,11 +842,13 @@ export function makeTown(scene) {
     if (moved) debrisMesh.instanceMatrix.needsUpdate = true;
   }
 
-  return {
+  const api = {
+    onHouseDamaged: null,
     house, finish, update, lodTick, raycast, solidAt, blast, hitBrick, houses, tintWindows,
     get stats() {
       const tris = mesh ? mesh.geometry.index.count / 3 : 0;
       return { bricks: chunks.length, chunks: chunks.length, alive: chunks.filter(c => c.alive).length, houses: houses.length, tris, trisPerHouse: houses.length ? Math.round(tris / houses.length) : 0, far: 0, atlas: AT.size };
     },
   };
+  return api;
 }
