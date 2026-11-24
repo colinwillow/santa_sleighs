@@ -25,7 +25,7 @@ L.load(MODELS[key], async g => {
     await s.anim.preload(role); s.anim.play(role, 0); await s.setWeapon(q.get('gun') || 'gatling');
     if (role === 'fire') s.setFiring(true);
     sc.add(s.holder); const aim = new THREE.Vector3();
-    for (let f = 0; f < 20; f++) { s.holder.updateMatrixWorld(true); aim.set(0, 1.0, 12).applyMatrix4(s.holder.matrixWorld); s.aimAt(aim); s.update(1 / 30, f / 30); }
+    for (let f = 0; f < 20; f++) { s.holder.updateMatrixWorld(true); aim.fromArray(JSON.parse(q.get('aim') || '[0,1,12]')).applyMatrix4(s.holder.matrixWorld); s.aimAt(aim); s.update(1 / 30, f / 30); }
     s.holder.updateMatrixWorld(true);
     // ghost every mesh
     s.holder.traverse(o => { if (o.isMesh) { o.material = new THREE.MeshBasicMaterial({ color: o.isSkinnedMesh ? 0xc8b8a8 : 0x88aa88, transparent: true, opacity: o.isSkinnedMesh ? 0.18 : 0.25, depthWrite: false }); o.frustumCulled = false; } });

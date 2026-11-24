@@ -20,7 +20,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 54;
+export const BUILD = 55;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -546,7 +546,9 @@ function updateMenuCrew(dt, t) {
   MENU.burstT -= dt;
   if (MENU.burstT <= 0) { MENU.firing = !MENU.firing; MENU.burstT = MENU.firing ? 1.1 : 5 + Math.random() * 3; }
   santa.setFiring(MENU.firing);
-  santa.aimAt(_up.copy(MENU.spot).addScaledVector(MENU.dir, 6).add(new THREE.Vector3(Math.sin(t) * 3, 9, 0)));
+  // he fires up and OFF TO HIS LEFT (b55): the side-on gunner stance points the gun where he aims -- aimed at the camera, the gun hid both
+  // arms (his screenshot); aimed to the side the camera sees him in profile with both hands on it
+  santa.aimAt(santa.holder.localToWorld(_up.set(7, 5 + Math.sin(t) * 1.5, 3 + Math.sin(t * 0.7) * 2)));
   MENU.fireCd -= dt;
   if (MENU.firing && MENU.fireCd <= 0) {
     MENU.fireCd = santa.rate; santa.kick(); sfx('gun_shot', { vol: 0.45 });

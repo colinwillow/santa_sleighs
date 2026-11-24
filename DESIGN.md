@@ -85,3 +85,39 @@ without it. "The worst flight ever" friend-slop chaos (the clips people share). 
 - Built now as single player / co-op / story (enemies are enemies). If it becomes the multiplayer game, every character is
   playable: Santa, the snowman monster, the candy monster, and whatever else he makes -- keep characters rig-compatible
   (Mixamo names + hand mounts) so any of them can drive the same controller and clips.
+
+
+## THE GOAL: DELIVER THE PRESENTS (his go-ahead, Nov 24 -- proposal, not final)
+*His question: "is there a goal? are you destroying houses? maybe you're trying to deliver presents and defend off enemies at the same time."*
+
+**Premise.** Christmas Eve has been hijacked. Snowman brutes, candy-cane monsters and evil elves have overrun the gingerbread
+village; the gingerbread folk are hiding in their houses. Santa -- hungover, milk-drunk, armed -- still has to get every present
+delivered before DAWN.
+
+**A night (one round, ~6-10 min).**
+- The sleigh starts loaded (presents stacked on the sack -- visible, and they can be shot off / stolen).
+- The village map marks houses waiting for a delivery (a glowing present icon over the roof).
+- TWO WAYS TO DELIVER: (1) CHIMNEY DROP -- fly low + steady over the roof and drop it down the chimney (a skill shot from the
+  sleigh; miss and it lands in the yard); (2) DOOR DROP -- land, hop out, fight through the monsters camped at that house, run the
+  present to the door (the on-foot game).
+- A delivered house lights up warm, the gingerfolk inside cheer at the window, cookies + milk pay out.
+- DAWN is the clock: the sky warms as the night runs out; undelivered houses at sunrise = a failed Christmas.
+
+**Why it fits everything already built.**
+- Sleigh + boosters = getting around; hopping out on foot = deliveries under siege; guns = protecting the delivery;
+  milk / cookies = health + fuel.
+- DESTRUCTION BECOMES A CHOICE: you CAN level houses (it's fun), but a house you wreck can't take a present. Crashing through
+  a monster-infested house to clear it is a trade-off, not a free action. (Delivered houses could be sturdier.)
+- Enemies get ROLES around houses instead of spawning randomly:
+  - SNOWMAN BRUTE (built) -- camps at a house, melee + hefty snowball lobs (even up at the sleigh).
+  - CANDY CANE MONSTER -- fast, hooks / leaps; ambushes from yards and rooftops.
+  - EVIL ELVES -- rooftop snipers / saboteurs that STEAL presents off the sleigh if they reach it (shoot them off).
+  - (his other mock-ups slot in here: each one a clear job.)
+- WAVES, not random spawns: each delivered house wakes the next block; the night ramps up toward dawn.
+
+**Multiplayer fit (later).** 2-player teams = DRIVER + GUNNER. Team vs team = a delivery race across the same village (shoot
+the other sleigh's presents off, steal their houses); co-op = one big village vs the horde; zombies-style survival = hold the
+North Pole workshop till dawn.
+
+**First slice to prototype (when he says go):** 3-4 marked houses + chimney drop from the sleigh + a cheer / cookie payout + the
+snowmen camping around the undelivered ones. Small enough to feel in one session.
