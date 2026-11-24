@@ -17,6 +17,9 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   where the engineering actually requires verification in order to create the effect").** No headless-browser screenshots or
   play-throughs to check a build: make the change, syntax-check (`node --input-type=module --check`), bump, push, say
   "shipped unverified". He checks on his phone. Measure only when the effect can't be built without the number.
+  CLARIFIED (his, Nov 24): screenshots are WELCOME -- PUSH FIRST and say it's pushed, THEN send screenshots / renders (a new
+  character: always show him how it looks). What to avoid is SLOW verification that delays the push (booting the game and
+  playing 20 minutes to reach a basic state before shipping).
 - **Parallel workers are fine** (his, Nov 23: "you can use multiple workers to make this quicker"): split independent slices
   across workers with disjoint files; each takes the next BUILD number on a rebase conflict.
 - Primitive models are stand-ins until his GLBs land in `models/` (`models/santa.glb`, `models/elf_girl.glb`: Mixamo-rigged, no clips yet).
