@@ -7,7 +7,7 @@ import { retargetClip } from './retarget.js';
 // role -> clip file stem, per character kind. Add a role here + drop the GLB in models/anims/.
 export const CLIPS = {
   santa: {
-    idle: 'Rifle_Idle_2', fire: 'Firing_Rifle_2', walk: 'Rifle_Walk', run: 'Rifle_Run', jump: 'Jumping_5', air: 'Falling_Idle',
+    idle: 'Rifle_Idle_2', fire: 'Firing_Rifle_2', walk: 'Rifle_Walk', run: 'Rifle_Run', jump: 'Jumping_5', air: 'Falling_Idle', getup: 'Getting_Up',
     tipsy: 'Drunk_Idle', dance: 'Silly_Dancing', cheer: 'Cheering',
   },
   elf: {

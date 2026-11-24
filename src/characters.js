@@ -301,7 +301,10 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       const next = heldGun(scene, key);
       next.g.scale.multiplyScalar(ST.scale); pivot.remove(gun.g); gun = next; pivot.add(gun.g);
     },
-    setIdle(r) { idleRole = r; if (!firing) anim.play(r); },
+    setIdle(r) { idleRole = r; if (!firing && !self.busy) anim.play(r); },
+    /** a one-shot clip (get up...) that owns the body until it ends; arms leave the gun meanwhile */
+    playOnce(r, speed = 1) { self.busy = true; self.freeArms = true; anim.play(r, 0.12, { once: true, speed }); },
+    endOnce() { self.busy = false; self.freeArms = false; anim.play(idleRole, 0.2); },
     setFiring(on) { if (on === firing) return; firing = on; anim.play(on ? 'fire' : idleRole, 0.15); },
     kick() { kick = gun.def?.kick ?? CREW.recoil; flashT = 0.045; gun.flash.rotation.z = Math.random() * 3; },
     aimAt(world) { aimWorld = world ? (aimWorld || V()).copy(world) : null; },
@@ -328,6 +331,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       // through his chest -- hold shoulders + hands at the bind pose so only the IK moves the arms
       if (ST.still) for (const k of ['LeftShoulder', 'RightShoulder', 'LeftHand', 'RightHand']) if (B[k]?.userData.bind) B[k].quaternion.copy(B[k].userData.bind);
       pivot.updateMatrixWorld(true);
+      if (!self.freeArms) {
       ik2(B.RightArm, B.RightForeArm, B.RightHand, gun.grips.right.getWorldPosition(V()), local(...ST.poleR));
       // support hand: the gun's front grip if he can reach it, else slide back along the gun to the farthest point he can
       {
@@ -336,6 +340,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
         if (tgt.distanceTo(sh) > reach) { let lo = 0, hi = 1; for (let k = 0; k < 12; k++) { const m = (lo + hi) / 2; tgt.lerpVectors(gr, gl, m); if (tgt.distanceTo(sh) > reach) hi = m; else lo = m; } tgt.lerpVectors(gr, gl, lo); }
         ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, local(...ST.poleL));
       }
+      }   // freeArms: the get-up clip drives his arms (pushing off the ground) instead of the gun IK
       hat(dt);
     },
   };
