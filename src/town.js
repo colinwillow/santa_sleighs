@@ -632,6 +632,16 @@ export function makeTown(scene) {
     for (let i = 0; i < 8; i++) { x.fillStyle = i % 2 ? '#fff6ec' : '#e3283a'; x.fillRect(i * 8, 0, 8, 8); }
     const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6, 1); t.colorSpace = THREE.SRGBColorSpace; return t;
   }
+  /** b56 (delivery): tint one house's glowing windows (a colour multiplies the warm glow; null = back to normal) */
+  const _tc = new THREE.Color();
+  function tintWindows(hs, col) {
+    const d = decorMeshes.find(e => e.im.material === glowMat); if (!d) return;
+    const im = d.im;
+    if (!im.instanceColor) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(im.count * 3).fill(1), 3);
+    if (col == null) _tc.setRGB(1, 1, 1); else if (col.isColor) _tc.copy(col); else _tc.set(col);
+    d.list.forEach((e, i) => { if (houses[e.h] === hs) im.setColorAt(i, _tc); });
+    im.instanceColor.needsUpdate = true;
+  }
   /** b43: no far LOD -- near and far are the same chunks (kept so main.js's call stays valid) */
   function lodTick() {}
 
@@ -832,7 +842,7 @@ export function makeTown(scene) {
   }
 
   return {
-    house, finish, update, lodTick, raycast, solidAt, blast, hitBrick, houses,
+    house, finish, update, lodTick, raycast, solidAt, blast, hitBrick, houses, tintWindows,
     get stats() {
       const tris = mesh ? mesh.geometry.index.count / 3 : 0;
       return { bricks: chunks.length, chunks: chunks.length, alive: chunks.filter(c => c.alive).length, houses: houses.length, tris, trisPerHouse: houses.length ? Math.round(tris / houses.length) : 0, far: 0, atlas: AT.size };

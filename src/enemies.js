@@ -13,6 +13,7 @@ import { retargetClip } from './retarget.js';
 export const SNOW = {
   url: './models/enemies/snowman_monster_rig.glb',
   height: 2.6, count: 4,
+  extra: 4,               // b56: hidden pool spawn() draws from (taken-over houses burst them out); they never respawn
   hp: 25,                 // Gatling hits (a rifle slug = SNOW.slug, a rocket blast kills)
   slug: 5,
   face: 25,               // m: turn to face Santa inside this
@@ -27,6 +28,7 @@ export const SNOW = {
   turn: 3,                // rad/s-ish smoothing of the turn
   roarCd: 14,             // s between roars
   respawn: 20,            // s dead before he's back
+  stun: 2.2,              // b56: s a spawned (stunned) snowman takes to get up off his back (the Getting_Up clip, sped to fit)
   off: 8.2,               // m off the road centre line (just past the sidewalk)
   hide: 220,              // m from the camera: skip animating + hide
   // b54 (his: "he picks up snow and throws fairly hefty soccer-ball-size snowballs at you... from the ground up at you"): SCOOP
@@ -178,7 +180,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       clips[role] = retargetClip(g.scene, g.animations[0], gltf.scene, { name: role });
     }));
     measureClips(gltf.scene);
-    for (const s of pickSpots(world, groundH, SNOW.count)) {
+    const makeOne = (s, extra = false) => {
       const inst = skClone(gltf.scene);
       const P = prep(inst, SNOW.height), H = P.holder;
       H.position.set(s.x, s.y, s.z); H.rotation.y = s.ry; scene.add(H);
@@ -189,7 +191,8 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       const mixer = new THREE.AnimationMixer(inst), act = {};
       for (const k in clips) act[k] = mixer.clipAction(clips[k]);
       const e = { H, B: P.B, mixer, act, home: s, r, hp: SNOW.hp, dead: false, deadT: 0, hitT: 0, roarT: 0, near: false, cur: null, yaw: s.ry, pulse: 0,
-        oneT: 0, gapT: 0, jumpCdT: 0, throwCdT: 3 + Math.random() * 4, ball: null, spr: ARMFIT.snowman.spread, fit: { ...ARMFIT.snowman }, tauntT: 4 + Math.random() * 6, swing: 0, jump0: new THREE.Vector3() };
+        oneT: 0, gapT: 0, jumpCdT: 0, throwCdT: 3 + Math.random() * 4, ball: null, spr: ARMFIT.snowman.spread, fit: { ...ARMFIT.snowman }, tauntT: 4 + Math.random() * 6, swing: 0, jump0: new THREE.Vector3(),
+        extra, free: extra, fly: null };
       e.play = (role, fade = 0.2, once = false, speed = 1) => {
         const a = act[role]; if (!a) return;
         a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); a.clampWhenFinished = once; a.timeScale = speed; a.play();
@@ -198,8 +201,12 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       };
       mixer.setTime(Math.random() * 3);
       e.play('idle', 0);
+      if (extra) H.visible = false;
       list.push(e);
-    }
+    };
+    for (const s of pickSpots(world, groundH, SNOW.count)) makeOne(s);
+    // b56: a small pool of EXTRA snowmen (hidden) that spawn() brings in -- the ones waiting inside a taken-over house
+    for (let k = 0; k < SNOW.extra; k++) makeOne({ x: 0, y: -50, z: 0, ry: 0 }, true);
     ready = true;
   })().catch(err => console.warn('snowmen', err));
 
@@ -321,14 +328,43 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
     chunkMesh.count = n; chunkMesh.instanceMatrix.needsUpdate = true;
   }
 
+  // ---- b56 SPAWN: an extra snowman flung out of a house (a ballistic arc), lands, then lies DAZED (stunned: Getting_Up) or
+  // comes up ROARING (angry), then the normal chase / throw brain takes over with home = where he landed ----
+  function flyTick(e, dt) {
+    const H = e.H, f = e.fly;
+    f.v.y -= 20 * dt; H.position.addScaledVector(f.v, dt);
+    for (const c of world.colliders) { if (!(c.r > 0) || H.position.y > c.top) continue; const ox = H.position.x - c.x, oz = H.position.z - c.z, d = Math.hypot(ox, oz); if (d < c.r && d > 1e-4 && f.v.y < 0) { H.position.x = c.x + ox / d * c.r; H.position.z = c.z + oz / d * c.r; } }
+    e.yaw += f.spin * dt; H.rotation.y = e.yaw; H.rotation.x = Math.sin(f.t * 9) * 0.25; f.t += dt;
+    const gy = groundH(H.position.x, H.position.z);
+    if (H.position.y <= gy && f.v.y < 0) {
+      H.position.y = gy; H.rotation.x = 0; e.fly = null;
+      e.home = { x: H.position.x, y: gy, z: H.position.z, ry: e.yaw };
+      const c = H.position.clone(); c.y += 0.4; puff(c, '#ffffff', 16, 4, 0.9); sfx('crunch', { vol: 0.7, rate: 0.55 });
+      if (f.stunned && clips.getup) { oneShot(e, 'getup', clips.getup.duration / SNOW.stun, 0.05); e.hitT = e.oneT; }
+      else { oneShot(e, 'roar', 1.3, 0.1); e.roarT = SNOW.roarCd; }
+      e.gapT = 0.4; e.jumpCdT = 3;
+    }
+    e.mixer.update(dt); H.updateMatrixWorld(true); fitSnowArms(e.B, H, e.fit);
+  }
+  function spawn(pos, yaw = 0, { stunned = false, vel = null } = {}) {
+    if (!ready) return null;
+    const e = list.find(o => o.extra && o.free); if (!e) return null;
+    const H = e.H;
+    e.free = false; e.dead = false; e.poofed = false; e.hp = SNOW.hp; e.hitT = 0; e.oneT = 0; e.grow = null; e.ball = null; e.wantYaw = null;
+    H.visible = true; H.scale.setScalar(1); H.position.copy(pos); e.yaw = yaw; H.rotation.set(0, yaw, 0);
+    e.fly = { v: vel ? vel.clone() : new THREE.Vector3(Math.sin(yaw) * 5, 9, Math.cos(yaw) * 5), spin: (Math.random() - 0.5) * 6, t: 0, stunned };
+    e.play('hit', 0.05, false, 0.8);
+    return e;
+  }
+
   return {
-    list, SNOW, balls, ballAt,
+    list, SNOW, balls, ballAt, spawn,
     /** first snowman a ray hits: { dist, point, e } or null */
     raycast(o, d, len = 250) {
       if (!ready) return null;
       let best = null;
       for (const e of list) {
-        if (e.dead || !e.H.visible) continue;
+        if (e.dead || e.free || !e.H.visible) continue;
         capsule(e);
         const s = rayCapsule(o, d, len, _a, _b, e.r);
         if (s >= 0 && (!best || s < best.dist)) best = { dist: s, point: o.clone().addScaledVector(d, s), e };
@@ -346,7 +382,7 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       if (!ready) return;
       for (const b of balls) if (!b.held && !b.dead && b.m.position.distanceTo(p) < r + B_.r) popBall(b, false);
       for (const e of list) {
-        if (e.dead) continue;
+        if (e.dead || e.free || e.fly) continue;
         capsule(e);
         const seg = _b.clone().sub(_a), t = THREE.MathUtils.clamp(p.clone().sub(_a).dot(seg) / seg.lengthSq(), 0, 1);
         if (_a.clone().addScaledVector(seg, t).distanceTo(p) < r + e.r) damage(e, n, from || p);
@@ -360,13 +396,15 @@ export function makeSnowmen({ scene, world, groundH, puff = () => {}, onKill = (
       updateBalls(dt, santa, ctx);
       for (const e of list) {
         const H = e.H;
+        if (e.free) continue;
+        if (e.fly) { flyTick(e, dt); continue; }
         if (e.dead) {
           e.deadT += dt;
           if (e.deadT > 2.6 && e.deadT < 3.2) {   // the body crumbles into a poof
             const k = Math.max(0.001, 1 - (e.deadT - 2.6) / 0.6); H.scale.setScalar(k);
             if (!e.poofed) { e.poofed = true; const c = H.position.clone(); c.y += 0.8; puff(c, '#ffffff', 22, 5, 1.1); sfx('snow_puff', { vol: 0.7 }); }
-          } else if (e.deadT >= 3.2 && H.visible) { H.visible = false; }
-          if (e.deadT > SNOW.respawn) {   // back, with a puff, growing out of the snow
+          } else if (e.deadT >= 3.2 && H.visible) { H.visible = false; if (e.extra) { e.free = true; continue; } }
+          if (e.deadT > SNOW.respawn && !e.extra) {   // back, with a puff, growing out of the snow
             e.dead = false; e.poofed = false; e.hp = SNOW.hp; e.hitT = 0; e.grow = 0; H.visible = true; H.scale.setScalar(0.001);
             H.position.set(e.home.x, e.home.y, e.home.z); e.yaw = e.home.ry; e.oneT = 0; e.play('idle', 0);
             const c = H.position.clone(); c.y += 0.6; puff(c, '#ffffff', 18, 4, 1.0);

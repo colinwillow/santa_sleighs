@@ -16,11 +16,12 @@ import { makeMenus } from './menu.js';
 import { WEAPONS, ORDER, makeShots, loadGuns, heldGun } from './weapons.js';
 import { CONTENT } from './gag.js';
 import { loadModels, makeSanta, makeElf } from './characters.js';
+import { makeDelivery } from './delivery.js';
 // sound is optional: if src/audio.js is missing or fails, the game stays silent instead of blank
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 55;
+export const BUILD = 56;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -241,6 +242,10 @@ const snowmen = makeSnowmen({ scene, world, groundH, sfx: (n, o) => sfx(n, o), p
   onHitSleigh: p => { rig.model?.hit(p, 1.5, 3); shake = Math.max(shake, 0.9); crashZoom = Math.max(crashZoom, 0.25); } });   // b54: a snowball on the sleigh
 
 let shake = 0, crashZoom = 0, weapon = (() => { try { const w = localStorage.getItem('weapon'); if (WEAPONS[w]) return w; } catch (e) {} return 'gatling'; })();
+// b56 THE DELIVERY STREET (src/delivery.js): 3 good houses want a present down the chimney, 1 taken-over house wants an ornament bomb
+const delivery = makeDelivery({ scene, world, rig, foot, snowmen, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a),
+  onScore: n => { cookieCount = Math.max(0, cookieCount + n); if (n > 0) milk = Math.min(100, milk + n * 3); },
+  onShake: k => { shake = Math.max(shake, k); crashZoom = Math.max(crashZoom, k * 0.2); } });
 const wBtn = document.createElement('div'); wBtn.className = 'btn'; wBtn.id = 'weaponBtn';
 wBtn.style.cssText = 'width:auto;height:auto;z-index:7;font-size:12px;left:calc(50% + 6px);top:calc(env(safe-area-inset-top) + 8px)';
 document.getElementById('hud').appendChild(wBtn);
@@ -519,7 +524,7 @@ function frame(now) {
   cookies.forEach((c, i) => { c.o.updateMatrixWorld(true); cookieDisc.setMatrixAt(i, c.parts[0].matrixWorld); for (let k = 0; k < 5; k++) cookieChips.setMatrixAt(i * 5 + k, c.parts[k + 1].matrixWorld); });
   cookieDisc.instanceMatrix.needsUpdate = true; cookieChips.instanceMatrix.needsUpdate = true;
   $cookies.textContent = cookieCount; $milk.textContent = Math.round(milk);
-  if (dt > 0) { world.tick(t, dt); snowmen.update(dt, foot.active ? foot.st.pos : rig.S, camera, { vel: foot.active ? foot.st.vel : rig.SV, sleigh: rig.S }); }
+  if (dt > 0) { world.tick(t, dt); snowmen.update(dt, foot.active ? foot.st.pos : rig.S, camera, { vel: foot.active ? foot.st.vel : rig.SV, sleigh: rig.S }); delivery.update(dt, t); }
   merger.tick(dt);
   updateCamera(dt);
   world.town?.lodTick(camera, real);   // b33: far houses swap to painted slabs (town.js TOWN.lod)
@@ -576,4 +581,4 @@ function updateSound(dt) {
   let near = 1e9; for (const f of world.fireList) near = Math.min(near, f.p.distanceTo(camera.position));
   L.fire.setVolume(Math.max(0, 1 - near / 28) * 0.8, 0.3);
 }
-window.__game = { rig, scene, snowmen, camera, FLY, renderer, post, menus, MENU, foot, world, merger, freeCam: () => { camOverride = 'free'; }, get state() { return STATE; } };
+window.__game = { rig, scene, snowmen, delivery, camera, FLY, renderer, post, menus, MENU, foot, world, merger, freeCam: () => { camOverride = 'free'; }, get state() { return STATE; } };

@@ -1,10 +1,11 @@
 {
-"build": 55,
+"build": 56,
 "files": [
 "./src/anim.js",
 "./src/audio.js",
 "./src/characters.js",
 "./src/crew.js",
+"./src/delivery.js",
 "./src/destruct.js",
 "./src/destructshow.js",
 "./src/enemies.js",
