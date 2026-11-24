@@ -40,7 +40,10 @@ export function heldGun(scene, key) {
   // near-black. Cut the metalness, lift the albedo a touch, keep a little sheen.
   body.traverse(o => {
     if (!o.isMesh) return; o.castShadow = true; o.frustumCulled = false;
-    const fix = m => { m = m.clone(); if (m.metalness !== undefined) { m.metalness = Math.min(m.metalness, 0.15); m.roughness = Math.min(Math.max(m.roughness ?? 0.5, 0.35), 0.6); } if (m.color) m.color.multiplyScalar(1.25); return m; };
+    const fix = m => { m = m.clone(); if (m.metalness !== undefined) { m.metalness = Math.min(m.metalness, 0.15); m.roughness = Math.min(Math.max(m.roughness ?? 0.5, 0.35), 0.6); } if (m.color) m.color.multiplyScalar(1.25);
+      // b41 (his: "the gun textures are still dark" at dusk): a soft self-glow from the gun's own texture so it reads in any light
+      if (m.emissive) { m.emissive.setRGB(1, 1, 1); m.emissiveMap = m.map || null; m.emissiveIntensity = m.map ? 0.35 : 0; if (!m.map) m.emissive.copy(m.color).multiplyScalar(0.25), m.emissiveIntensity = 1; }
+      return m; };
     o.material = Array.isArray(o.material) ? o.material.map(fix) : fix(o.material);
   });
   const barrels = body.getObjectByName('barrels');

@@ -64,6 +64,9 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     st.vel.copy(rig.SV).multiplyScalar(0.9);
     st.vel.y = Math.max(st.vel.y, 0) + 6 + power * 6; st.vel.x += (Math.random() - 0.5) * 6; st.vel.z += (Math.random() - 0.5) * 6;
     st.tumble = 1.2; st.face = rig.yaw; st.camYaw = rig.yaw; st.calling = false; st.kick = 0.8; st.thrown = true;
+    // the camera picks up from where the chase cam IS and keeps him centred (his note b40: on a crash you couldn't tell where Santa
+    // was, then it cracked into place)
+    st.camPos.copy(camera.position); st.camLook.copy(st.pos).setY(st.pos.y + 1.2);
     setMode('air'); sfx('whoosh', { vol: 0.9, rate: 0.7 });
   }
 
@@ -88,7 +91,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
   // ---- per frame ----------------------------------------------------------------------------------------------------------
   const v3 = new THREE.Vector3(), fwd = new THREE.Vector3(), right = new THREE.Vector3(), deckW = new THREE.Vector3();
   function solidY(x, z, y) {   // ground or a roof under him
-    let f = groundH(x, z);
+    let f = Math.max(groundH(x, z), rig.roadTop ? rig.roadTop(x, z) : -1e9);
     for (const c of (rig.colliders || [])) if ((x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r && y > c.top - 1.5) f = Math.max(f, c.top);
     return f;
   }
@@ -102,7 +105,10 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     const want = v3.copy(fwd).multiplyScalar(my).addScaledVector(right, mx);
     const spd = mag > 0.85 ? FOOT.run : FOOT.walk;
     if (mag > 0.15) st.face = Math.atan2(want.x, want.z);
-    if (st.firing) { const a = rig.aimTarget; if (a) st.face = Math.atan2(a.x - st.pos.x, a.z - st.pos.z); }
+    // his note b40: turning made the gun point odd ways + the left arm vanish -- on foot his BODY turns to the aim whenever he
+    // shoots or aims (the gun only fine-aims within a small arc, CREW.footStance.aimYaw)
+    const aiming = st.firing || Math.hypot(input.aimX || 0, input.aimY || 0) > 0.15;
+    if (aiming) { const a = rig.aimTarget; if (a) st.face = Math.atan2(a.x - st.pos.x, a.z - st.pos.z); }
     const doJump = jumpPress && st.stun <= 0; jumpPress = false;
 
     if (st.mode === 'deck') {
@@ -212,7 +218,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat }) {
     // the look point eases too, so a tumbling / bouncing Santa never whips the camera round
     _look.set(st.pos.x + back.x * 3, st.pos.y + 1.6, st.pos.z + back.z * 3);
     if (st.camLook.lengthSq() === 0 || st.camLook.distanceTo(_look) > 60) st.camLook.copy(_look);
-    st.camLook.lerp(_look, 1 - Math.exp(-(st.mode === 'air' ? 3 : 8) * dt));
+    st.camLook.lerp(_look, 1 - Math.exp(-(st.tumble > 0 || st.mode === 'air' ? 7 : 8) * dt));   // the LOOK stays on him; the position eases
     camera.lookAt(st.camLook);
     if (camera.fov !== 60) { camera.fov = 60; camera.updateProjectionMatrix(); }
   }

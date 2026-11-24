@@ -19,7 +19,7 @@ import { loadModels, makeSanta, makeElf } from './characters.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 40;
+export const BUILD = 41;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -45,6 +45,7 @@ addEventListener('resize', () => {
 const world = buildWorld(scene, camera, { mode: MODE });
 const rig = buildRig(scene, world.colliders);
 rig.colliders = world.colliders;
+rig.roadTop = (x, z) => world.roadTop ? world.roadTop(x, z) : -1e9;   // on foot he stands ON the road / sidewalk
 // SANTA ON FOOT: hop out, walk the deck while it flies itself, jump / get thrown off, CALL it back (src/onfoot.js)
 const foot = makeOnFoot({ scene, rig, input, camera, sfx: (n, o) => sfx(n, o),
   onSplat: (p, v) => { shake = Math.max(shake, 0.5); shots?.puff?.(p, '#ffffff', 14, 5, 0.9); } });

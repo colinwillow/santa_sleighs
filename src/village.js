@@ -34,6 +34,8 @@ export function buildVillage(scene, world) {
   const DN = 120, dpts = dirtCurve.getSpacedPoints(DN);
   const dirtDist = (x, z) => { let m = 1e9; for (const p of dpts) { const d = (p.x - x) ** 2 + (p.z - z) ** 2; if (d < m) m = d; } return Math.sqrt(m); };
   world.avoid.push((x, z) => dirtDist(x, z) < 7 || roadDist(x, z) < 9);
+  // the raised road / curb / sidewalk as a floor height (his note b40: Santa's feet went through the sidewalk)
+  world.roadTop = (x, z) => { const d = roadDist(x, z); return d < ROAD.half ? ROAD.y : d < ROAD.half + ROAD.walk ? ROAD.y + ROAD.curbH : -1e9; };
 
   // ---- road ribbons ----------------------------------------------------------------------------
   const ribbon = (P, N, o1, o2, yf1, yf2, color, closed = true) => {

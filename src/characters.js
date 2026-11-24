@@ -20,7 +20,7 @@ export const CREW = {
   // h = height between hip (0) and chest (1); scale = gun size multiplier for this stance
   // b39 HIP CARRY (his: "his arms are completely gone"): the gun sits low at his right hip, not across the belly
   seatStance: { side: 1.9, h: 0.15, scale: 0.85, fwd: 0.3, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2] },
-  footStance: { side: 1.9, h: 0.15, scale: 0.85, fwd: 0.4, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2], still: true },   // b29: the sleigh's working elbows; `still` = walk/run clips don't swing his shoulders + hands (they dragged the IK arms through his body)
+  footStance: { aimYaw: 0.35, side: 1.9, h: 0.15, scale: 0.85, fwd: 0.4, poleR: [-1.2, 0.2, -0.6], poleL: [1.0, -0.6, 0.2], still: true },   // b29: the sleigh's working elbows; `still` = walk/run clips don't swing his shoulders + hands (they dragged the IK arms through his body)
   aimYaw: 1.5, aimUp: 0.6, aimDown: 1.1,   // aim limits (rad) relative to the sleigh
   recoil: 0.11,                       // metres of kick per shot
   // secondary motion on the elves' jiggle bones (models/elf_girl_jiggle.glb, see tools/blender/)
@@ -256,7 +256,14 @@ export function spreadArms(B, H, a) {
   }
 }
 
-export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[santaChoice()] || ARMFIT.tough } = {}) {
+/** cigar placement per Santa (mouth = head bone + fractions of head-bone->HeadTop height; rx/ry = tilt) */
+export const CIGAR = {
+  tough:   { side: -0.06, up: 0.22, fwd: 0.62, rx: 0.22, ry: -0.45 },
+  classic: { side: -0.06, up: 0.22, fwd: 0.62, rx: 0.22, ry: -0.45 },
+  nocoat:  { side: -0.07, up: 0.03, fwd: 0.6, rx: -0.15, ry: -1.1 },   // b41: in the corner of his mouth, out to the side (it stuck into his face)
+};
+
+export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[santaChoice()] || ARMFIT.tough, cigarKey = santaChoice() } = {}) {
   const ST0 = stance === 'foot' ? CREW.footStance : CREW.seatStance;
   const ST = { ...ST0, fwd: ST0.fwd + fit.fwd, poleR: [ST0.poleR[0] * fit.pole, ST0.poleR[1], ST0.poleR[2]], poleL: [ST0.poleL[0] * fit.pole, ST0.poleL[1], ST0.poleL[2]] };
   const inst = skClone(gltf.scene);
@@ -268,8 +275,9 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   const cig = buildCigar();
   {
     const head = B.Head, hp = wpos(head), hh = wpos(B.HeadTop_End).y - hp.y, hl = H.worldToLocal(hp.clone());
-    const mouth = local(hl.x - 0.06, hl.y + hh * 0.22, hl.z + hh * 0.62);
-    const q = H.getWorldQuaternion(Q()).multiply(Q().setFromEuler(new THREE.Euler(0.22, -0.45, 0)));
+    const C = CIGAR[cigarKey] || CIGAR.tough;   // per model: his head-top bone sits at a different height on each Santa
+    const mouth = local(hl.x + C.side, hl.y + hh * C.up, hl.z + hh * C.fwd);
+    const q = H.getWorldQuaternion(Q()).multiply(Q().setFromEuler(new THREE.Euler(C.rx, C.ry, 0)));
     head.add(cig.c);
     cig.c.position.copy(head.worldToLocal(mouth));
     cig.c.quaternion.copy(head.getWorldQuaternion(Q()).invert().multiply(q));
@@ -315,7 +323,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       // aim, in his own frame, clamped to the arc in front of him
       if (aimWorld) {
         tmp.copy(aimWorld); H.worldToLocal(tmp).sub(H.worldToLocal(pivot.getWorldPosition(V())));
-        const yaw = THREE.MathUtils.clamp(Math.atan2(tmp.x, tmp.z), -CREW.aimYaw, CREW.aimYaw);
+        const yaw = THREE.MathUtils.clamp(Math.atan2(tmp.x, tmp.z), -(ST.aimYaw ?? CREW.aimYaw), ST.aimYaw ?? CREW.aimYaw);
         const pitch = THREE.MathUtils.clamp(Math.atan2(tmp.y, Math.hypot(tmp.x, tmp.z)), -CREW.aimDown, CREW.aimUp);
         wantQ.setFromEuler(new THREE.Euler(-pitch, yaw, 0, 'YXZ'));
       } else wantQ.identity();
