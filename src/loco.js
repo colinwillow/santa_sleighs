@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/GLTFLoader.js';
 import { retargetClip } from './retarget.js';
+import { cleanClip } from './anim.js';
 
 export const LOCO = {
   clips: { walk: 'Rifle_Walk', run: 'Rifle_Run', back: 'Backwards_Rifle_Walk', backRun: 'Backwards_Rifle_Run', strafeA: 'Left_Strafe_Walk', strafeB: 'Right_Strafe_Walk' },
@@ -67,6 +68,7 @@ export function makeLegs({ rest, mixer, hipH }) {
         const rc = retargetClip(src, clip, rest, { name: 'legs_' + key });   // first: it needs the source AT REST
         const m = measure(src, clip);
         rc.tracks = rc.tracks.filter(t => LEGS.test(t.name) || HIPPOS.test(t.name));
+        cleanClip(rc, { loop: true });   // b67 THE HITCH: drop the duplicate first key (a 33 ms freeze every stride) + close the wrap
         const a = mixer.clipAction(rc); a.setLoop(THREE.LoopRepeat, Infinity); a.enabled = true; a.setEffectiveWeight(0); a.play();
         out.push({ key, stem, a, m });
       } catch (e) { console.warn('loco: no', stem, e); }

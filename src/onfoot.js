@@ -30,7 +30,14 @@ export const CAMERA = {
 // backAngle from where he faces = a BACK dodge (he keeps facing, hops back: Jump_Backward), else a forward ROLL that turns him
 // that way (Sprinting_Forward_Roll, in place; the code moves him). inv = s of no snowman blows (foot.knock ignores him); cool = s
 // after the dodge ends before the next. Clip speeds: roll 1.17 s / rollSpeed, back hop 0.87 s / backSpeed.
-export const DODGE = { dist: 4.6, time: 0.5, backDist: 3.8, backAngle: 1.9, inv: 0.55, cool: 0.6, rollSpeed: 2.2, backSpeed: 1.7, camKick: 0.08 };
+// b67 DODGE SYNC (his: "he moves before the animation... a subtle hitch at the end. He needs to move WITH the animation"): the clip
+// starts with NO lag (fadeIn s, and anim.js drops the duplicate first key so it opens on the first moving frame), and his travel
+// follows the CLIP'S OWN hips path (anim.js ROOT: the hips' horizontal drift is pinned, its normalised path drives his position,
+// scaled to dist / backDist), so body and clip move together. The dodge lasts the clip (roll ~0.53 s, back hop ~0.51 s at these
+// speeds); blendOut s before its end it hands back to locomotion (characters.js endOnce crossfades 0.2 s over the clip's last
+// frames) and his last travel speed carries into the ground damping -- no stop dead, no pop. `time` = fallback if a clip is missing.
+export const DODGE = { dist: 4.6, time: 0.5, backDist: 3.8, backAngle: 1.9, inv: 0.55, cool: 0.6, rollSpeed: 2.2, backSpeed: 1.7, camKick: 0.08,
+  fadeIn: 0.05, blendOut: 0.2 };
 
 const _look = new THREE.Vector3(), _X = new THREE.Vector3(1, 0, 0), _Y = new THREE.Vector3(0, 1, 0), _sq = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _hip = new THREE.Vector3(), _hip2 = new THREE.Vector3();
 export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, onDodge }) {
@@ -129,7 +136,12 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     st.dodgeBack = Math.abs(rel) > DODGE.backAngle;
     st.dodgeDir.copy(_dd); st.dodgeT = DODGE.time; st.dodgeCd = DODGE.time + DODGE.cool; st.inv = DODGE.inv;
     if (!st.dodgeBack) { st.face = Math.atan2(_dd.x, _dd.z); st.bodyQ.setFromAxisAngle(_Y, st.face); }   // the roll turns him that way at once
-    S.setFiring(false); S.playOnce(st.dodgeBack ? 'dodgeBack' : 'roll', st.dodgeBack ? DODGE.backSpeed : DODGE.rollSpeed);
+    S.setFiring(false);
+    const role = st.dodgeBack ? 'dodgeBack' : 'roll', speed = st.dodgeBack ? DODGE.backSpeed : DODGE.rollSpeed, info = S.anim.info?.(role);
+    st.dodgeRole = role; st.dodgeSpeed = speed; st.dodgeF = 0;
+    st.dodgeLen = info ? info.dur / speed : DODGE.time; st.dodgeT = st.dodgeLen; st.dodgeCd = st.dodgeLen + DODGE.cool;
+    // S.playOnce with a 0.05 s fade instead of its 0.12 (the dive starts on the first frame of the flick)
+    S.busy = true; S.freeArms = true; S.anim.play(role, DODGE.fadeIn, { once: true, speed });
     st.kick = Math.max(st.kick, DODGE.camKick);
     sfx('whoosh', { vol: 0.75, rate: st.dodgeBack ? 1.25 : 0.95 }); sfx('snow_puff', { vol: 0.5, rate: 1.3 });
     onDodge?.(st.pos.clone(), _dd.clone(), st.dodgeBack);
@@ -173,9 +185,11 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
       // air + ground: real world physics
       const onGround = st.mode === 'ground';
       if (onGround && st.dodgeT > 0) {
-        // the roll: ease-out along the dodge line (speed 2*d/T at the start -> 0 at the end: covers exactly d)
+        // the roll: his travel = the clip's own hips path (anim.travelAt) at the clip's time, scaled to d; fallback an ease-out
         st.dodgeT = Math.max(0, st.dodgeT - dt);
-        const d = st.dodgeBack ? DODGE.backDist : DODGE.dist, sp = 2 * d / DODGE.time * (st.dodgeT / DODGE.time);
+        const d = st.dodgeBack ? DODGE.backDist : DODGE.dist, u = 1 - st.dodgeT / st.dodgeLen;
+        const f = S.anim.travelAt?.(st.dodgeRole, u * st.dodgeLen * st.dodgeSpeed) ?? (1 - (1 - u) * (1 - u));
+        const sp = dt > 0 ? (f - st.dodgeF) * d / dt : 0; st.dodgeF = f;
         st.vel.x = st.dodgeDir.x * sp; st.vel.z = st.dodgeDir.z * sp;
       } else if (onGround) {
         const k = 1 - Math.exp(-12 * dt);
@@ -232,7 +246,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     // into it, so flips stacked into a glitchy multi-spin). Knocked flat = the Getting Up clip, not a rotation at his feet.
     st.bodyQ.slerp(baseQ, 1 - Math.exp(-14 * dt));
     S.holder.quaternion.copy(st.bodyQ);
-    if (st.stun <= 0 && st.dodgeT <= 0 && S.busy) S.endOnce();
+    if (st.stun <= 0 && st.dodgeT <= (st.dodgeT > 0 ? DODGE.blendOut : 0) && S.busy) S.endOnce();   // a dodge hands back blendOut s early
     // AIR SPINS turn round his HIPS, never his boots (his note): the cartwheel when he's thrown / hit, and the double-jump flip
     let spin = 0;
     if (st.tumble > 0) spin = st.tumbleA = (st.tumbleA || 0) + 9 * dt;                       // cartwheeling out

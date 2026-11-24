@@ -16,12 +16,12 @@ import { makeMenus } from './menu.js';
 import { WEAPONS, ORDER, makeShots, loadGuns, heldGun } from './weapons.js';
 import { CONTENT } from './gag.js';
 import { loadModels, makeSanta, makeElf } from './characters.js';
-import { makeDelivery } from './delivery.js';
+import { makeDelivery, DROPCAM } from './delivery.js';
 // sound is optional: if src/audio.js is missing or fails, the game stays silent instead of blank
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 67;
+export const BUILD = 68;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -442,6 +442,7 @@ addEventListener('pointerup', () => ORB.drag = null);
 // ~1.2 s blend from where the camera actually was toward the new rig's pose instead of cutting
 // yawRate / pitchRate rad/s at full stick; back = s after letting go before it eases (rate `ease`) back behind the sleigh
 const CHASE_ORBIT = { yaw: 0, pitch: 0, idle: 9, yawRate: 2.2, pitchRate: 1.2, pitchMin: -0.35, pitchMax: 0.7, back: 1.5, ease: 2.5 };
+const _dcP = new THREE.Vector3(), _dcL = new THREE.Vector3();
 const CAMB = { key: null, t: 0, pos: new THREE.Vector3(), q: new THREE.Quaternion(), fov: 60, dur: 1.2 };
 function updateCamera(dt) {
   const key = STATE + '|' + (foot.active ? 'foot' : 'ride') + '|' + (camOverride || '');
@@ -496,10 +497,13 @@ function updateCamera0(dt) {
   const yawF = _d.set(Math.sin(rig.yaw + co.yaw), 0, Math.cos(rig.yaw + co.yaw));
   crashZoom *= Math.exp(-0.9 * dt);   // a crash pulls the camera back so the whole wreck is in frame
   const want = _p.copy(rig.S).addScaledVector(yawF, -14 * (1 + crashZoom) * Math.cos(co.pitch)).add(new THREE.Vector3(0, (7.5 - rig.pitch * 6 + 14 * Math.sin(co.pitch)) * (1 + crashZoom * 0.8), 0));
-  const gy = groundH(want.x, want.z) + 2; if (want.y < gy) want.y = gy;
-  camPos.lerp(want, 1 - Math.exp(-4 * dt));
   const look = new THREE.Vector3().copy(rig.S).lerp(rig.lead, 0.4).addScaledVector(rig.fwd, 4); look.y += 1;
-  camLook.lerp(look, 1 - Math.exp(-8 * dt));
+  // b67 DROP-CAM (src/delivery.js DROPCAM): holding a drop button blends the chase into a steep look-down at the landing marker
+  const dc = delivery.dropCam, dk = STATE === 'play' && dc ? dc.k : 0;
+  if (dk > 0.001) { dc.pose(_dcP, _dcL); want.lerp(_dcP, dk); look.lerp(_dcL, dk); }
+  const gy = groundH(want.x, want.z) + 2; if (want.y < gy) want.y = gy;
+  camPos.lerp(want, 1 - Math.exp(-(4 + (dc ? DROPCAM.camRate : 0) * dk) * dt));
+  camLook.lerp(look, 1 - Math.exp(-(8 + 6 * dk) * dt));
   camera.position.copy(camPos);
   camera.lookAt(camLook);
   if (shake > 0.001) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; shake *= Math.exp(-6 * dt); }

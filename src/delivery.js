@@ -28,6 +28,15 @@ export const DELIVER = {
   bombR: 2.6,                     // m: a missed bomb's blast
 };
 
+// DROP-CAM (b67, his: "press and hold on it and the camera will tilt so you can see downwards... TAP to quick drop, or PRESS AND
+// HOLD to get the camera to tilt and then let go = release"). PRESENT / BOMB buttons, keys Z / X, pad X / B: released before tapMs
+// = drop now; held past tapMs = the chase camera eases (ease s, smoothstep) to up m over the sleigh, back m behind, looking down at
+// lookK of the way from the sleigh to the LANDING MARKER (a soft ring where it would land if let go now: the drop's own ballistics
+// + drag at step s, up to maxT s, onto the ground / road / a live roof chunk; it snaps gold over a chimney that would take it);
+// the sleigh keeps flying. Let go = drop + the camera eases back. Slide the finger off the button (slideOff px past its edge) =
+// cancel, nothing drops. camRate = how fast the camera chases the drop-cam pose (1/s, added to the chase's 4).
+export const DROPCAM = { tapMs: 200, ease: 0.35, up: 15, back: 6, lookK: 0.8, fov: 60, step: 1 / 120, maxT: 5, slideOff: 30, ring: 2.6, camRate: 6 };
+
 const V3 = THREE.Vector3;
 // ---- geometry: parts merged into one vertex-coloured mesh (baked top-front light so a MeshBasic glow still reads 3D) ---------
 function part(geo, col, mul = 1, shade = true) {
@@ -82,7 +91,7 @@ export const FUSE_TIP = new V3(0.18, 0.56, 0.03);
 
 export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {}, puff = () => {}, onScore = () => {}, onShake = () => {} }) {
   const town = world.town;
-  if (!town) return { update() {}, drop() { return false; }, street: [] };
+  if (!town) return { update() {}, drop() { return false; }, street: [], dropCam: null };
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new V3(), _p = new V3(), _e = new THREE.Euler();
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
   const litMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 });
@@ -270,6 +279,73 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
     sfx('whoosh', { vol: 0.6, rate: kind === 'bomb' ? 1.0 : 1.4 }); if (kind === 'bomb') sfx('casing', { vol: 0.5, rate: 0.6 });
     return true;
   }
+  // ---- DROP-CAM: hold a drop button -> look down + the landing marker; release = drop ------------------------------------
+  const hold = { kind: null, t: 0, src: null, btn: null, lin: 0, k: 0, land: new V3(), hit: false, chim: false };
+  const ringTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(0.1, 'rgba(255,255,255,0.5)'); g.addColorStop(0.18, 'rgba(255,255,255,0)');
+    g.addColorStop(0.62, 'rgba(255,255,255,0)'); g.addColorStop(0.78, 'rgba(255,255,255,1)'); g.addColorStop(0.92, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const ring = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  ring.renderOrder = 20; ring.frustumCulled = false; ring.visible = false; ring.userData.noMerge = true; scene.add(ring);
+  const _pv = new V3(), _pp = new V3(), _pq = new V3();
+  /** where a drop of `kind` released now would land (same launch + integration as drop() / updateItems) -> hold.land, .chim */
+  function predict(kind) {
+    rig.sleigh.g.updateMatrixWorld();
+    if (kind === 'present') { const s = STACK[Math.max(0, stack - 1)]; rig.sleigh.g.localToWorld(_pp.set(s[0], s[1], s[2])); }
+    else rig.sleigh.g.localToWorld(_pp.set(0.6, 2.4, -2.3));
+    _pv.copy(rig.SV); _pv.y -= 1.2;
+    const h = DROPCAM.step, k = Math.exp(-DELIVER.drag * h);
+    hold.chim = false; hold.hit = false;
+    for (let t = 0; t < DROPCAM.maxT; t += h) {
+      const py = _pp.y;
+      _pv.y -= DELIVER.g * h; _pv.x *= k; _pv.z *= k; _pq.copy(_pp); _pp.addScaledVector(_pv, h);
+      for (const hh of street) {
+        const c = hh.f.chim;
+        if (hh.state === 'wait' && hh.f.chimOn && py > c.y && _pp.y <= c.y && (_pp.x - c.x) ** 2 + (_pp.z - c.z) ** 2 < DELIVER.chimR ** 2) { hold.land.set(c.x, c.y + 0.15, c.z); hold.chim = true; hold.hit = true; return; }
+      }
+      const gy = Math.max(groundH(_pp.x, _pp.z), world.roadTop ? world.roadTop(_pp.x, _pp.z) : -1e9);
+      if (_pp.y < gy + 0.3) { hold.land.set(_pp.x, gy + 0.08, _pp.z); hold.hit = true; return; }
+      if (town.solidAt(_pp)) { hold.land.copy(_pq); hold.hit = true; return; }
+    }
+    hold.land.copy(_pp);
+  }
+  const holdBtn = kind => kind === 'present' ? bP : bB;
+  function holdStart(kind, src) {
+    if (hold.kind || foot.active || !document.body.classList.contains('play')) return;
+    hold.kind = kind; hold.src = src; hold.t = 0; holdBtn(kind)?.classList.add('on');
+  }
+  function holdEnd(fire) {
+    if (!hold.kind) return;
+    const k = hold.kind; hold.kind = null; holdBtn(k)?.classList.remove('on');
+    if (fire) drop(k);
+  }
+  function updateHold(dt) {
+    if (hold.kind && (foot.active || !document.body.classList.contains('play'))) holdEnd(false);
+    if (hold.kind) hold.t += dt;
+    const aiming = !!hold.kind && hold.t * 1000 >= DROPCAM.tapMs;
+    hold.lin = THREE.MathUtils.clamp(hold.lin + (aiming ? 1 : -1) * dt / DROPCAM.ease, 0, 1);
+    hold.k = hold.lin * hold.lin * (3 - 2 * hold.lin);
+    if (aiming) predict(hold.kind);
+    ring.visible = aiming && hold.hit;
+    if (ring.visible) {
+      const pulse = 1 + Math.sin(performance.now() / 1000 * 7) * 0.08, sc = DROPCAM.ring * (hold.chim ? 1.25 : 1) * pulse * (0.6 + 0.4 * hold.k);
+      ring.position.copy(hold.land); ring.scale.setScalar(sc);
+      ring.material.color.set(hold.chim ? (hold.kind === 'present' ? '#ffe070' : '#9dff4a') : hold.kind === 'present' ? '#ffb848' : '#ff6a4a');
+    }
+    document.body.classList.toggle('dropaim', aiming);
+  }
+  /** the drop-cam pose (main.js blends the chase camera into it by dropCam.k) */
+  const dropCam = {
+    get k() { return hold.k; }, get aiming() { return !!hold.kind && hold.t * 1000 >= DROPCAM.tapMs; }, get land() { return hold.hit ? hold.land : null; },
+    pose(pos, look) {
+      const f = _pq.set(Math.sin(rig.yaw), 0, Math.cos(rig.yaw));
+      pos.copy(rig.S).addScaledVector(f, -DROPCAM.back); pos.y += DROPCAM.up;
+      if (hold.hit || hold.kind) look.copy(rig.S).lerp(hold.land, DROPCAM.lookK); else look.copy(rig.S).addScaledVector(f, 20).setY(rig.S.y - 30);
+      return pos;
+    },
+  };
+
   function updateItems(dt) {
     const steps = 4, h_ = dt / steps;
     for (let n = items.length - 1; n >= 0; n--) {
@@ -348,16 +424,29 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
   const pill = document.createElement('div'); pill.id = 'deliv'; hud.appendChild(pill);
   const mkBtn = (id, svg, kind) => {
     const b = document.createElement('div'); b.className = 'btn dropb'; b.id = id; b.innerHTML = svg + (kind === 'present' ? '<span class="n">6</span>' : ''); hud.appendChild(b);
-    b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (drop(kind)) { b.classList.add('on'); setTimeout(() => b.classList.remove('on'), 140); } });
+    // DROP-CAM: down = hold starts; up = drop (tap or hold); sliding off the button = cancel
+    let pid = null;
+    b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (hold.kind) return; pid = e.pointerId; try { b.setPointerCapture(pid); } catch (_) {} holdStart(kind, 'ptr'); });
+    b.addEventListener('pointermove', e => {
+      if (e.pointerId !== pid || hold.kind !== kind || hold.src !== 'ptr') return;
+      const r = b.getBoundingClientRect(), m = DROPCAM.slideOff;
+      if (e.clientX < r.left - m || e.clientX > r.right + m || e.clientY < r.top - m || e.clientY > r.bottom + m) { pid = null; holdEnd(false); }
+    });
+    const up = fire => e => { if (e.pointerId !== pid) return; pid = null; if (hold.kind === kind && hold.src === 'ptr') holdEnd(fire); };
+    b.addEventListener('pointerup', up(true)); b.addEventListener('pointercancel', up(false));
     return b;
   };
   const bP = mkBtn('dropPresent', GIFT, 'present'), bB = mkBtn('dropBomb', BOMB, 'bomb'), bPn = bP.querySelector('.n');
-  addEventListener('keydown', e => { if (e.repeat) return; if (e.code === 'KeyZ') drop('present'); if (e.code === 'KeyX') drop('bomb'); });
+  const KEYS = { KeyZ: 'present', KeyX: 'bomb' };
+  addEventListener('keydown', e => { if (e.repeat || !KEYS[e.code]) return; holdStart(KEYS[e.code], 'key'); });
+  addEventListener('keyup', e => { if (KEYS[e.code] && hold.kind === KEYS[e.code] && hold.src === 'key') holdEnd(true); });
   let gpX = false, gpB = false;
   function pollPad() {
     const gp = navigator.getGamepads?.().find(g => g && g.connected); if (!gp) return;
     const x = !!gp.buttons[2]?.pressed, b = !!gp.buttons[1]?.pressed;
-    if (x && !gpX) drop('present'); if (b && !gpB) drop('bomb'); gpX = x; gpB = b;
+    if (x && !gpX) holdStart('present', 'pad'); if (b && !gpB) holdStart('bomb', 'pad');
+    if (!x && gpX && hold.kind === 'present' && hold.src === 'pad') holdEnd(true); if (!b && gpB && hold.kind === 'bomb' && hold.src === 'pad') holdEnd(true);
+    gpX = x; gpB = b;
   }
   function updateHud() {
     const good = street.filter(h => !h.bad), bad = street.find(h => h.bad);
@@ -376,6 +465,7 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
     cd -= dt;
     pollPad();
     document.body.classList.toggle('onfoot', !!foot.active);
+    updateHold(dt);
     // wrecked chimneys go (twice a second); a waiting house wrecked by gunfire / a crash can't take a present any more
     checkT -= dt;
     if (checkT <= 0) {
@@ -452,5 +542,5 @@ export function makeDelivery({ scene, world, rig, foot, snowmen, sfx = () => {},
     sparkG.attributes.position.needsUpdate = sparkG.attributes.color.needsUpdate = true;
     updateHud();
   }
-  return { update, drop, get street() { return street; }, get items() { return items; }, get stack() { return stack; }, facts, DELIVER, begin, end };
+  return { update, drop, dropCam, hold, predict, get street() { return street; }, get items() { return items; }, get stack() { return stack; }, facts, DELIVER, begin, end };
 }
