@@ -87,6 +87,7 @@ window.__importsReady.then(() => { const s = document.createElement('script'); s
   const sc = new URLSearchParams(location.search).get('scene');
   if (sc === 'sandbox') { document.body.classList.add('sandbox'); import('./src/sandbox.js'); }
   else if (sc === 'destruct') { document.body.classList.add('sandbox'); import('./src/destructshow.js'); }
+  else if (sc === 'gunpose') { document.body.classList.add('sandbox'); import('./src/gunpose.js'); }
   else import('./src/main.js');
   // the build number, also on test pages (from version.json)
   if (window.__build) { const bn = document.getElementById('bnum'); if (bn) bn.textContent = window.__build; }

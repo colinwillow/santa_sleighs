@@ -16,7 +16,7 @@ export const CREW = {
   gunScale: 1.3,
   handGunScale: 0.85, gunTilt: 0.05, handSpread: 0.35,
   blade: 0.3, bladeHead: 0.85, leftGrip: false,
-  hold: 'gunner',   // b50 (his: left elbow UP + out, hand in onto the gun, gun inside the right arm): 'gunner' two-handed; 'hand' = b45-49 right-hand carry. Was b47: 'gunner' = side-on body, gun in front of the belly, both hands IK'd with elbows out; 'hand' = b45 gun in the right hand
+  hold: 'pose',   // b58: 'pose' = fixed per-weapon upper body from the Gun Pose sandbox (HOLD poses); 'gunner' = b50 hands-first; 'hand' = b45   // b50 (his: left elbow UP + out, hand in onto the gun, gun inside the right arm): 'gunner' two-handed; 'hand' = b45-49 right-hand carry. Was b47: 'gunner' = side-on body, gun in front of the belly, both hands IK'd with elbows out; 'hand' = b45 gun in the right hand
   gunnerPose: { R: [-0.17, -0.33, 0.3], L: [0.24, -0.25, 0.4], turn: 1, head: 0.8, poleR: [-1.4, -0.3, -0.2], poleL: [0.9, 0.3, 0.1] },   // hand spots from the shoulders' midpoint (his frame); poles from each shoulder   // b45 bladed stance: torso twist (rad, left shoulder forward), share of it the head turns back; left hand IK'd to the front grip   // b44 hand-held gun: size, a touch of muzzle-down, arm spread kept small (it moves the gun hand)
   // where the gun sits + which way his elbows bend (H-local pole points; +X is his LEFT). On foot (his note b24: walking, his
   // arms were inside his body) the gun is held further out and the elbows flare to the sides so the arms read from behind.
@@ -262,6 +262,19 @@ export function spreadArms(B, H, a) {
 
 /** cigar placement per Santa (mouth = head bone + fractions of head-bone->HeadTop height; rx/ry = tilt) */
 const RIFLE_ROLES = new Set(['idle', 'fire', 'walk', 'run']);
+/** HOLD POSES (b58, his call: "sandbox is fine") -- his upper body is a FIXED pose per weapon, set in the Gun Pose sandbox
+ *  (?scene=gunpose) and saved to localStorage 'holdpose.v1' { santaKey: { weapon: pose } }; legs keep the clips. Units: metres /
+ *  degrees, in his TORSO frame (x = his LEFT, y up, z forward) from the midpoint of his shoulders.
+ *  gx gy gz = rear grip; yaw pitch roll = the gun (yaw/pitch add to the aim); twist = body turned to his right from the hips;
+ *  head = share of the twist the head turns back; lSlide = left hand along the gun from the rear grip, lUp = above (+) / below (-)
+ *  its axis; rOut rUp / lOut lUp = which way each elbow points (from its shoulder); scale = gun size. */
+export const HOLD_DEFAULT = { gx: -0.12, gy: -0.33, gz: 0.32, yaw: 0, pitch: 0, roll: 0, twist: 55, head: 0.8, lSlide: 0.35, lUp: 0.06,
+  rOut: 0.8, rUp: -0.3, lOut: 0.7, lUp2: 0.5, scale: 0.85 };
+export const HOLD_BASE = {};   // committed per-weapon defaults (his saved poses go here once he sends them): { santaKey: { weapon: {...} } }
+export function holdPose(santaKey, weapon) {
+  let saved = null; try { saved = JSON.parse(localStorage.getItem('holdpose.v1') || 'null'); } catch (e) {}
+  return { ...HOLD_DEFAULT, ...(HOLD_BASE[santaKey]?.[weapon] || {}), ...(saved?.[santaKey]?.[weapon] || {}) };
+}
 export const CIGAR = {
   tough:   { side: -0.06, up: 0.22, fwd: 0.62, rx: 0.22, ry: -0.45 },
   classic: { side: -0.06, up: 0.22, fwd: 0.62, rx: 0.22, ry: -0.45 },
@@ -296,7 +309,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
   // the gun mounts on his WEAPON bone (mounts.py: weapon_root_right, at the palm) -- his rule: never a wrist guess; the hand
   // bone + a palm offset only for a rig without mounts (classic)
   const mount = B.weapon_root_right || B.RightHand;
-  const GUNNER = CREW.hold === 'gunner';
+  const GUNNER = CREW.hold === 'gunner' || CREW.hold === 'pose', POSED = CREW.hold === 'pose';
   if (GUNNER) H.add(pivot); else { mount.add(pivot); pivot.scale.setScalar(1 / mount.getWorldScale(V()).x); }
   gun.g.scale.setScalar(CREW.gunScale * CREW.handGunScale); pivot.add(gun.g);
   let calib = 0;   // frames of the rifle pose seen; lined up at a few frames in
@@ -344,6 +357,36 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     const tgt = a0.clone().addScaledVector(ax, Math.max(0.05, Lw.clone().sub(a0).dot(ax)));
     ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, tgt, H.localToWorld(rot(ls.clone().add(V().fromArray(G.poleL)))));
   }
+  /** POSED HOLD: fixed upper body per weapon (HOLD poses), legs from the clip; aim = gun yaw / pitch on top */
+  function heldPose(dt) {
+    if (self.freeArms) return;
+    const Pz = self.pose || (self.pose = holdPose(cigarKey, self.weapon || 'gatling')), D = THREE.MathUtils.degToRad;
+    for (const k of ['LeftShoulder', 'RightShoulder']) if (B[k]?.userData.bind) B[k].quaternion.copy(B[k].userData.bind);
+    H.updateMatrixWorld(true);
+    let wy = 0, wp = 0;
+    if (aimWorld) {
+      tmp.copy(aimWorld); H.worldToLocal(tmp).sub(H.worldToLocal(wpos(B.Spine2)));
+      wy = THREE.MathUtils.clamp(Math.atan2(tmp.x, tmp.z), -(ST.aimYaw ?? CREW.aimYaw), ST.aimYaw ?? CREW.aimYaw);
+      wp = THREE.MathUtils.clamp(Math.atan2(tmp.y, Math.hypot(tmp.x, tmp.z)), -CREW.aimDown, CREW.aimUp);
+    }
+    const ka = 1 - Math.exp(-12 * dt); aimY += (wy - aimY) * ka; aimP += (wp - aimP) * ka;
+    const phi = -D(Pz.twist) + aimY;                                    // the body turns; the gun keeps pointing at the aim
+    H.getWorldQuaternion(hq); const up = up0.clone().applyQuaternion(hq);
+    twist(['Hips'], Q().setFromAxisAngle(up, phi));
+    twist(['Neck', 'Head'], Q().setFromAxisAngle(up, -phi * Pz.head / 2));
+    H.updateMatrixWorld(true);
+    const ls = H.worldToLocal(wpos(B.LeftArm)), rs = H.worldToLocal(wpos(B.RightArm)), M = ls.clone().add(rs).multiplyScalar(0.5);
+    const tf = v => v.applyAxisAngle(up0, phi);                        // torso frame -> his (holder) frame
+    pivot.position.copy(M).add(tf(V().set(Pz.gx, Pz.gy, Pz.gz)));
+    pivot.quaternion.setFromEuler(new THREE.Euler(-D(Pz.pitch) - aimP, D(Pz.yaw) + aimY, D(Pz.roll), 'YXZ'));
+    gun.g.scale.setScalar((self.baseScale ?? CREW.gunScale) * Pz.scale);
+    pivot.updateMatrixWorld(true);
+    const a0 = gun.grips.right.getWorldPosition(V()), wq = pivot.getWorldQuaternion(Q());
+    const ax = V().set(0, 0, 1).applyQuaternion(wq), upg = V().set(0, 1, 0).applyQuaternion(wq);
+    ik2(B.RightArm, B.RightForeArm, B.RightHand, a0, H.localToWorld(rs.clone().add(tf(V().set(-Pz.rOut, Pz.rUp, -0.2)))));
+    const lt = a0.clone().addScaledVector(ax, Pz.lSlide).addScaledVector(upg, Pz.lUp);
+    ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, lt, H.localToWorld(ls.clone().add(tf(V().set(Pz.lOut, Pz.lUp2, 0.1)))));
+  }
   /** apply a world rotation `r` to each named bone (additive, after the clip) */
   const twist = (names, r) => { for (const k of names) { const b = B[k]; if (!b) continue; b.getWorldQuaternion(sq); const w = r.clone().multiply(sq); b.parent.getWorldQuaternion(sq).invert(); b.quaternion.copy(sq.multiply(w)); b.updateMatrixWorld(true); } };
   const self = {
@@ -356,7 +399,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       const scene = await loadGuns();
       if (self.weapon !== key) return;
       const next = heldGun(scene, key);
-      next.g.scale.multiplyScalar(CREW.handGunScale); pivot.remove(gun.g); gun = next; pivot.add(gun.g);
+      self.baseScale = next.g.scale.x; next.g.scale.multiplyScalar(CREW.handGunScale); pivot.remove(gun.g); gun = next; pivot.add(gun.g); self.pose = null;
     },
     setIdle(r) { idleRole = r; if (!firing && !self.busy) anim.play(r); },
     /** a one-shot clip (get up...) that owns the body until it ends; arms leave the gun meanwhile */
@@ -377,7 +420,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
         H.rotation.y = baseYaw + swiv;
       }
       H.updateMatrixWorld(true);
-      if (GUNNER) { gunnerPose(dt); kick *= Math.exp(-18 * dt); gun.g.position.set(0, 0, -kick); gun.g.rotation.x = -kick * 1.4; flashT -= dt; gun.flash.visible = flashT > 0; gun.firing = firing; gun.updBelt(t, dt); cig.ember.scale.setScalar(1 + Math.sin(t * 3) * 0.15); hat(dt); return; }
+      if (GUNNER) { if (POSED) heldPose(dt); else gunnerPose(dt); kick *= Math.exp(-18 * dt); gun.g.position.set(0, 0, -kick); gun.g.rotation.x = -kick * 1.4; flashT -= dt; gun.flash.visible = flashT > 0; gun.firing = firing; gun.updBelt(t, dt); cig.ember.scale.setScalar(1 + Math.sin(t * 3) * 0.15); hat(dt); return; }
       // BLADED STANCE (his: "stubby thick arms -- he needs to turn his torso to the side to shoot a two-handed gun"): the torso
       // twists side-on (left shoulder forward) and the neck + head turn back toward the target; the gun is lined up AFTER this,
       // so it still points ahead, and the left hand can now reach the front grip

@@ -1,5 +1,5 @@
 {
-"build": 57,
+"build": 58,
 "files": [
 "./src/anim.js",
 "./src/audio.js",
@@ -13,6 +13,7 @@
 "./src/gag.js",
 "./src/gingerfolk.js",
 "./src/ground.js",
+"./src/gunpose.js",
 "./src/input.js",
 "./src/kit.js",
 "./src/kitshow.js",

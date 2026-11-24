@@ -65,6 +65,7 @@ export function makeMenus(G) {
   const fill = (col, nodes) => { col.replaceChildren(...nodes); };
   const sandboxes = (col, back) => fill(col, [
     el('div', 'title', 'SANDBOXES'),
+    button('GUN POSE', 'big', () => G.go('?scene=gunpose')),
     button('CHARACTERS', 'green', () => G.go('?scene=sandbox')),
     button('GINGERBREAD DESTRUCTION', 'green', () => G.go('?scene=destruct')),
     button('NEIGHBORHOOD KIT', 'green', () => G.go('?scene=kit')),
