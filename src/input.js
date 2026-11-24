@@ -244,8 +244,8 @@ export function setEquip(s, force = false) {
   swapCur.innerHTML = icoSvg(cur); swapEl.classList.toggle('soon', vs.length < 2);
   padR.classList.toggle('eq', !!s.cat && !(s.cat === 'present' && s.foot)); padRIco.innerHTML = s.cat ? icoSvg(icon[s.cat]) : '';
   labL.textContent = s.foot ? 'MOVE' : 'FLY';
-  labR.textContent = s.cat === 'gun' ? 'HOLD = FIRE' : s.cat === 'bomb' ? (s.foot ? 'HOLD = AIM · LIFT = THROW' : 'HOLD = AIM · LIFT = DROP')
-    : s.cat === 'present' && !s.foot ? 'HOLD = AIM · LIFT = DROP' : 'LOOK · TAP = JUMP';
+  labR.textContent = s.cat === 'gun' ? 'HOLD = FIRE' : s.cat === 'bomb' ? (s.foot ? 'AIM · LIFT = THROW' : 'AIM · LIFT = DROP')
+    : s.cat === 'present' && !s.foot ? 'AIM · LIFT = DROP' : 'LOOK · TAP = JUMP';
 }
 
 // ---- SWAP button + its fan ----------------------------------------------------------------------------------------------------------
