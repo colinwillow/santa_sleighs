@@ -19,11 +19,12 @@ const side = n => /Left/.test(n) ? 'L' : /Right/.test(n) ? 'R' : 'C';
 const report = {};
 L.load(MODELS[key], async g => {
   for (let ri = 0; ri < roles.length; ri++) {
-    const role = roles[ri], sc = new THREE.Scene(); sc.background = new THREE.Color(ri % 2 ? '#f6f6f6' : '#ffffff');
+    const tag = roles[ri], AIRAIM = tag === 'airaim', role = AIRAIM ? 'air' : tag, sc = new THREE.Scene(); sc.background = new THREE.Color(ri % 2 ? '#f6f6f6' : '#ffffff');
     sc.add(new THREE.HemisphereLight('#fff', '#999', 2));
     const s = makeSanta(g, { role: role === 'fire' ? 'idle' : role, stance: q.get('stance') || 'foot', fit: ARMFIT[key], cigarKey: key });
     await s.anim.preload(role); s.anim.play(role, 0); await s.setWeapon(q.get('gun') || 'gatling');
     if (role === 'fire') s.setFiring(true);
+    if (AIRAIM) { s.airAim = true; await new Promise(r => setTimeout(r, 1500)); }   // b86: air split (the upper layer loads async)
     sc.add(s.holder); const aim = new THREE.Vector3();
     for (let f = 0; f < (+q.get('frames') || 20); f++) { s.holder.updateMatrixWorld(true); aim.fromArray(JSON.parse(q.get('aim') || '[0,1,12]')).applyMatrix4(s.holder.matrixWorld); s.aimAt(aim); s.update(1 / 30, f / 30); }
     s.holder.updateMatrixWorld(true);
@@ -65,7 +66,7 @@ L.load(MODELS[key], async g => {
         const toAxis = p => { const d = p.clone().sub(a0); return +d.sub(ax.clone().multiplyScalar(d.dot(ax))).length().toFixed(2); };
         rep.handToGun = { L: toAxis(P(Bn.LeftHand)), R: +P(Bn.RightHand).distanceTo(a0).toFixed(2) }; } }
     { const xa2 = P(Bn.LeftArm).sub(P(Bn.RightArm)).setY(0).normalize(); rep.chestYawDeg = +THREE.MathUtils.radToDeg(Math.atan2(xa2.z, xa2.x)).toFixed(0); }
-    rep.flags = flags; report[role] = rep;
+    rep.flags = flags; report[tag] = rep;
     // views
     for (let vi = 0; vi < views.length; vi++) {
       const [name, a] = views[vi], cam = new THREE.PerspectiveCamera(30, VW / VH, 0.01, 100);
