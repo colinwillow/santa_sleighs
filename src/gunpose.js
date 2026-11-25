@@ -41,16 +41,21 @@ const SLIDERS = [
   ['gx', 'gun ← → (left +)', -0.6, 0.6, 0.01], ['gy', 'gun height', -0.8, 0.3, 0.01], ['gz', 'gun forward', -0.2, 0.8, 0.01],
   ['yaw', 'gun turn °', -60, 60, 1], ['pitch', 'gun tilt °', -45, 45, 1], ['roll', 'gun roll °', -90, 90, 1], ['scale', 'gun size', 0.4, 1.4, 0.01],
   ['twist', 'body side-on °', -30, 90, 1], ['head', 'head turns back', 0, 1, 0.05],
-  ['lSlide', 'L hand along gun', 0, 1.2, 0.01], ['lUp', 'L hand top/bottom', -0.25, 0.25, 0.01],
-  ['lOut', 'L elbow out', -0.5, 1.5, 0.05], ['lUp2', 'L elbow up', -1.2, 1.2, 0.05],
-  ['rOut', 'R elbow out', -0.5, 1.5, 0.05], ['rUp', 'R elbow up', -1.2, 1.2, 0.05],
+  ['RIGHT ARM'],
+  ['rSlide', 'R hand along gun', -0.4, 0.6, 0.01], ['rUpH', 'R hand up/down', -0.3, 0.3, 0.01], ['rSide', 'R hand off gun ←→', -0.4, 0.4, 0.01],
+  ['rOut', 'R elbow out', -1.5, 2.5, 0.05], ['rUp', 'R elbow up', -2, 2, 0.05], ['rBack', 'R elbow back', -1.5, 1.5, 0.05],
+  ['rBend', 'R wrist bend °', -90, 90, 1], ['rTwist', 'R wrist twist °', -120, 120, 1],
+  ['LEFT ARM'],
+  ['lSlide', 'L hand along gun', -0.2, 1.4, 0.01], ['lUp', 'L hand up/down', -0.4, 0.4, 0.01], ['lSide', 'L hand off gun ←→', -0.4, 0.4, 0.01],
+  ['lOut', 'L elbow out', -1.5, 2.5, 0.05], ['lUp2', 'L elbow up', -2, 2, 0.05], ['lBack', 'L elbow back', -1.5, 1.5, 0.05],
+  ['lBend', 'L wrist bend °', -90, 90, 1], ['lTwist', 'L wrist twist °', -120, 120, 1],
 ];
 
 // ---- state ----------------------------------------------------------------------------------------------------------
 const key = santaChoice();
 let santa = null, weapon = 'gatling', role = 'idle', view = 'start', skel = false, aimMode = 'ahead';
 const inputs = {};
-function fill() { const P = santa?.pose; if (!P) return; for (const [k] of SLIDERS) { inputs[k].i.value = P[k]; inputs[k].v.textContent = (+P[k]).toFixed(2).replace(/\.00$/, ''); } }
+function fill() { const P = santa?.pose; if (!P) return; for (const [k] of SLIDERS) { if (!inputs[k]) continue; const x = P[k] ?? 0; inputs[k].i.value = x; inputs[k].v.textContent = (+x).toFixed(2).replace(/\.00$/, ''); } }
 function buildPanel() {
   panel.replaceChildren();
   const r1 = document.createElement('div'); panel.appendChild(r1);
@@ -58,6 +63,7 @@ function buildPanel() {
   const r2 = document.createElement('div'); panel.appendChild(r2);
   group(r2, [['idle', 'IDLE'], ['walk', 'WALK'], ['run', 'RUN'], ['fire', 'FIRE']], role, r => { role = r; if (r === 'fire') santa.setFiring(true); else { santa.setFiring(false); santa.setIdle(r); } });
   for (const [k, label, lo, hi, st] of SLIDERS) {
+    if (label === undefined) { const h = document.createElement('div'); h.textContent = k; h.style.cssText = 'margin:8px 0 2px;font-weight:900;letter-spacing:.08em'; panel.appendChild(h); continue; }
     const row = document.createElement('div'); row.className = 'row';
     const l = document.createElement('label'); l.textContent = label;
     const i = document.createElement('input'); i.type = 'range'; i.min = lo; i.max = hi; i.step = st;

@@ -272,8 +272,12 @@ const UNARMED = { idle: 'uidle', walk: 'uwalk', run: 'urun', tipsy: 'uidle' };  
  *  head = share of the twist the head turns back; lSlide = left hand along the gun from the rear grip, lUp = above (+) / below (-)
  *  its axis; rOut rUp / lOut lUp = which way each elbow points (from its shoulder); scale = gun size. */
 export const HOLD_DEFAULT = { gx: -0.12, gy: -0.33, gz: 0.32, yaw: 0, pitch: 0, roll: 0, twist: 55, head: 0.8, lSlide: 0.35, lUp: 0.06,
-  rOut: 0.8, rUp: -0.3, lOut: 0.7, lUp2: 0.5, scale: 0.85 };
-export const HOLD_BASE = {};   // committed per-weapon defaults (his saved poses go here once he sends them): { santaKey: { weapon: {...} } }
+  rOut: 0.8, rUp: -0.3, lOut: 0.7, lUp2: 0.5, scale: 0.85,
+  rSlide: 0, rUpH: 0, rSide: 0, rBack: 0, rBend: 0, rTwist: 0, lSide: 0, lBack: 0, lBend: 0, lTwist: 0 };
+// committed per-weapon defaults (his saved poses, from the GUN POSE sandbox's COPY ALL): { santaKey: { weapon: {...} } }
+export const HOLD_BASE = {
+  nocoat: { gatling: { gx: -0.38, gy: -0.19, gz: 0.32, yaw: 0, pitch: 0, roll: 0, twist: 55, head: 0.8, lSlide: 0.9, lUp: -0.25, rOut: 0.3, rUp: 0.05, lOut: 1.5, lUp2: 0.15, scale: 0.85 } },   // his, Nov 25
+};
 export function holdPose(santaKey, weapon) {
   let saved = null; try { saved = JSON.parse(localStorage.getItem('holdpose.v1') || 'null'); } catch (e) {}
   return { ...HOLD_DEFAULT, ...(HOLD_BASE[santaKey]?.[weapon] || {}), ...(saved?.[santaKey]?.[weapon] || {}) };
@@ -424,15 +428,28 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     pivot.updateMatrixWorld(true);
     const a0 = gun.grips.right.getWorldPosition(V()), wq = pivot.getWorldQuaternion(Q());
     const ax = V().set(0, 0, 1).applyQuaternion(wq), upg = V().set(0, 1, 0).applyQuaternion(wq);
-    ik2(B.RightArm, B.RightForeArm, B.RightHand, a0, H.localToWorld(rs.clone().add(tf(V().set(-Pz.rOut, Pz.rUp, -0.2)))));
-    const lt = a0.clone().addScaledVector(ax, Pz.lSlide).addScaledVector(upg, Pz.lUp);
-    ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, lt, H.localToWorld(ls.clone().add(tf(V().set(Pz.lOut, Pz.lUp2, 0.1)))));
+    const sideg = V().set(1, 0, 0).applyQuaternion(wq);   // the gun's own left
+    // b88 (his: "I couldn't move the right hand, couldn't pull the elbow out"): the right hand can slide off its grip (along / up /
+    // side), each elbow has OUT + UP + BACK, the left hand also moves sideways off the gun, and each wrist turns (bend / twist)
+    const rt = a0.clone().addScaledVector(ax, Pz.rSlide || 0).addScaledVector(upg, Pz.rUpH || 0).addScaledVector(sideg, Pz.rSide || 0);
+    ik2(B.RightArm, B.RightForeArm, B.RightHand, rt, H.localToWorld(rs.clone().add(tf(V().set(-Pz.rOut, Pz.rUp, -0.2 - (Pz.rBack || 0))))));
+    const lt = a0.clone().addScaledVector(ax, Pz.lSlide).addScaledVector(upg, Pz.lUp).addScaledVector(sideg, Pz.lSide || 0);
+    ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, lt, H.localToWorld(ls.clone().add(tf(V().set(Pz.lOut, Pz.lUp2, 0.1 - (Pz.lBack || 0))))));
+    wrist(B.RightHand, B.RightForeArm, Pz.rBend || 0, Pz.rTwist || 0); wrist(B.LeftHand, B.LeftForeArm, Pz.lBend || 0, Pz.lTwist || 0);
     if (blend) {   // b86: part way into / out of the air split -> ease from the hand-ride pose to the hold
       SPLIT_BONES.forEach((k, i) => B[k].quaternion.slerpQuaternions(_snap[i], B[k].quaternion, airK));
       pivot.position.lerpVectors(_rp, pivot.position, airK); pivot.quaternion.slerpQuaternions(_rq, pivot.quaternion, airK);
       H.updateMatrixWorld(true);
     }
   }
+  /** turn a hand at the wrist: `bend` (deg) about the forearm's side axis, `twist` (deg) about the forearm itself */
+  const wrist = (hand, fore, bend, twistDeg) => {
+    if (!hand || !fore || (!bend && !twistDeg)) return;
+    fore.updateWorldMatrix(true, true);
+    const along = wpos(hand).sub(wpos(fore)).normalize(), side = V().set(0, 1, 0).cross(along).normalize();
+    const r = Q().setFromAxisAngle(along, THREE.MathUtils.degToRad(twistDeg)).multiply(Q().setFromAxisAngle(side, THREE.MathUtils.degToRad(bend)));
+    hand.getWorldQuaternion(sq); const w = r.multiply(sq); hand.parent.getWorldQuaternion(sq).invert(); hand.quaternion.copy(sq.multiply(w)); hand.updateMatrixWorld(true);
+  };
   /** apply a world rotation `r` to each named bone (additive, after the clip) */
   const twist = (names, r) => { for (const k of names) { const b = B[k]; if (!b) continue; b.getWorldQuaternion(sq); const w = r.clone().multiply(sq); b.parent.getWorldQuaternion(sq).invert(); b.quaternion.copy(sq.multiply(w)); b.updateMatrixWorld(true); } };
   const self = {

@@ -34,6 +34,17 @@ export const ROOT = { santa: { roll: 1, dodgeBack: -1 } };
  *  5-25 deg a frame mid-clip) -- a loop froze one frame (33 ms) every cycle: Rifle_Walk / Rifle_Run / Firing_Rifle_2 (a 10-frame
  *  loop: 10% of it frozen) / Falling_Idle / the loco legs. Drops that key. A LOOP whose last key still differs from its first
  *  (Rifle_Walk: 2.2 deg RightLeg) gets the wrap blended: the last `win` s ease onto the first key. Returns the numbers. */
+/** FINGERS HOLD STILL (b88, his: "the fingers are glitching around"): the Y Bot's finger keys don't carry over to his ARP
+ *  fingers cleanly (they flick frame to frame). Each finger track is frozen at its middle key -- a steady grip per clip. */
+export function stillFingers(clip) {
+  clip.tracks = clip.tracks.map(t => {
+    if (!/Thumb|Index|Middle|Ring|Pinky/.test(t.name)) return t;
+    const k = t.getValueSize(), n = t.times.length, m = n >> 1;
+    return new t.constructor(t.name, [0], Array.from(t.values.subarray(m * k, m * k + k)));
+  });
+  return clip;
+}
+
 export function cleanClip(clip, { loop = true, win = 0.15 } = {}) {
   const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), qc = new THREE.Quaternion(), I = new THREE.Quaternion();
   const T = clip.tracks; if (!T.length) return {};
@@ -109,6 +120,7 @@ export function animator(kind, restScene, liveScene) {
       const { scene, clip } = await loadSrc(stem);
       const rc = retargetClip(scene, clip, restScene, { name: role });
       const clean = cleanClip(rc, { loop: !(ONCE[kind] || []).includes(role) });
+      if (kind === 'santa') stillFingers(rc);   // his note (b88): the fingers jittered -- one held grip per clip
       const dir = ROOT[kind]?.[role], travel = dir ? rootTravel(rc, liveScene, dir) : null;
       meta.set(role, { dur: rc.duration, travel, clean });
       if (clean.dropped || clean.wrapFixed || travel) console.log('anim', kind, role, stem, clean, travel ? { drift: travel.drift, peak: travel.peak } : '');
