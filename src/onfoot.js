@@ -346,6 +346,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     { const q = st.bodyQ, yaw = 2 * Math.atan2(q.y, q.w); let dyaw = yaw - (st.prevYaw ?? yaw); dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw)); st.prevYaw = yaw;
       st.turnRate = dt > 0 ? dyaw / dt : 0;
       st.legs?.update(dt, { aim: aiming, grounded: st.mode === 'ground', busy: !!S.busy || st.dodgeT > 0, vel: st.vel, face: st.face, turnRate: st.turnRate }); }
+    S.airAim = aiming && st.tumble <= 0 && st.stun <= 0;   // b86 AIR SPLIT: shooting / aiming in the air = legs in the air pose, gun held up top
     if (st.dodgeT <= 0 && !st.throwSt) S.setFiring(st.firing && !moving && st.mode !== 'air');   // shooting on the move keeps his legs walking (hands stay on the gun)
     // THE CAMERA IS HIS (b61): the right pad (gun unlocked) orbits it -- x = yaw rate, y = pitch; stick right = the view turns right,
     // stick up = look up. No auto-follow (CAMERA.recentre is an opt-in). LOCKED, the aim pushed hard to a side still turns it.

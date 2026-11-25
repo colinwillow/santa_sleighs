@@ -7,7 +7,7 @@ import { retargetClip } from './retarget.js';
 // role -> clip file stem, per character kind. Add a role here + drop the GLB in models/anims/.
 export const CLIPS = {
   santa: {
-    idle: 'Rifle_Idle_2', fire: 'Firing_Rifle_2', walk: 'Rifle_Walk', run: 'Rifle_Run', jump: 'Jumping_5', air: 'Falling_Idle', getup: 'Getting_Up', land: 'Landing',
+    idle: 'Rifle_Idle_2', fire: 'Firing_Rifle_2', walk: 'Rifle_Walk', run: 'Rifle_Run', jump: 'Jumping_5', air: 'Floating', getup: 'Getting_Up', land: 'Landing',   // b86: air (jump + jetpack) = Mixamo Floating (his pick; was Falling_Idle)
     tipsy: 'Drunk_Idle', dance: 'Silly_Dancing', cheer: 'Cheering',
     uidle: 'Drunk_Idle', uwalk: 'Walking', urun: 'Standard_Run',   // b75 UNARMED (nothing on the ring / the grenade): his own arms, no gun hold
     roll: 'Sprinting_Forward_Roll', dodgeBack: 'Jump_Backward',   // b61 DODGE (in place; onfoot.js moves him). Strafe / backpedal legs: src/loco.js

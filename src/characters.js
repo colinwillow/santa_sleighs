@@ -6,7 +6,8 @@ import { GLTFLoader } from 'three/addons/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/DRACOLoader.js';
 import { clone as skClone } from 'three/addons/SkeletonUtils.js';
 import { Batch, T, BOX, CYL, BALL, bevBox } from './util.js';
-import { animator } from './anim.js';
+import { animator, cleanClip } from './anim.js';
+import { retargetClip } from './retarget.js';
 import { loadGuns, heldGun, WEAPONS } from './weapons.js';
 
 export const CREW = {
@@ -372,9 +373,28 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     _m1.multiplyMatrices(B.RightHand.matrixWorld, _rel); _m2.copy(H.matrixWorld).invert().multiply(_m1);
     _m2.decompose(pivot.position, pivot.quaternion, tmp); pivot.updateMatrixWorld(true);
   }
+  // AIR SPLIT (b86, his: "in the air pose, legs only -- if he's shooting the upper torso holds the gun and shoots it"): in the 'air'
+  // role (jump / fall / jetpack) with self.airAim on (aiming or firing), an UPPER layer (Rifle_Idle_2, every track but the Hips +
+  // legs) takes Spine-and-up the way loco.js takes the legs (weight s / (1 - s) against the air clip's ~1, so each bone sums to 1),
+  // and the posed hold + aim run on top as on the ground. Not aiming = the full-body air clip, the gun riding his hand. airK eases
+  // 0..1 in ~0.15 s; while it's between, the arms + gun are slerped from the hand-ride pose to the hold.
+  let airK = 0, upperAct = null;
+  const SPLIT_BONES = ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftShoulder', 'RightShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightArm', 'RightForeArm', 'RightHand'].filter(k => B[k]);
+  const _snap = SPLIT_BONES.map(() => Q()), _rp = V(), _rq = Q();
+  new GLTFLoader().load('./models/anims/Rifle_Idle_2.glb', g => {
+    try {
+      const rc = retargetClip(g.scene, g.animations[0], gltf.scene, { name: 'airUpper' });
+      rc.tracks = rc.tracks.filter(t => !/(Hips|UpLeg|Leg|Foot|Toe)[^.]*\.(quaternion|position)$/.test(t.name));
+      cleanClip(rc, { loop: true });
+      upperAct = anim.mixer.clipAction(rc); upperAct.setLoop(THREE.LoopRepeat, Infinity); upperAct.enabled = true; upperAct.setEffectiveWeight(0); upperAct.play();
+    } catch (e) { console.warn('air upper layer', e); }
+  });
   function heldPose(dt) {
-    if (self.freeArms || FREE_ROLES.has(anim.role)) { rideHand(); return; }
-    riding = false;
+    const airSplit = anim.role === 'air' && airK > 0.001;
+    if (self.freeArms || (FREE_ROLES.has(anim.role) && !airSplit)) { rideHand(); return; }
+    const blend = airSplit && airK < 0.999;
+    if (blend) { SPLIT_BONES.forEach((k, i) => _snap[i].copy(B[k].quaternion)); rideHand(); _rp.copy(pivot.position); _rq.copy(pivot.quaternion); }
+    else riding = false;
     const Pz = self.pose || (self.pose = holdPose(cigarKey, self.weapon || 'gatling')), D = THREE.MathUtils.degToRad;
     for (const k of ['LeftShoulder', 'RightShoulder']) if (B[k]?.userData.bind) B[k].quaternion.copy(B[k].userData.bind);
     H.updateMatrixWorld(true);
@@ -390,7 +410,7 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     // his note (b59): running forward he RAN SIDEWAYS -- the side-on turn came from the hips, so the legs turned too. Now: moving
     // (walk / run) = the turn lives in the SPINE (legs keep running the way he goes); standing = half of it from the hips (a planted
     // gunner stance), eased between
-    const moving = anim.role === 'walk' || anim.role === 'run';
+    const moving = anim.role === 'walk' || anim.role === 'run' || anim.role === 'air';   // b86: in the air the turn lives in the spine too (legs keep the air pose)
     hipShare += ((moving ? 0 : CREW.hipShare) - hipShare) * (1 - Math.exp(-6 * dt));
     twist(['Hips'], Q().setFromAxisAngle(up, phi * hipShare));
     twist(['Spine', 'Spine1', 'Spine2'], Q().setFromAxisAngle(up, phi * (1 - hipShare) / 3));
@@ -407,6 +427,11 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     ik2(B.RightArm, B.RightForeArm, B.RightHand, a0, H.localToWorld(rs.clone().add(tf(V().set(-Pz.rOut, Pz.rUp, -0.2)))));
     const lt = a0.clone().addScaledVector(ax, Pz.lSlide).addScaledVector(upg, Pz.lUp);
     ik2(B.LeftArm, B.LeftForeArm, B.LeftHand, lt, H.localToWorld(ls.clone().add(tf(V().set(Pz.lOut, Pz.lUp2, 0.1)))));
+    if (blend) {   // b86: part way into / out of the air split -> ease from the hand-ride pose to the hold
+      SPLIT_BONES.forEach((k, i) => B[k].quaternion.slerpQuaternions(_snap[i], B[k].quaternion, airK));
+      pivot.position.lerpVectors(_rp, pivot.position, airK); pivot.quaternion.slerpQuaternions(_rq, pivot.quaternion, airK);
+      H.updateMatrixWorld(true);
+    }
   }
   /** apply a world rotation `r` to each named bone (additive, after the clip) */
   const twist = (names, r) => { for (const k of names) { const b = B[k]; if (!b) continue; b.getWorldQuaternion(sq); const w = r.clone().multiply(sq); b.parent.getWorldQuaternion(sq).invert(); b.quaternion.copy(sq.multiply(w)); b.updateMatrixWorld(true); } };
@@ -425,6 +450,8 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
     setIdle(r) { if (!self.armed && UNARMED[r]) r = UNARMED[r]; idleRole = r; if (!firing && !self.busy) anim.play(r); },
     /** b75: armed = holding a gun (the posed hold); unarmed / grenade = his own arms from relaxed clips, the gun hidden */
     armed: true,
+    /** b86: aiming / firing (onfoot.js) -- in the 'air' role it splits the body: air clip on the legs, the gun hold up top */
+    airAim: false,
     setArmed(on) { if (self.armed === !!on) return; self.armed = !!on; pivot.visible = self.armed; const base = Object.keys(UNARMED).find(k => UNARMED[k] === idleRole) || idleRole; self.setIdle(base); },
     /** a one-shot clip (get up...) that owns the body until it ends; arms leave the gun meanwhile */
     playOnce(r, speed = 1) { self.busy = true; self.freeArms = true; anim.play(r, 0.12, { once: true, speed }); },
@@ -436,6 +463,9 @@ export function makeSanta(gltf, { role = 'idle', stance = 'seat', fit = ARMFIT[s
       // every bone back to its rest pose first (b61, his: "his upper torso is just rotating in a circle"): the hold twists the spine
       // each frame, and a bone the clip doesn't key kept last frame's twist -> it spun. Reset, then the clip, then the layers.
       for (const k in B) { const b = B[k]; if (b.userData.bind) b.quaternion.copy(b.userData.bind); }
+      { const want = anim.role === 'air' && self.airAim && self.armed && !self.freeArms && POSED ? 1 : 0;   // b86 AIR SPLIT
+        airK += (want - airK) * (1 - Math.exp(-20 * dt)); if (airK < 1e-3 && !want) airK = 0;
+        const s = airK * 0.995; upperAct?.setEffectiveWeight(s / (1 - s)); }
       anim.update(dt);
       spreadArms(B, H, fit.spread * CREW.handSpread);
       // seated: he swivels on the seat toward the aim (the spine twist does the rest)
