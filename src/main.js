@@ -21,7 +21,7 @@ import { makeDelivery, DROPCAM, bombGeo } from './delivery.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 86;
+export const BUILD = 87;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -241,6 +241,11 @@ const shots = makeShots(scene, groundH, {
 });
 // SNOWMAN MONSTERS in the village (src/enemies.js): shootable, face Santa, respawn; a kill makes the sidekick elf cheer
 if (world.props) Object.assign(world.props.hooks, { puff: (...a) => shots.puff(...a), shake: k => { shake = Math.max(shake, k); } });   // b60
+// b86 the town's crunches / cave-ins: louder + shakier the closer they are to the camera
+const nearK = p => p ? Math.max(0, 1 - p.distanceTo(camera.position) / 110) : 1;
+if (world.town) Object.assign(world.town.hooks, { puff: (...a) => shots.puff(...a),
+  shake: (k, p) => { const s = k * nearK(p); shake = Math.max(shake, s); crashZoom = Math.max(crashZoom, s * 0.15); },
+  sfx: (n, o = {}, p) => { const k = nearK(p); if (k > 0.02) sfx(n, { ...o, vol: (o.vol ?? 1) * (0.25 + 0.75 * k) }); } });
 const snowmen = makeSnowmen({ scene, world, groundH, sfx: (n, o) => sfx(n, o), puff: (...a) => shots.puff(...a), onKill: () => rig.crew?.react?.('cheer'),
   onHitSanta: (dir, kind, from) => { if (!foot.knock(dir, kind)) return; const big = kind === 'big'; shake = Math.max(shake, big ? 1.4 : 0.7);
     sfx('debris', { vol: big ? 1 : 0.7, rate: big ? 0.6 : 0.9 }); sfx('snow_puff', { vol: 0.8, rate: 0.7 });
@@ -410,8 +415,10 @@ function fireShot(W, muzzle, out) {
     if (ph && (!hit || ph.dist < hit.dist)) { world.props.shoot(ph, W.shot === 'slug' ? 3 : 1, _d); hit = { dist: ph.dist, prop: true }; }
     if (hit && !hit.sleigh && !hit.enemy && !hit.prop) {
       // his: bullets should hit harder -- a Gatling round now takes out the brick it hits + chips its neighbours; the rifle punches a big hole
-      if (W.shot === 'slug') world.town.blast(hit.point, 1.7, 99, _d.clone().multiplyScalar(10));
-      else { world.town.hitBrick(hit.id, 2, _d.clone().multiplyScalar(6)); world.town.blast(hit.point, 0.7, 1, _d.clone().multiplyScalar(5)); }
+      // b86 (his: "the bullets need to have velocity behind them"): a Gatling round damages the chunk + a splash round it and
+      // throws what dies out along the bullet (town.js TOWN.bullet); the rifle punches a bigger hole, harder
+      if (W.shot === 'slug') world.town.blast(hit.point, 1.9, 99, _d.clone().multiplyScalar(22));
+      else world.town.bullet(hit.id, hit.point, _d);
       shots.puff(hit.point, '#c0743a', 3, 3, 0.5);
     }
     if (W.shot === 'tracer') {

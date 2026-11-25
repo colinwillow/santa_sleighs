@@ -30,9 +30,14 @@ export const TOWN = {
   cell: { wall: [1.45, 1.1], gable: [1.4, 1.25], roof: [1.9, 1.8] },   // target chunk width / height per surface
   jit: 0.3,                            // vertex jitter, share of the neighbouring gap
   bulge: 0.05,                         // the baked pillow on each chunk's front
-  hp: 5, hpArea: 2.2,                  // chunk hp = hp + hpArea * area (m2): Gatling (3 a bullet) ~3-4 bullets a chunk
+  hp: 1.5, hpArea: 1.0,                // chunk hp = hp + hpArea * area (m2): b86 (his: "it takes so much to take a house down") 5 + 2.2a -> 1.5 + 1a,
+                                       // a 1.6 m2 wall chunk = 3.1 hp, a 3.4 m2 roof chunk = 4.9
+  bullet: { dmg: 2, splash: 1.1, splashDmg: 1.2, push: 15, crumbs: 5 },   // b86 a Gatling round: dmg on the chunk it hits + splashDmg (falling off
+                                       // to 30 % at `splash` m) on every chunk round it, so holding the trigger carves a hole; push = m/s the pieces fly
+  collapseAt: 0.55,                    // b86 THE CAVE-IN: a house whose wall chunks drop under this share comes down whole (roof caves, walls topple)
   span: 2,                             // a chunk can hang sideways this many chunks off one held from below
-  debrisMax: 420, gravity: 20,
+  debrisMax: 700, crumbMax: 360, debrisLife: 9, gravity: 20,   // b86 one InstancedMesh: debrisMax chunk pieces + crumbMax impact crumbs;
+                                       // settled rubble sinks away debrisLife s after it stops (recycled)
   door: [1.2, 2.0], win: [1.2, 2.0, 3.0],   // door w x h; window w, y0, y1
   ppm: 44, groove: 0.035, toast: 0.12,  // atlas px a metre (b48: 56 -> 44, the packed atlas fits 1024 x 1024); crack groove inset (m); share of toasted chunks
   shingle: { y0: 0.1, rh: 0.5, step: 0.045, tilt: 0.3 },   // b48 roof courses in GEOMETRY: row lines at y0 + j*rh up the slope (= the painted rows),
@@ -600,8 +605,10 @@ export function makeTown(scene) {
     const dp = dg.attributes.position;
     for (let i = 0; i < dp.count; i++) { const a = Math.atan2(dp.getY(i), dp.getX(i)), f = 0.8 + 0.25 * Math.sin(a * 3 + 1.3) + 0.1 * Math.cos(a * 5); if (Math.hypot(dp.getX(i), dp.getY(i)) > 0.01) dp.setXY(i, dp.getX(i) * f, dp.getY(i) * f); }
     dg.computeVertexNormals();
-    debrisMesh = new THREE.InstancedMesh(dg, new THREE.MeshStandardMaterial({ roughness: 0.78 }), TOWN.debrisMax); debrisMesh.count = 0; debrisMesh.castShadow = true; debrisMesh.frustumCulled = false;
-    debrisMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TOWN.debrisMax * 3), 3); scene.add(debrisMesh);
+    const DN = TOWN.debrisMax + TOWN.crumbMax;   // b86: slots [0, debrisMax) = chunk pieces, the rest = crumbs (same mesh, one draw)
+    debrisMesh = new THREE.InstancedMesh(dg, new THREE.MeshStandardMaterial({ roughness: 0.78 }), DN); debrisMesh.castShadow = true; debrisMesh.frustumCulled = false;
+    for (let i = 0; i < DN; i++) debrisMesh.setMatrixAt(i, ZERO);
+    debrisMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(DN * 3), 3); scene.add(debrisMesh);
     // dressing: one instanced mesh per kind
     const kinds = {
       door: [new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: '#b82a26', roughness: 0.5 })],
@@ -716,20 +723,51 @@ export function makeTown(scene) {
           if (de < radius * 0.45 || dc < radius * 0.85) { c.hp -= power; if (c.hp <= 0) kill.push(c.id); }
         }
       }
-      if (kill.length) n += remove(hs, kill, p, push);
+      if (kill.length) n += remove(hs, kill, p, push, 3 + radius * 1.6);   // b86: a bigger blast throws harder (rocket r 3.6 ~ 9 m/s, crash r 5 ~ 11)
     }
     return n;
   }
-  /** damage one chunk (bullets): it bruises darker each hit */
-  function hitBrick(id, dmg, from) {
-    const c = chunks[id]; if (!c || !c.alive) return 0;
-    c.hp -= dmg;
+  function bruise(c) {
     const ca = mesh.geometry.attributes.color;
     for (let i = c.v0; i < c.vb; i++) ca.setXYZ(i, ca.getX(i) * 0.88, ca.getY(i) * 0.88, ca.getZ(i) * 0.88);
     ca.addUpdateRange(c.v0 * 3, (c.vb - c.v0) * 3); ca.needsUpdate = true;
     c.col.multiplyScalar(0.88);
+  }
+  /** damage one chunk (bullets): it bruises darker each hit */
+  function hitBrick(id, dmg, from) {
+    const c = chunks[id]; if (!c || !c.alive) return 0;
+    c.hp -= dmg; bruise(c);
     if (c.hp > 0) return 0;
     return remove(c.h, [id], c.world.clone(), from);
+  }
+  /** b86 A GATLING ROUND (his: "the bullets need to have velocity behind them ... fucking destroying these homes"): the chunk it
+   *  hits takes TOWN.bullet.dmg, every chunk within `splash` m of the impact takes splashDmg (falling off with distance), a spray
+   *  of crumbs + icing bits kicks back off the face, and what dies flies OUT along the bullet at `push` m/s, spinning */
+  function bullet(id, point, dir, B = TOWN.bullet) {
+    const c = chunks[id]; if (!c || !c.alive) return 0;
+    const hs = c.h, kill = [];
+    c.hp -= B.dmg; bruise(c); if (c.hp <= 0) kill.push(id);
+    for (const S of hs.surfs) {
+      toLocal(hs, S, point, _o);
+      const dv = Math.max(0, Math.abs(_o.z) - S.T / 2); if (dv > B.splash) continue;
+      for (const o of S.chunks) {
+        if (!o.alive || o === c || o.hp <= 0) continue;
+        if (Math.abs(_o.x - o.c[0]) > B.splash + 2 || Math.abs(_o.y - o.c[1]) > B.splash + 2) continue;
+        const d = Math.hypot(polyDist(o.poly, _o.x, _o.y), dv); if (d > B.splash) continue;
+        o.hp -= B.splashDmg * (1 - 0.7 * d / B.splash); if (o.hp <= 0) kill.push(o.id);
+      }
+    }
+    crumbs(point, dir, c.col, B.crumbs, 7);
+    snd('crunch', { vol: 0.32, rate: 1.5 }, point, 70);
+    if (!kill.length) return 0;
+    return remove(hs, kill, point.clone().addScaledVector(dir, -0.4), _push.copy(dir).multiplyScalar(B.push));
+  }
+  const _push = new V3();
+  // b86 sound / shake / dust go through hooks main.js fills (distance-scaled there); rate-limited per name
+  const sndT = {};
+  function snd(name, o, p, gap = 0) {
+    const t = performance.now(); if (gap && t - (sndT[name] || 0) < gap) return; sndT[name] = t;
+    api.hooks.sfx ? api.hooks.sfx(name, o, p) : window.sfx?.play(name, o);
   }
 
   /** contacts between surfaces (corners, wall top -> gable, roof resting on walls / gables, roof ridge), once per house */
@@ -748,9 +786,9 @@ export function makeTown(scene) {
       else (a.kind === 'wall' ? a : b).up.push((a.kind === 'wall' ? b : a).id);
     }
   }
-  function remove(hs, ids, at, push) {
+  function remove(hs, ids, at, push, kick = 5) {
     links(hs);
-    const gone = new Set(ids), live = id => chunks[id].alive && !gone.has(id);
+    const direct = new Set(ids), gone = new Set(ids), live = id => chunks[id].alive && !gone.has(id);
     // SUPPORT (his note: one shot dropped a whole wall -- he wants to chip pieces out until it gives): a chunk stands if it
     // reaches the ground through living chunks -- up from one below it, or sideways for up to TOWN.span chunks
     let changed = true;
@@ -772,23 +810,74 @@ export function makeTown(scene) {
       while (rq.length) { const r = rq.pop(); for (const u of chunks[r].side) if (live(u) && !held.has(u)) { held.add(u); rq.push(u); } }
       for (const r of hs.roof) if (live(r) && !held.has(r)) { gone.add(r); changed = true; }
     }
+    // b86 THE CAVE-IN (his: "houses toppling ... it takes so much to take a house down"): once the walls fall under
+    // TOWN.collapseAt the whole house comes down -- the roof caves in, each wall tips over as a slab (mostly outward)
+    let caved = false;
+    if (!hs.collapsed && hs.wallTotal) {
+      let w = 0; for (const id of hs.walls) if (live(id)) w++;
+      if (w < hs.wallTotal * TOWN.collapseAt) { hs.collapsed = caved = true; for (const id of hs.ids) if (chunks[id].alive) gone.add(id); }
+    }
+    // the falling pieces TIP: one hinge + one tip per wall face (walls + the gable above share a face), so a cut-loose section
+    // topples as a slab, then breaks up when it lands; the wave starts at the impact and runs outward
+    const faces = new Map();
+    for (const id of gone) {
+      const c = chunks[id]; if (direct.has(id) || c.kind === 'roof') continue;
+      const key = `${Math.round(c.S.N.x)},${Math.round(c.S.N.z)}`;
+      let f = faces.get(key);
+      if (!f) { f = { sign: Math.random() < 0.72 ? 1 : -1, w: rr(0.7, 1.5), hinge: Infinity, delay: caved ? 0.25 + Math.random() * 0.45 : 0, N: c.S.N.clone().applyAxisAngle(_YA, hs.ry) }; faces.set(key, f); }
+      f.hinge = Math.min(f.hinge, caved ? 0 : c.bb[2]);
+      if (!caved) f.delay = Math.max(f.delay, Math.min(0.45, c.world.distanceTo(at) * 0.03));
+    }
     const ix = mesh.geometry.index;
+    let big = 0;
     for (const id of gone) {
       const c = chunks[id]; c.alive = false; hs.alive--;
       ix.array.fill(ix.array[c.i0], c.i0, c.i1);     // collapse its triangles to one point
       ix.addUpdateRange(c.i0, c.i1 - c.i0);
-      spawnDebris(c, at, push, ids.includes(id));
+      if (direct.has(id)) {
+        const away = c.world.clone().sub(at); away.normalize();
+        const vel = push ? push.clone().multiplyScalar(rr(0.7, 1.3)).addScaledVector(away, rr(1, 3)) : away.multiplyScalar(kick * rr(0.7, 1.3));
+        vel.y += rr(1.5, 4.5);
+        spawnDebris(c, vel, new V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(rr(8, 15)), 0);
+        crumbs(c.world, push ? _push.copy(push).normalize().negate() : null, c.col, 6, 6);
+      } else if (c.kind === 'roof') {
+        // the roof caves IN: down + toward the ridge, tumbling
+        const N = c.S.N.clone().applyAxisAngle(_YA, hs.ry);
+        const vel = new V3(-N.x, 0, -N.z).multiplyScalar(rr(0.6, 2)).add(new V3(rr(-0.6, 0.6), -rr(0.5, 2.5), rr(-0.6, 0.6)));
+        spawnDebris(c, vel, new V3(rr(-3, 3), rr(-1, 1), rr(-3, 3)), caved ? rr(0, 0.22) : Math.min(0.4, c.world.distanceTo(at) * 0.025) + rr(0, 0.08));
+        big++;
+      } else {
+        const f = faces.get(`${Math.round(c.S.N.x)},${Math.round(c.S.N.z)}`), arm = Math.max(0.4, c.c[1] - f.hinge);
+        // a rigid slab rotating about its base line: v = w x r = w * height along the face normal; spin about the face's A axis
+        const vel = f.N.clone().multiplyScalar(f.sign * f.w * arm).add(new V3(rr(-0.4, 0.4), rr(0, 0.6), rr(-0.4, 0.4)));
+        spawnDebris(c, vel, new V3(f.sign * f.w * rr(0.9, 1.1), rr(-0.3, 0.3), rr(-0.3, 0.3)), f.delay + rr(0, 0.04));
+        big++;
+      }
     }
     ix.needsUpdate = true;
     proxyFollow(hs);
     if (!hs.hitOnce) { hs.hitOnce = true; api.onHouseDamaged?.(hs, at); }   // b60: the first chunks out -> gingerfolk run (props.js)
     // the house's crash collider + dressing follow what's left
     const frac = hs.alive / hs.total;
-    if (frac < 0.35 && !hs.dead) {
+    if ((frac < 0.35 || hs.collapsed) && !hs.dead) {
       hs.dead = true; hs.collider.r = 0;
       decorMeshes.forEach(({ im, list }) => { list.forEach((e, i) => { if (houses[e.h] === hs) im.setMatrixAt(i, ZERO); }); im.instanceMatrix.needsUpdate = true; });
     }
-    window.sfx?.play(gone.size > 6 ? 'debris' : 'crunch', { vol: Math.min(1, 0.4 + gone.size * 0.05) });
+    // big and loud
+    const H = api.hooks;
+    if (caved) {
+      snd('explosion', { vol: 0.9, rate: 0.55 }, at); snd('debris', { vol: 1, rate: 0.75 }, at);
+      H.shake?.(1.5, at);
+      const ctr = new V3(hs.x, hs.gy + 0.6, hs.z);
+      for (let k = 0; k < 6; k++) {
+        const a = k / 6 * Math.PI * 2, p = ctr.clone().add(new V3(Math.cos(a) * hs.W * 0.45, rr(0, 2.5), Math.sin(a) * hs.D * 0.45));
+        H.puff?.(p, '#efe4d8', 8, 4, 2.4, 0.6); H.puff?.(p, '#ffffff', 5, 6, 1.6, 0.8);
+      }
+    } else if (big > 6) {
+      snd('debris', { vol: Math.min(1, 0.5 + big * 0.04), rate: 0.85 }, at, 120);
+      H.shake?.(Math.min(0.9, 0.25 + big * 0.03), at);
+      H.puff?.(at, '#efe4d8', 10, 4, 1.8, 0.6);
+    } else snd('crunch', { vol: Math.min(1, 0.55 + gone.size * 0.08) }, at, 55);
     return gone.size;
   }
 
@@ -805,49 +894,77 @@ export function makeTown(scene) {
     wallProxy.instanceMatrix.needsUpdate = roofProxy.instanceMatrix.needsUpdate = true;
   }
 
-  // ---- debris: knocked-out chunks tumble, bounce, settle as rubble (oldest recycled) -----------------------------------
-  const deb = [];
-  let debI = 0;
+  // ---- debris: knocked-out chunks tumble, bounce, settle as rubble, then sink away (b86); crumbs share the mesh ------------
+  const DN = TOWN.debrisMax + TOWN.crumbMax, deb = new Array(DN).fill(null);
+  let debI = 0, crumbI = 0, puffT = 0;
   const _bm = new THREE.Matrix4();
-  function spawnDebris(c, at, push, direct) {
+  /** a chunk becomes a piece of debris; vel world m/s, spin = body-frame rad/s (x = the face's A axis), delay s before it moves */
+  function spawnDebris(c, vel, spin, delay) {
     const S = c.S, hs = c.h;
-    const pos = c.world.clone();
     const q = new THREE.Quaternion().setFromRotationMatrix(_bm.makeBasis(S.A, S.B, S.N)).premultiply(new THREE.Quaternion().setFromAxisAngle(_YA, hs.ry));
     const s = new V3((c.bb[1] - c.bb[0]) * 0.85, (c.bb[3] - c.bb[2]) * 0.85, S.T);
-    const away = pos.clone().sub(at); const L = away.length() || 1; away.multiplyScalar(1 / L);
-    const vel = direct ? away.multiplyScalar(4 + Math.random() * 3) : new V3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
-    if (push) vel.addScaledVector(push, direct ? 0.35 : 0.1);
-    vel.y += direct ? 2 + Math.random() * 3 : 0;
     const i = debI++ % TOWN.debrisMax;
-    deb[i] = { pos, vel, q, s, spin: new V3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(direct ? 8 : 3), rest: false, life: 0 };
+    const d = deb[i] = { pos: c.world.clone(), vel, q, s, k: 1, spin, delay, rest: false, restT: 0, life: 0, big: s.x * s.y > 0.8, bounces: 0 };
     debrisMesh.setColorAt(i, c.col); debrisMesh.instanceColor.needsUpdate = true;
-    debrisMesh.count = Math.min(TOWN.debrisMax, Math.max(debrisMesh.count, i + 1));
+    debrisMesh.setMatrixAt(i, _m.compose(d.pos, d.q, d.s)); debrisMesh.instanceMatrix.needsUpdate = true;
   }
-  const _m = new THREE.Matrix4(), _e = new THREE.Quaternion(), _eu = new THREE.Euler();
+  /** a spray of crumbs + icing bits at p: kicked back along `back` (the reverse of the bullet) + every way, short-lived */
+  function crumbs(p, back, col, n, speed) {
+    for (let k = 0; k < n; k++) {
+      const i = TOWN.debrisMax + (crumbI++ % TOWN.crumbMax), white = Math.random() < 0.3, sz = rr(0.05, 0.15);
+      const vel = new V3(rr(-1, 1), rr(-0.2, 1), rr(-1, 1)).multiplyScalar(speed * 0.55); vel.y += rr(1, 3.5);
+      if (back) vel.addScaledVector(back, speed * rr(0.3, 0.9));
+      const q = new THREE.Quaternion().setFromEuler(_eu.set(rr(0, 6), rr(0, 6), rr(0, 6)));
+      deb[i] = { pos: p.clone(), vel, q, s: new V3(sz, sz * rr(0.6, 1), sz * 0.6), k: 1, spin: new V3(rr(-20, 20), rr(-20, 20), rr(-20, 20)), delay: 0, crumb: true, life: 0, max: rr(0.6, 1.3), rest: false };
+      debrisMesh.setColorAt(i, white ? icingC : col);
+    }
+    debrisMesh.instanceColor.needsUpdate = true;
+  }
+  const _m = new THREE.Matrix4(), _e = new THREE.Quaternion(), _eu = new THREE.Euler(), _sc = new V3();
+  let freed = false;
+  function free(i) { deb[i] = null; debrisMesh.setMatrixAt(i, ZERO); freed = true; }
   function update(dt) {
     if (!built) return;
     let moved = false;
-    for (let i = 0; i < deb.length; i++) {
-      const d = deb[i]; if (!d || d.rest) continue;
-      moved = true; d.life += dt;
-      d.vel.y -= TOWN.gravity * dt; d.pos.addScaledVector(d.vel, dt);
-      _e.setFromEuler(_eu.set(d.spin.x * dt, d.spin.y * dt, d.spin.z * dt)); d.q.multiply(_e);
-      const gy = groundH(d.pos.x, d.pos.z) + 0.15;
-      if (d.pos.y < gy) {
-        d.pos.y = gy; d.vel.y *= -0.3; d.vel.x *= 0.55; d.vel.z *= 0.55; d.spin.multiplyScalar(0.5);
-        if (Math.abs(d.vel.y) < 0.8 && d.vel.lengthSq() < 0.6 || d.life > 5) { d.rest = true; d.vel.set(0, 0, 0); }
+    puffT -= dt;
+    for (let i = 0; i < DN; i++) {
+      const d = deb[i]; if (!d) continue;
+      if (d.delay > 0) { d.delay -= dt; continue; }      // waiting in place (its pose was set at spawn)
+      d.life += dt;
+      if (d.crumb && d.life > d.max) { free(i); continue; }
+      if (d.rest) {
+        d.restT += dt; if (d.restT < TOWN.debrisLife) continue;
+        d.k = 1 - (d.restT - TOWN.debrisLife) / 1.5; d.pos.y -= 0.2 * dt;   // sinks + shrinks away, slot freed
+        if (d.k <= 0) { free(i); continue; }
+      } else {
+        d.vel.y -= TOWN.gravity * dt; d.pos.addScaledVector(d.vel, dt);
+        _e.setFromEuler(_eu.set(d.spin.x * dt, d.spin.y * dt, d.spin.z * dt)); d.q.multiply(_e);
+        const gy = groundH(d.pos.x, d.pos.z) + (d.crumb ? 0.04 : 0.15);
+        if (d.pos.y < gy) {
+          const vy = -d.vel.y;
+          if (d.big && vy > 5 && !d.bounces) {           // a slab hitting the snow: thud + a puff of powder
+            snd('debris', { vol: Math.min(1, 0.3 + vy * 0.05), rate: rr(0.8, 1.1) }, d.pos, 110);
+            if (puffT <= 0) { puffT = 0.05; api.hooks.puff?.(d.pos, '#f4eee8', 4, 3, 1.2, 0.5); }
+          }
+          d.bounces = (d.bounces || 0) + 1;
+          d.pos.y = gy; d.vel.y = vy * (d.crumb ? 0.35 : 0.3); d.vel.x *= 0.6; d.vel.z *= 0.6; d.spin.multiplyScalar(0.55);
+          if (d.big && d.bounces === 1) { d.vel.x += rr(-1, 1); d.vel.z += rr(-1, 1); }   // a little scatter as it breaks on landing
+          if ((Math.abs(d.vel.y) < 0.8 && d.vel.lengthSq() < 0.6) || d.life > 6) { if (d.crumb) { free(i); continue; } d.rest = true; d.vel.set(0, 0, 0); }
+        }
+        if (d.crumb && d.life > d.max - 0.25) d.k = Math.max(0, (d.max - d.life) / 0.25);
       }
-      debrisMesh.setMatrixAt(i, _m.compose(d.pos, d.q, d.s));
+      debrisMesh.setMatrixAt(i, _m.compose(d.pos, d.q, _sc.copy(d.s).multiplyScalar(d.k))); moved = true;
     }
-    if (moved) debrisMesh.instanceMatrix.needsUpdate = true;
+    if (moved || freed) { debrisMesh.instanceMatrix.needsUpdate = true; freed = false; }
   }
 
   const api = {
     onHouseDamaged: null,
-    house, finish, update, lodTick, raycast, solidAt, blast, hitBrick, houses, tintWindows,
+    hooks: {},                         // b86: { sfx(name, opts, p), shake(k, p), puff(p, col, n, speed, life, up) } -- main.js fills these
+    house, finish, update, lodTick, raycast, solidAt, blast, hitBrick, bullet, houses, tintWindows,
     get stats() {
       const tris = mesh ? mesh.geometry.index.count / 3 : 0;
-      return { bricks: chunks.length, chunks: chunks.length, alive: chunks.filter(c => c.alive).length, houses: houses.length, tris, trisPerHouse: houses.length ? Math.round(tris / houses.length) : 0, far: 0, atlas: AT.size };
+      return { bricks: chunks.length, chunks: chunks.length, alive: chunks.filter(c => c.alive).length, houses: houses.length, tris, trisPerHouse: houses.length ? Math.round(tris / houses.length) : 0, far: 0, atlas: AT.size, debris: deb.filter(Boolean).length };
     },
   };
   return api;
