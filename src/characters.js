@@ -43,7 +43,7 @@ let modelsP = null;
 export const SANTAS = { tough: './models/santa_tough_rig.glb', nocoat: './models/santa_no_coat_rig.glb', classic: './models/santa.glb' };
 export function santaChoice() { try { const v = localStorage.getItem('santa'); if (SANTAS[v]) return v; } catch (e) {} return 'tough'; }
 // which elf: RED (his Nov 23 model, closer to the tough Santa's style; no jiggle bones yet) or CLASSIC (the first elf + jiggle rig)
-export const ELVES = { red: './models/elf_girl_red_rig.glb', brown: './models/elf_girl_brown.glb', classic: './models/elf_girl_jiggle.glb' };
+export const ELVES = { red: './models/elf_girl_red_rig.glb', brown: './models/elf_girl_brown_rig.glb', classic: './models/elf_girl_jiggle.glb' };
 // b89 (his, Nov 27: "I added an elf girl brown model, let's have her in game"): TWO elves now -- the OPTIONS > ELF pick is the
 // first (the driver), the second (on the sack / the start screen's waver) is BROWN, or RED when he picked brown
 export const elf2Choice = () => elfChoice() === 'brown' ? 'red' : 'brown';
