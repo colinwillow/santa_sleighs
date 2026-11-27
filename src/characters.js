@@ -43,9 +43,15 @@ let modelsP = null;
 export const SANTAS = { tough: './models/santa_tough_rig.glb', nocoat: './models/santa_no_coat_rig.glb', classic: './models/santa.glb' };
 export function santaChoice() { try { const v = localStorage.getItem('santa'); if (SANTAS[v]) return v; } catch (e) {} return 'tough'; }
 // which elf: RED (his Nov 23 model, closer to the tough Santa's style; no jiggle bones yet) or CLASSIC (the first elf + jiggle rig)
-export const ELVES = { red: './models/elf_girl_red_rig.glb', classic: './models/elf_girl_jiggle.glb' };
+export const ELVES = { red: './models/elf_girl_red_rig.glb', brown: './models/elf_girl_brown.glb', classic: './models/elf_girl_jiggle.glb' };
+// b89 (his, Nov 27: "I added an elf girl brown model, let's have her in game"): TWO elves now -- the OPTIONS > ELF pick is the
+// first (the driver), the second (on the sack / the start screen's waver) is BROWN, or RED when he picked brown
+export const elf2Choice = () => elfChoice() === 'brown' ? 'red' : 'brown';
 export function elfChoice() { try { const v = localStorage.getItem('elf'); if (ELVES[v]) return v; } catch (e) {} return 'red'; }
-export const loadModels = () => modelsP || (modelsP = Promise.all([load(SANTAS[santaChoice()]), load(ELVES[elfChoice()]).catch(() => load(ELVES.classic))]).then(([santa, elf]) => ({ santa, elf })));
+export const loadModels = () => modelsP || (modelsP = Promise.all([load(SANTAS[santaChoice()]), load(ELVES[elfChoice()]).catch(() => load(ELVES.classic))]).then(async ([santa, elf]) => {
+  const elf2 = await load(ELVES[elf2Choice()]).catch(() => elf);   // a second load (its own skeleton) so the two never share bones
+  return { santa, elf, elf2 };
+}));
 
 // ---- bone helpers --------------------------------------------------------------------------------
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();

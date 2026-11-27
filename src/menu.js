@@ -89,7 +89,7 @@ export function makeMenus(G) {
     toggle('SOUND', G.volume, G.setVolume, ['100%', '60%', '30%', 'OFF']),
     toggle('MUSIC', G.music, G.setMusic, ['ON', 'OFF']),
     toggle('SANTA', G.santa, G.setSanta, ['TOUGH', 'NOCOAT', 'CLASSIC']),
-    toggle('ELF', G.elf, G.setElf, ['RED', 'CLASSIC']),
+    toggle('ELF', G.elf, G.setElf, ['RED', 'BROWN', 'CLASSIC']),
     ...(G.naughty() === 'OFF' && window.SANTA_PLATFORM === 'ios' ? [] : [toggle('NAUGHTY', G.naughty, G.setNaughty, ['CHEEKY', 'CENSORED', 'SPICY', 'OFF'])]),
     button('◀ BACK', 'dim', back),
   ]);

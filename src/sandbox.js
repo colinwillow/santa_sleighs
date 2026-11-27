@@ -47,7 +47,7 @@ const M = await loadModels();
 status.textContent = 'sandbox';
 const santa = makeSanta(M.santa); santa.holder.position.set(0, 0, 0); scene.add(santa.holder); blob(0, 0, 0.9);
 const elfA = makeElf(M.elf, { role: 'idle' }); elfA.holder.position.set(-2.3, 0, 0.6); elfA.holder.rotation.y = 0.3; scene.add(elfA.holder); blob(-2.3, 0.6, 0.6);
-const elfB = makeElf(M.elf, { role: 'samba' }); elfB.holder.position.set(2.3, 0, 0.6); elfB.holder.rotation.y = -0.3; scene.add(elfB.holder); blob(2.3, 0.6, 0.6);
+const elfB = makeElf(M.elf2 || M.elf, { role: 'samba' }); elfB.holder.position.set(2.3, 0, 0.6); elfB.holder.rotation.y = -0.3; scene.add(elfB.holder); blob(2.3, 0.6, 0.6);
 // the gun on its own, turning on a plinth behind them
 const show = buildGun(); show.g.scale.setScalar(1.3); const showPivot = new THREE.Group(); showPivot.position.set(0, 1.4, -3.2); showPivot.add(show.g); scene.add(showPivot);
 show.g.position.z = -1.2;

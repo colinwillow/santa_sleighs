@@ -21,7 +21,7 @@ import { makeDelivery, DROPCAM, bombGeo } from './delivery.js';
 const sfx = (n, o) => window.sfx?.play(n, o);
 import('./audio.js').catch(() => {});
 
-export const BUILD = 88;
+export const BUILD = 89;
 document.getElementById('bnum').textContent = BUILD;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -93,7 +93,7 @@ async function buildMenuCrew() {
   const ry = Math.atan2(MENU.dir.x, MENU.dir.z), side = new THREE.Vector3(MENU.dir.z, 0, -MENU.dir.x);
   const santa = makeSanta(M.santa, { role: 'idle' });   // b44: rifle idle holds the gun properly
   santa.holder.position.copy(MENU.spot); santa.holder.rotation.y = ry;
-  const a = makeElf(M.elf, { role: 'happy' }), b = makeElf(M.elf, { role: 'wave' });
+  const a = makeElf(M.elf, { role: 'happy' }), b = makeElf(M.elf2 || M.elf, { role: 'wave' });
   a.holder.position.copy(MENU.spot).addScaledVector(side, 1.6).addScaledVector(MENU.dir, -0.4); a.holder.rotation.y = ry - 0.35;
   b.holder.position.copy(MENU.spot).addScaledVector(side, -1.6).addScaledVector(MENU.dir, -0.4); b.holder.rotation.y = ry + 0.35;
   const g = new THREE.Group(); g.add(santa.holder, a.holder, b.holder); scene.add(g);

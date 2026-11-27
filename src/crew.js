@@ -20,7 +20,7 @@ export async function loadCrew(rig, scene) {
   const driver = makeElf(M.elf, { role: 'sit', seat: 0 });
   driver.holder.position.set(0.1, 1.55, 1.85);   // on the front dash, feet in the footwell
   sl.add(driver.holder);
-  const sackElf = makeElf(M.elf, { role: 'sit', seat: 0 });
+  const sackElf = makeElf(M.elf2 || M.elf, { role: 'sit', seat: 0 });
   sackElf.holder.position.set(SIDEKICK.x, SIDEKICK.y, SIDEKICK.z);   // on top of the sack, right behind Santa's left shoulder
   sackElf.holder.rotation.y = SIDEKICK.ry; sl.add(sackElf.holder);
 
