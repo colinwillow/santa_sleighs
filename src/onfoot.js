@@ -7,7 +7,7 @@ import { groundH } from './terrain.js';
 import { loadModels, makeSanta } from './characters.js';
 import { makeLegs } from './loco.js';
 import { LOOK } from './input.js';
-import { CLIPS, ONCE } from './anim.js';
+import { CLIPS, ONCE, upperOnly } from './anim.js';
 import { THROW } from './weapons.js';
 import { bombGeo } from './delivery.js';
 import { JET, makeJetpack } from './jetpack.js';
@@ -56,7 +56,8 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
     camPitch: CAMERA.pitch0, straightT: 0, dodgeT: 0, dodgeCd: 0, inv: 0, dodgeDir: new THREE.Vector3(), dodgeBack: false };
   loadModels().then(M => {
     st.santa = makeSanta(M.santa, { role: 'idle', stance: 'foot' });
-    st.santa.anim.preload('idle', 'walk', 'run', 'air', 'fire', 'tipsy', 'getup', 'land', 'roll', 'dodgeBack', 'throw');
+    st.santa.anim.preload('idle', 'walk', 'run', 'air', 'fire', 'tipsy', 'getup', 'land', 'roll', 'dodgeBack', 'uidle', 'uwalk', 'urun');
+    throwLayer();   // b91: the upper-body throw layer
     // the LEGS layer (src/loco.js): strafe / backpedal blends under the held upper-body pose while he aims
     { const H = st.santa.holder; H.updateMatrixWorld(true); const hp = st.santa.B.Hips?.getWorldPosition(new THREE.Vector3());
       const hipH = hp ? Math.max(0.5, hp.y - H.position.y) : 1.0;
@@ -145,7 +146,7 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
   const _dd = new THREE.Vector3();
   function startDodge(fl) {
     const S = st.santa;
-    if (st.throwSt) throwCancel(true);
+    if (st.throwSt) throwCancel();
     fwd.set(Math.sin(st.camYaw), 0, Math.cos(st.camYaw)); right.set(-fwd.z, 0, fwd.x);
     _dd.copy(fwd).multiplyScalar(fl.y).addScaledVector(right, fl.x);
     if (_dd.lengthSq() < 0.01) _dd.set(Math.sin(st.face), 0, Math.cos(st.face));   // no direction (a key with no stick) = forward
@@ -166,42 +167,55 @@ export function makeOnFoot({ scene, rig, input, camera, sfx, onSplat, onSlam, on
   }
   // ---- b74 GRENADE: cock = the wind-up (Grenade_Throw_2 from THROW.from, held at cockAt), release = the throw (the bomb leaves his
   // hand at releaseAt: main.js takes it with takeThrow() and solves the launch), back in his stance by endAt ---------------------------
+  // b91 UPPER-BODY THROW (his, 2nd report: "he goes into a T-POSE instead of throwing... a cocked-back stance while you hold, the throw
+  // when you let go, TORSO UP ONLY -- the legs keep moving"). THE T-POSE (measured, tools/pose/throwrun.cjs + throwprobe.html driving the real
+  // onfoot.js calls): three.js only writes a bone whose mixed value CHANGED since last frame, and makeSanta resets bones to bind every
+  // frame -- so the wind-up frozen at cockAt (timeScale 0) showed the bind pose (right arm 143 deg off bind while moving, 3 deg frozen).
+  // Fixed for every clip in anim.js (writeAll). The throw is now an UPPER LAYER (anim.js upperOnly: no Hips / legs tracks) on top of
+  // whatever base role he is in (uidle / uwalk / urun / air, + the loco strafe legs, since he faces the aim): S.busy is never set, so
+  // the legs keep following the stick. Weight s / (1 - s), s = throwK * .995 (each upper bone sums to 1); throwK eases in ~.06 s at
+  // the press, out ~.25 s after endAt (the follow-through hands back to the base clip's arms). The action is driven by hand:
+  // COCK = reset at THROW.from at cockSpeed, FROZEN at cockAt for as long as it is held (arm back + high, the bomb on
+  // weapon_root_right); GO = animSpeed, the bomb leaves at releaseAt.
   const _hand = new THREE.Vector3();
-  // b81 (his: "when you press and hold the bomb he doesn't do a pulled-back throw position -- he just plays the throw animation...
-  // then T-POSE"): the throw ACTION is kept (st.throwA, from the play promise -- never anim.current, which is still the OLD clip until
-  // the play resolves, so a quick tap used to speed up the idle instead) and driven explicitly: COCK = from THROW.from at cockSpeed,
-  // FROZEN at THROW.cockAt (measured: the hand furthest back + high, z -0.70 m / y 1.35 m in his frame, the whip starts right after)
-  // for as long as it is held; GO = unfrozen at animSpeed (the bomb leaves at releaseAt = the hand's peak speed), back to locomotion
-  // by endAt (endOnce crossfades). A re-used action is always reset first (a LoopOnce that already finished is PAUSED / disabled:
-  // re-entering the same role returned it as-is -> a frozen or bind-pose body).
+  let throwUp = null, throwLoad = null;
+  function throwLayer() {
+    if (throwUp || throwLoad || !st.santa) return throwLoad;
+    const S = st.santa;
+    throwLoad = S.anim.preload('throw').then(([full]) => {
+      const a = S.anim.mixer.clipAction(upperOnly(full.getClip(), 'throwUpper'));
+      a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.enabled = true; a.setEffectiveWeight(0); throwUp = a; return a;
+    }).catch(e => { console.warn('throw layer', e); throwLoad = null; });
+    return throwLoad;
+  }
   function throwCock() {
     const S = st.santa; if (!S || st.mode === 'seat' || st.dodgeT > 0 || st.stun > 0) return false;
-    S.setFiring(false);   // first: setFiring plays a role whatever 'busy' says
-    st.throwSt = 'wind'; st.throwT = 0; st.thrown2 = false; st.throwA = null; S.busy = true; S.freeArms = true;
-    const tok = st.throwTok = (st.throwTok || 0) + 1, same = S.anim.role === 'throw';
-    S.anim.play('throw', 0.1, { once: true, speed: THROW.cockSpeed }).then(a => {
-      if (tok !== st.throwTok || !st.throwSt) return;
-      if (same || a.paused || !a.enabled) { a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.setEffectiveWeight(1); a.play(); }
-      a.time = Math.max(a.time, THROW.from); a.timeScale = st.throwSt === 'go' ? THROW.animSpeed : THROW.cockSpeed; st.throwA = a;
-    });
+    const a = throwUp; if (!a) { throwLayer(); return false; }   // loads with him (a second after boot); never a press with no clip
+    S.setFiring(false);
+    st.throwSt = 'wind'; st.throwT = 0; st.thrown2 = false; S.freeArms = true;
+    a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.time = THROW.from; a.timeScale = THROW.cockSpeed; a.play();
     sfx('casing', { vol: 0.8, rate: 1.9 }); sfx('ui_tap', { vol: 0.5, rate: 0.6 });   // the pin
     return true;
   }
-  function throwGo() { if (st.throwSt !== 'wind') return false; st.throwSt = 'go'; const a = st.throwA; if (a) { a.paused = false; a.timeScale = THROW.animSpeed; } sfx('whoosh', { vol: 0.6, rate: 1.5 }); return true; }
-  function throwCancel(quiet) { if (!st.throwSt) return; st.throwSt = null; st.throwA = null; if (!quiet && st.santa?.busy) st.santa.endOnce(); }   // quiet = another clip (a roll, the get-up) takes the body
+  function throwGo() { if (st.throwSt !== 'wind') return false; st.throwSt = 'go'; const a = throwUp; if (a) { a.paused = false; a.timeScale = THROW.animSpeed; } sfx('whoosh', { vol: 0.6, rate: 1.5 }); return true; }
+  function throwEnd() { st.throwSt = null; if (st.santa && !st.santa.busy) st.santa.freeArms = false; }
+  function throwCancel() { if (st.throwSt) throwEnd(); }   // the layer fades out on its own (a roll / the get-up take the body underneath)
   function updateThrow(dt) {
-    if (!st.throwSt) return;
-    const S = st.santa, a = st.throwA;
-    if (st.stun > 0 || S.anim.role !== 'throw' && st.throwT > 0.5) { throwCancel(true); return; }   // another clip took the body (S.busy -> endOnce next frame)
+    const a = throwUp; if (!a) return;
+    if (st.throwSt && st.stun > 0) throwEnd();
+    const want = st.throwSt ? 1 : 0;
+    st.throwK = (st.throwK || 0) + (want - (st.throwK || 0)) * (1 - Math.exp(-(want ? 18 : 9) * dt));
+    if (!want && st.throwK < 1e-3) st.throwK = 0;
+    const s = st.throwK * 0.995; a.setEffectiveWeight(s / (1 - s));
+    if (!st.throwK) { if (a.isScheduled()) a.stop(); return; }
+    if (!st.throwSt) return;   // fading out: the follow-through keeps playing to its clamped end
     st.throwT += dt;
-    if (!a || S.anim.role !== 'throw') return;
-    a.enabled = true; a.paused = false;   // never let it fall to bind while it is ours
     if (st.throwSt === 'wind') { if (a.time >= THROW.cockAt) { a.time = THROW.cockAt; a.timeScale = 0; } return; }   // HOLD the wind-up while he aims (any length)
-    a.timeScale = THROW.animSpeed;   // 'go' (a quick tap can let go before the clip had even started: it still throws at full speed)
+    a.paused = false; a.timeScale = THROW.animSpeed;
     if (!st.thrown2 && a.time >= THROW.releaseAt) {
       st.thrown2 = true; st.handBomb.getWorldPosition(_hand); st.throwOut = _hand.clone(); st.handBomb.userData.gone = 0.45;
     }
-    if (a.time >= THROW.endAt) { st.throwSt = null; st.throwA = null; S.endOnce(); }   // the follow-through crossfades back to locomotion
+    if (a.time >= THROW.endAt) throwEnd();
   }
   function update(dt, t) {
 

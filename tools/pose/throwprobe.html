@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8"><base href="../../">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/"}}</script>
+<body><div id="hud"></div><div id="boost"></div><script type="module">
+import * as THREE from 'three';
+import { makeOnFoot } from './src/onfoot.js';
+const q = new URLSearchParams(location.search);
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+const sg = new THREE.Group(); sg.position.set(0, 200, 0); scene.add(sg);
+const rig = { sleigh: { g: sg }, yaw: 0, colliders: [], SV: new THREE.Vector3(), S: new THREE.Vector3(0,200,0), aimTarget: new THREE.Vector3(0, 1, 30) };
+const input = { steer: 0, climb: 0 };
+const foot = makeOnFoot({ scene, rig, input, camera, sfx: () => {} });
+const log = []; let t = 0;
+const wait = ms => new Promise(r => setTimeout(r, ms));
+while (!foot.active && !foot.st.ready) await wait(100);
+await foot.santa.anim.preload('uidle', 'uwalk', 'urun');
+await foot.st.legs.ready;
+foot.st.mode = 'ground'; foot.st.pos.set(0, 0, 0); foot.santa.holder.visible = true;
+const S = foot.santa, mixer = S.anim.mixer;
+const rA = S.B.RightArm, rName = rA.name + '.quaternion';
+function probe(tag) {
+  let tot = 0, parts = [];
+  for (const a of mixer._actions) { if (!a.enabled || !a.isScheduled()) continue; if (!a.getClip().tracks.some(tr => tr.name === rName)) continue; const w = a.getEffectiveWeight(); if (w > 1e-4) { tot += w; parts.push(a.getClip().name + ':' + w.toFixed(2) + (a.paused ? 'P' : '') + '@' + a.time.toFixed(2)); } }
+  const ang = rA.quaternion.angleTo(rA.userData.bind) * 57.3;
+  log.push({ t: +t.toFixed(2), tag, role: S.anim.role, st: foot.throwing, busy: S.busy, tot: +tot.toFixed(3), armDeg: +ang.toFixed(1), parts: parts.join(' ') });
+}
+const held = () => { const nade = !!foot.throwing || true; foot.setHeld('grenade', false); };
+async function step(n, tag, pre) { for (let i = 0; i < n; i++) { pre?.(); held(); foot.setAiming(!!foot.throwing); foot.update(1/60, t); S.update(1/60, t); t += 1/60; probe(tag); if (i % 6 == 0) await wait(0); } }
+const walk = q.get('walk') !== '0';
+input.climb = walk ? 0.5 : 0;
+await step(60, 'walk');
+// cycle: cock, hold, release; repeat 3 times with various timings
+for (const [holdF, gap] of [[40, 90], [5, 30], [0, 2], [60, 0], [30, 60]]) {
+  foot.throwCock(); await step(holdF, 'hold'); foot.throwGo(); await step(gap + 40, 'after');
+}
+window.report = log; window.done = 1;
+</script>

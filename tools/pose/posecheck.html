@@ -7,6 +7,8 @@
 <body style="margin:0;background:#fff"><script type="module">
 import * as THREE from 'three'; import { GLTFLoader } from 'three/addons/GLTFLoader.js'; import { DRACOLoader } from 'three/addons/DRACOLoader.js';
 import { makeSanta, makeElf, ARMFIT, CREW, ELVES } from './src/characters.js'; import { ALIGN } from './src/retarget.js';
+import { CLIPS, ONCE, upperOnly } from './src/anim.js'; import { THROW } from './src/weapons.js';
+if (!CLIPS.santa.throw) { CLIPS.santa.throw = THROW.clip; ONCE.santa.push('throw'); }   // as onfoot.js registers it (r=throwhold,throwrel)
 const q = new URLSearchParams(location.search), roles = (q.get('r') || 'idle,walk,run,fire').split(','), key = q.get('fit') || 'tough';
 if (q.get('crew')) Object.assign(CREW, JSON.parse(q.get('crew')));
 if (q.get('armfit')) for (const [k, v] of Object.entries(JSON.parse(q.get('armfit')))) Object.assign(ARMFIT[k], v);   // e.g. {"elf":{"spread":0}}
@@ -29,7 +31,7 @@ L.load(ELF ? ELVES[ELF] : MODELS[key], async g => {
     await s.anim.preload(role); s.anim.play(role, 0); if (!ELF) await s.setWeapon(q.get('gun') || 'gatling');
     if (role === 'fire') s.setFiring(true);
     if (AIRAIM) { s.airAim = true; await new Promise(r => setTimeout(r, 1500)); }   // b86: air split (the upper layer loads async)
-    // b92 THROW (onfoot.js): legs WALKING (uwalk, no gun), the upper-body throw layer frozen at the wind-up (cockAt) / the release frame
+    // b93 THROW (onfoot.js): legs WALKING (uwalk, no gun), the upper-body throw layer frozen at the wind-up (cockAt) / the release frame
     if (THR) { s.setArmed(false); const [full] = await s.anim.preload('throw'); const a = s.anim.mixer.clipAction(upperOnly(full.getClip(), 'throwUpper'));
       a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.play(); a.setEffectiveWeight(0.995 / 0.005); a.time = tag === 'throwhold' ? THROW.cockAt : THROW.releaseAt; a.timeScale = 0; }
     sc.add(s.holder); const aim = new THREE.Vector3();

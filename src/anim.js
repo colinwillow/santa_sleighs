@@ -98,6 +98,24 @@ function rootTravel(clip, liveScene, dir) {
   return { times: Float32Array.from(tr.times), f, dur: clip.duration, drift: +Math.hypot(P[n - 1].x - P[0].x, P[n - 1].z - P[0].z).toFixed(2), peak: +Math.max(...P.map(p => Math.abs(p.z - P[0].z))).toFixed(2) };
 }
 
+/** THE FROZEN-POSE T-POSE (b91, measured with a headless probe of the real throw path): three.js PropertyMixer.apply() only writes
+ *  a bone when its mixed value CHANGED since the previous frame (it compares the two accumulation buffers). makeSanta resets every
+ *  bone to its bind pose before the mixer runs (characters.js update), so any pose that holds still -- the throw frozen at its
+ *  wind-up (timeScale 0), a ONCE clip clamped on its last frame, a one-key finger track -- was skipped and the bone stayed at BIND:
+ *  the arm read 143 deg off bind on the last moving frame and 3 deg on every frozen one. Re-write every active binding each frame. */
+function writeAll(mixer) {
+  const B = mixer._bindings, n = mixer._nActiveBindings, k = mixer._accuIndex;
+  if (!B) return;
+  for (let i = 0; i < n; i++) { const pm = B[i], s = pm.valueSize; pm.binding.setValue(pm.buffer, k * s + s); }
+}
+
+/** an UPPER-BODY copy of a clip (b91): every track but the Hips (rotation + travel) and the legs -- laid over the locomotion at
+ *  weight s / (1 - s) against its ~1 so each upper bone sums to 1 and the legs keep walking (the b86 air split's recipe) */
+export const UPPER_SKIP = /(Hips|UpLeg|Leg|Foot|Toe)[^.]*\.(quaternion|position)$/;
+export function upperOnly(clip, name) {
+  const c = clip.clone(); c.name = name || clip.name + '_upper'; c.tracks = c.tracks.filter(t => !UPPER_SKIP.test(t.name)); return c;
+}
+
 const loader = new GLTFLoader();
 const srcCache = new Map();
 function loadSrc(stem) {
@@ -155,6 +173,6 @@ export function animator(kind, restScene, liveScene) {
     /** playback speed of the current clip (legs matched to ground speed) */
     setSpeed(s) { if (current) current.timeScale += (s - current.timeScale) * 0.2; },
     preload(...roles) { return Promise.all(roles.map(action)); },
-    update(dt) { mixer.update(dt); },
+    update(dt) { mixer.update(dt); writeAll(mixer); },
   };
 }
