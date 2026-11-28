@@ -254,7 +254,7 @@ export const ARMFIT = {
   nocoat:  { spread: 0.5,  fwd: 0.22, pole: 1.6, leftOut: 0.52, rightOut: 0.45, rightHand: 0.28 },
   classic: { spread: 0.1,  fwd: 0,    pole: 1, leftOut: 0.38, rightOut: 0.4, rightHand: 0.26 },
   snowman: { spread: 0.5,  fwd: 0.25, pole: 1.7, elbow: 0, hand: 0 },   // b52: spread in his CHEST frame (enemies.js fitSnowArms); snowcheck: 0 flags on all 10 clips
-  elf:     { spread: 0.22, fwd: 0,    pole: 1 },
+  elf:     { spread: 0.22, fwd: 0,    pole: 1 },   // b92: now a body-width fit only (the arms-through-her-body was the retarget's rest offset, fixed in retarget.js); pose check: spread 0 puts the brown elf's elbows inside her torso again
 };
 const _sa = new THREE.Vector3(), _sq1 = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _sq3 = new THREE.Quaternion();
 /** open both upper arms outward by `a` rad round the character's forward axis (world-space, after the clip) */

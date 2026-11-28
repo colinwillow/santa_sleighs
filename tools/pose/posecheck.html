@@ -6,9 +6,12 @@
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/"}}</script>
 <body style="margin:0;background:#fff"><script type="module">
 import * as THREE from 'three'; import { GLTFLoader } from 'three/addons/GLTFLoader.js'; import { DRACOLoader } from 'three/addons/DRACOLoader.js';
-import { makeSanta, ARMFIT, CREW } from './src/characters.js';
+import { makeSanta, makeElf, ARMFIT, CREW, ELVES } from './src/characters.js'; import { ALIGN } from './src/retarget.js';
 const q = new URLSearchParams(location.search), roles = (q.get('r') || 'idle,walk,run,fire').split(','), key = q.get('fit') || 'tough';
 if (q.get('crew')) Object.assign(CREW, JSON.parse(q.get('crew')));
+if (q.get('armfit')) for (const [k, v] of Object.entries(JSON.parse(q.get('armfit')))) Object.assign(ARMFIT[k], v);   // e.g. {"elf":{"spread":0}}
+if (q.get('align') === '0') for (const k in ALIGN) delete ALIGN[k];   // b92 A/B: the old rest-delta retarget (no rest alignment)
+const ELF = q.get('elf');   // b92: elf=brown|red|classic -> her clips (r=happy,wave,...), no gun
 const MODELS = { tough: './models/santa_tough_rig.glb', nocoat: './models/santa_no_coat_rig.glb', classic: './models/santa.glb' };
 const VW = 420, VH = 460, views = [['front', 0], ['side', Math.PI / 2], ['top', 'top']];
 const W = VW * views.length, H = VH * roles.length;
@@ -17,14 +20,18 @@ const L = new GLTFLoader(); const D = new DRACOLoader(); D.setDecoderPath('./ven
 const COL = { L: 0x1e6bff, R: 0xff2a2a, C: 0xf0c000 };
 const side = n => /Left/.test(n) ? 'L' : /Right/.test(n) ? 'R' : 'C';
 const report = {};
-L.load(MODELS[key], async g => {
+L.load(ELF ? ELVES[ELF] : MODELS[key], async g => {
   for (let ri = 0; ri < roles.length; ri++) {
-    const tag = roles[ri], AIRAIM = tag === 'airaim', role = AIRAIM ? 'air' : tag, sc = new THREE.Scene(); sc.background = new THREE.Color(ri % 2 ? '#f6f6f6' : '#ffffff');
+    const tag = roles[ri], AIRAIM = tag === 'airaim', THR = tag === 'throwhold' || tag === 'throwrel', role = AIRAIM ? 'air' : THR ? 'uwalk' : tag, sc = new THREE.Scene(); sc.background = new THREE.Color(ri % 2 ? '#f6f6f6' : '#ffffff');
     sc.add(new THREE.HemisphereLight('#fff', '#999', 2));
-    const s = makeSanta(g, { role: role === 'fire' ? 'idle' : role, stance: q.get('stance') || 'foot', fit: ARMFIT[key], cigarKey: key });
-    await s.anim.preload(role); s.anim.play(role, 0); await s.setWeapon(q.get('gun') || 'gatling');
+    const s = ELF ? makeElf(g, { role }) : makeSanta(g, { role: role === 'fire' ? 'idle' : role, stance: q.get('stance') || 'foot', fit: ARMFIT[key], cigarKey: key });
+    if (ELF) { s.gun = { grips: {} }; s.setFiring = s.aimAt = () => {}; }
+    await s.anim.preload(role); s.anim.play(role, 0); if (!ELF) await s.setWeapon(q.get('gun') || 'gatling');
     if (role === 'fire') s.setFiring(true);
     if (AIRAIM) { s.airAim = true; await new Promise(r => setTimeout(r, 1500)); }   // b86: air split (the upper layer loads async)
+    // b92 THROW (onfoot.js): legs WALKING (uwalk, no gun), the upper-body throw layer frozen at the wind-up (cockAt) / the release frame
+    if (THR) { s.setArmed(false); const [full] = await s.anim.preload('throw'); const a = s.anim.mixer.clipAction(upperOnly(full.getClip(), 'throwUpper'));
+      a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.play(); a.setEffectiveWeight(0.995 / 0.005); a.time = tag === 'throwhold' ? THROW.cockAt : THROW.releaseAt; a.timeScale = 0; }
     sc.add(s.holder); const aim = new THREE.Vector3();
     for (let f = 0; f < (+q.get('frames') || 20); f++) { s.holder.updateMatrixWorld(true); aim.fromArray(JSON.parse(q.get('aim') || '[0,1,12]')).applyMatrix4(s.holder.matrixWorld); s.aimAt(aim); s.update(1 / 30, f / 30); }
     s.holder.updateMatrixWorld(true);
@@ -41,7 +48,8 @@ L.load(MODELS[key], async g => {
     }
     // gun sockets
     const mk = (o, col) => { if (!o) return; const m = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: col, depthTest: false })); m.position.copy(P(o)); m.renderOrder = 4; top.add(m); };
-    mk(s.gun.grips.right, 0x00c040); mk(s.gun.grips.left, 0x00d0d0); mk(s.muzzle, 0xd000d0);
+    if (THR) mk(s.B.weapon_root_right || s.B.RightHand, 0xff8800);   // the bomb rides weapon_root_right (ORANGE)
+    else { mk(s.gun.grips.right, 0x00c040); mk(s.gun.grips.left, 0x00d0d0); mk(s.muzzle, 0xd000d0); }
     // numbers in his frame
     // measure in his CHEST's frame (x = through the shoulders, + = his LEFT; z = chest forward) so a side-on stance doesn't read as crossed arms
     const Bn = s.B, o0 = P(Bn.Spine2), xa = P(Bn.LeftArm).sub(P(Bn.RightArm)).setY(0).normalize(), ya = new THREE.Vector3(0, 1, 0), za = new THREE.Vector3().crossVectors(xa, ya).negate();
@@ -58,11 +66,12 @@ L.load(MODELS[key], async g => {
       for (let i = 0; i < pos.count; i += 3) { let bi = 0, bw = -1; for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; bi = sk.getComponent(i, k); } } if (!torsoJ.has(bi)) continue;
         skin.getVertexPosition(i, v); skin.localToWorld(v); if (Math.abs(v.y - hy - y) < 0.06) m = Math.max(m, Math.abs(v.clone().sub(o0).dot(xa))); } return +m.toFixed(2); };
     for (const n of ['LeftForeArm', 'RightForeArm']) if (rep[n]) { const hw = halfW(rep[n][1]); rep[n + '_torsoHalfWidth'] = hw; if (Math.abs(rep[n][0]) < hw && Math.abs(rep[n][2]) < 0.45) flags.push(n + ' (elbow) INSIDE the body: |x| ' + Math.abs(rep[n][0]) + ' < torso half-width ' + hw); }
-    rep.gripR = s.gun.grips.right ? loc(s.gun.grips.right) : null; rep.gripL = s.gun.grips.left ? loc(s.gun.grips.left) : null;
+    if (THR) { rep.bomb = loc(s.B.weapon_root_right || s.B.RightHand); rep.leftFoot = loc(s.B.LeftFoot); rep.rightFoot = loc(s.B.RightFoot); }
+    rep.gripR = s.gun.grips.right && !THR ? loc(s.gun.grips.right) : null; rep.gripL = s.gun.grips.left ? loc(s.gun.grips.left) : null;
     // his targets: left upper arm ~45 deg from vertical (+-10), elbow raised; both hands ON the gun (distance to the gun's axis)
     { const sh = P(Bn.LeftArm), el = P(Bn.LeftForeArm), up = new THREE.Vector3(0, 1, 0).applyQuaternion(s.holder.getWorldQuaternion(new THREE.Quaternion()));
       rep.leftUpperArmDeg = +THREE.MathUtils.radToDeg(el.clone().sub(sh).normalize().angleTo(up.clone().negate())).toFixed(0);
-      if (s.gun.grips.right) { const a0 = P(s.gun.grips.right), ax = new THREE.Vector3(0, 0, 1).applyQuaternion(s.gun.g.getWorldQuaternion(new THREE.Quaternion()));
+      if (s.gun.grips.right && !THR) { const a0 = P(s.gun.grips.right), ax = new THREE.Vector3(0, 0, 1).applyQuaternion(s.gun.g.getWorldQuaternion(new THREE.Quaternion()));
         const toAxis = p => { const d = p.clone().sub(a0); return +d.sub(ax.clone().multiplyScalar(d.dot(ax))).length().toFixed(2); };
         rep.handToGun = { L: toAxis(P(Bn.LeftHand)), R: +P(Bn.RightHand).distanceTo(a0).toFixed(2) }; } }
     { const xa2 = P(Bn.LeftArm).sub(P(Bn.RightArm)).setY(0).normalize(); rep.chestYawDeg = +THREE.MathUtils.radToDeg(Math.atan2(xa2.z, xa2.x)).toFixed(0); }

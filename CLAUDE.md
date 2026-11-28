@@ -44,7 +44,7 @@ Deployed as a static site (GitHub Pages, `.nojekyll`).
   driver on the dash with the reins, sidekick on the sack (`SIDEKICK`: waves, leans, cheers). Tuning in `CREW`. `?cam=crew` = close-up.
 - **Animation** (b7): Mixamo clips from `colinwillow/retarget-anims` (Y Bot, `library/clips/*.glb`) are COPIED into
   `models/anims/` and retargeted at load (`src/retarget.js` = a copy of that repo's layer 1, patched to read plain nodes).
-  Roles per character in `CLIPS` (`src/anim.js`); add a role = copy the GLB + one line. Code layers run AFTER the clip:
+  Roles per character in `CLIPS` (`src/anim.js`); add a role = copy the GLB + one line. REST ALIGNMENT (b92, his: "arms straight down on every character"): the Y Bot rests in a T-pose, his rigs in A-poses (brown elf 49 deg below horizontal, Santas 17, red elf 8) and the rest-delta transfer carried that offset into every clip (brown elf's arms through her body); `retarget.js` `ALIGN` now swings each arm bone's rest onto the source's direction first -- arm directions match the Y Bot to 0.1 deg on every rig. ARMFIT spreads are body-width fits only now. Pose check: `elf=brown|red` (+ `align=0` = the old retarget A/B, `armfit={...}`). Code layers run AFTER the clip:
   Santa's fists IK'd to the gun (gun rides his Spine, aimed in his frame), elf arm overrides, jiggle. `characters.js` builds
   them; `crew.js` places them in the sleigh; `sandbox.js` (`?scene=sandbox`) shows them on white with clip buttons.
 - **Look** (b7): `src/look.js` -- FLAT = every lit material swapped for a self-lit copy + ink outlines (inverted hulls, skinning-aware);
